@@ -34,6 +34,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.vectorResource
+import app.lynli.klang.R
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -60,7 +62,7 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
     var settings by rememberSaveable { mutableStateOf(false) }
     var plugins by rememberSaveable { mutableStateOf(false) }
     var collectionId by rememberSaveable { mutableStateOf<String?>(null) }
-    val collections = remember(state.tracks, state.favorites) { musicCollections(state.tracks, state.favorites) }
+    val collections = remember(state.tracks, state.favorites, state.playlists) { musicCollections(state) }
     val selectedCollection = collections.find { it.id == collectionId }
     var lastCollection by remember { mutableStateOf<MusicCollection?>(null) }
     SideEffect { if (selectedCollection != null) lastCollection = selectedCollection }
@@ -88,7 +90,7 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
                     Crossfade(destination, animationSpec = Effects, label = "Destination") { page ->
                         holder.SaveableStateProvider(page) {
                             when (page) {
-                                0 -> HomeScreen(state, model, collections, { settings = true }, { plugins = true }, onPermission, onImport,
+                                0 -> HomeScreen(state, model, collections, { settings = true }, onPermission, onImport,
                                     { destination = 2 }, { collectionId = it.id }, bottomSpace)
                                 1 -> SearchScreen(state, model, onImport, bottomSpace)
                                 else -> LibraryScreen(state, model, { settings = true }, onPermission, onImport,
@@ -207,20 +209,22 @@ private fun SearchScreen(state: MusicState, model: MusicViewModel, import: () ->
 @Composable
 private fun LibraryScreen(state: MusicState, model: MusicViewModel, settings: () -> Unit, permission: () -> Unit, import: () -> Unit, openCollection: (MusicCollection) -> Unit, bottom: Dp) {
     var filter by rememberSaveable { mutableIntStateOf(0) }
+    var creatingPlaylist by rememberSaveable { mutableStateOf(false) }
     var sort by rememberSaveable { mutableIntStateOf(0) }
     var sortMenu by remember { mutableStateOf(false) }
     val tracks = remember(state.tracks, state.favorites, filter, sort) {
-        val list = state.tracks.filter { (filter != 2 || it.id in state.favorites) }
+        val list = state.tracks
         when (sort) { 1 -> list.sortedBy { it.title.lowercase() }; 2 -> list.sortedBy { it.artist.lowercase() }; else -> list.sortedByDescending { it.added } }
     }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = bottom)) {
         item {
-            PageTitle("Library") { FilledTonalIconButton(settings) { Icon(Icons.Rounded.Settings, "Settings") } }
-            ChoiceGroup(listOf("Songs", "Albums", "Favorites"), filter) { filter = it }
+            PageTitle("Library") { UtilityIconButton(settings) { Icon(Icons.Rounded.Settings, "Settings") } }
+            ChoiceGroup(listOf("Songs", "Albums", "Playlists"), filter) { filter = it }
             Row(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(if (filter == 1) "${albumCollections(tracks).size} albums" else "${tracks.size} songs",
+                Text(if (filter == 1) "${albumCollections(tracks).size} albums" else if (filter == 2) "${state.playlists.size + 2} playlists" else "${tracks.size} songs",
                     Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                IconButton(import, enabled = !state.busy) { Icon(Icons.Rounded.Add, "Add music") }
+                if (filter == 2) IconButton({ creatingPlaylist = true }) { Icon(Icons.Rounded.Add, "Create playlist") }
+                else IconButton(import, enabled = !state.busy) { Icon(Icons.Rounded.Add, "Add music") }
                 IconButton(model::refresh) { Icon(Icons.Rounded.Refresh, "Refresh library") }
                 Box {
                     IconButton({ sortMenu = true }) { Icon(Icons.AutoMirrored.Rounded.Sort, "Sort library") }
@@ -249,16 +253,24 @@ private fun LibraryScreen(state: MusicState, model: MusicViewModel, settings: ()
                     }
                 }
             }
+        } else if (filter == 2) {
+            items(musicCollections(state).filter { !it.album }, key = { it.id }) { collection ->
+                PlaylistListItem(collection, Modifier.animateItem()) { openCollection(collection) }
+            }
         } else items(tracks, key = { it.id }) { track -> TrackRow(track, state, model,
             { model.play(tracks, tracks.indexOf(track)) }, Modifier.animateItem()) }
-        if (tracks.isEmpty() && !state.loading) item {
-            if (filter == 2) EmptyState("No favorites", "Tap the heart on a song to save it here.")
-            else EmptyLibrary(import, model::installStarter)
-        }
+        if (tracks.isEmpty() && !state.loading && filter != 2) item { EmptyLibrary(import, model::installStarter) }
         if (filter == 1 && tracks.isNotEmpty() && albumCollections(tracks).isEmpty()) item {
             EmptyState("No albums", "Files with album metadata appear here.")
         }
     }
+    if (creatingPlaylist) PlaylistNameDialog("Create playlist", "", { creatingPlaylist = false }) { name ->
+        model.createPlaylist(name)?.let { id ->
+            creatingPlaylist = false
+            openCollection(MusicCollection("playlist:$id", name.trim(), "", emptyList(), editableId = id))
+        }
+    }
+
 }
 
 @Composable
@@ -309,6 +321,7 @@ internal fun EmptyLibrary(import: () -> Unit, starter: () -> Unit) {
 @Composable
 internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, play: () -> Unit, modifier: Modifier = Modifier) {
     var menu by remember { mutableStateOf(false) }
+    var addToPlaylist by remember { mutableStateOf(false) }
     val active = state.current?.id == track.id
     val fill by animateColorAsState(if (active) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
         spring(1f, 3800f), label = "Track selection")
@@ -329,12 +342,17 @@ internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, pl
                 DropdownMenu(menu, { menu = false }) {
                     DropdownMenuItem(text = { Text(if (track.id in state.favorites) "Remove favorite" else "Add favorite") },
                         onClick = { model.favorite(track); menu = false }, leadingIcon = { Icon(Icons.Rounded.FavoriteBorder, null) })
+                    DropdownMenuItem(text = { Text("Add to playlist") },
+                        onClick = { menu = false; addToPlaylist = true },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Rounded.QueueMusic, null) })
                     DropdownMenuItem(text = { Text("Play next") }, onClick = { model.playNext(track); menu = false },
                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.QueueMusic, null) })
                 }
             }
         }
     }
+    if (addToPlaylist) AddToPlaylistDialog(track, state, model) { addToPlaylist = false }
+
 }
 
 @Composable
@@ -376,7 +394,9 @@ internal fun ExpressivePlay(playing: Boolean, click: () -> Unit, size: Dp = 88.d
 
 @Composable
 private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () -> Unit, compact: Boolean = false) {
-    val track = state.current ?: return
+    ContentTheme(state.coverColor, state.current) {
+    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+    val track = state.current ?: return@Surface
     var queue by rememberSaveable { mutableStateOf(false) }
     BackHandler(queue) { queue = false }
     BoxWithConstraints(Modifier.fillMaxSize().then(if (compact) Modifier else Modifier.statusBarsPadding().navigationBarsPadding())) {
@@ -387,9 +407,9 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
                 horizontalAlignment = Alignment.CenterHorizontally) {
                 item {
                     Row(Modifier.fillMaxWidth().padding(bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        FilledTonalIconButton(close) { Icon(Icons.Rounded.KeyboardArrowDown, "Close player") }
+                        UtilityIconButton(close) { Icon(Icons.Rounded.KeyboardArrowDown, "Close player") }
                         Text("Now playing", Modifier.weight(1f).padding(horizontal = 16.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        FilledTonalIconButton({ queue = true }) { Icon(Icons.AutoMirrored.Rounded.QueueMusic, "Open queue") }
+                        UtilityIconButton({ queue = true }) { Icon(Icons.AutoMirrored.Rounded.QueueMusic, "Open queue") }
                     }
                     AnimatedContent(track.id, transitionSpec = {
                         (fadeIn(Effects) + scaleIn(SlowSpatial, initialScale = 0.92f)) togetherWith fadeOut(Effects)
@@ -430,6 +450,8 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
                 }
             }
         }
+    }
+    }
     }
 }
 
@@ -491,7 +513,7 @@ private fun ExpressiveSeekbar(state: MusicState, model: MusicViewModel) {
 @Composable
 private fun QueuePage(state: MusicState, model: MusicViewModel, back: () -> Unit) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp)) {
-        item { PageTitle("Queue") { FilledTonalIconButton(back) { Icon(Icons.Rounded.Close, "Close queue") } } }
+        item { PageTitle("Queue") { UtilityIconButton(back) { Icon(Icons.Rounded.Close, "Close queue") } } }
         items(state.queue.size) { index ->
             val song = state.queue[index]
             Surface(Modifier.fillMaxWidth().padding(bottom = 4.dp).clip(RoundedCornerShape(16.dp)).clickable { model.queuePlay(index) },
@@ -515,7 +537,7 @@ private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission:
         LazyColumn(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(), contentPadding = PaddingValues(24.dp)) {
             item {
                 Row(Modifier.fillMaxWidth().padding(bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    FilledTonalIconButton(back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
+                    UtilityIconButton(back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
                     Text("Settings", Modifier.padding(start = 16.dp), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                 }
                 SectionHeading("Appearance")
@@ -523,15 +545,15 @@ private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission:
                     model.theme(listOf("dark", "light", "system")[it])
                 }
                 Spacer(Modifier.height(16.dp))
-                SettingSwitch("Album colors", "Build the Material palette from the current cover", state.coverColor, model::coverColor)
-                SettingSwitch("Wallpaper colors", "Use your phone’s Material You palette", state.dynamicColor, model::dynamicColor, enabled = !state.coverColor)
+                SettingSwitch("Cover colors", "Use artwork colors in Now playing and albums", state.coverColor, model::coverColor)
+                SettingSwitch("Wallpaper colors", "Use your phone’s Material You palette", state.dynamicColor, model::dynamicColor)
                 SectionHeading("Library")
                 SettingsAction(Icons.Rounded.FolderOpen, "Add audio files", "Copy files into Music/Klang", import, !state.busy)
                 SettingsAction(Icons.Rounded.LibraryMusic, "Music access", if (state.permission) "Allowed · manage in Android settings" else "Allow access to your phone’s music", permission)
                 SettingsAction(Icons.Rounded.Download, "Starter tracks", "KYOTO, Recall and EYES ON US", model::installStarter, !state.busy)
                 SettingsAction(Icons.Rounded.Refresh, "Refresh library", "Scan for added or removed files", model::refresh)
                 SectionHeading("Extensions")
-                SettingsAction(Icons.Rounded.Add, "Plugins", "Browse planned music integrations", plugins)
+                SettingsAction(ImageVector.vectorResource(R.drawable.extension), "Plugins", "Browse planned music integrations", plugins)
                 SectionHeading("Playback")
                 Text("Sleep timer", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 12.dp))
                 ChoiceGroup(listOf("Off", "15 min", "30 min", "60 min"), listOf(0, 15, 30, 60).indexOf(state.sleepMinutes).coerceAtLeast(0)) {
@@ -542,7 +564,7 @@ private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission:
                 Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.fillMaxWidth().padding(20.dp)) {
                         Text("Klang", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text("0.3.0 · Created by Lynli", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium)
+                        Text("0.4.0 · Created by Lynli", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium)
                         Text("Music by HESTER, gabriawll and 2frers. Released by NoCopyrightSounds.", Modifier.padding(top = 12.dp),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }

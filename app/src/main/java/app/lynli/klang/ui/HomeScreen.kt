@@ -1,6 +1,8 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package app.lynli.klang.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -22,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextGeometricTransform
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -31,52 +34,38 @@ import app.lynli.klang.R
 import app.lynli.klang.data.Track
 
 internal data class MusicCollection(val id: String, val title: String, val subtitle: String,
-    val tracks: List<Track>, val favorites: Boolean = false)
+    val tracks: List<Track>, val favorites: Boolean = false, val mix: Boolean = false,
+    val album: Boolean = false, val editableId: String? = null)
 
 // Use artist as well as album title: different artists can release identically named albums.
 internal fun albumCollections(tracks: List<Track>): List<MusicCollection> = tracks
     .filter { it.album != "Unknown album" }
     .groupBy { it.album to it.artist }
     .map { (key, songs) -> MusicCollection("album:${key.first.length}:${key.first}${key.second}",
-        key.first, key.second, songs) }
+        key.first, key.second, songs, album = true) }
 
-internal fun musicCollections(tracks: List<Track>, favorites: Set<String>): List<MusicCollection> =
-    listOf(MusicCollection("favorites", "Favorites", "Saved songs", tracks.filter { it.id in favorites }, true)) + albumCollections(tracks)
+internal fun musicCollections(state: MusicState): List<MusicCollection> {
+    val tracks = state.tracks.associateBy { it.id }
+    return listOf(MusicCollection("mix", "My Mix", "", state.tracks, mix = true),
+        MusicCollection("favorites", "Favorites", "Saved songs", state.tracks.filter { it.id in state.favorites }, favorites = true)) +
+        state.playlists.map { playlist -> MusicCollection("playlist:${playlist.id}", playlist.name, "",
+            playlist.trackIds.mapNotNull { tracks[it] }, editableId = playlist.id) } + albumCollections(state.tracks)
+}
 
 @Composable
 internal fun HomeScreen(state: MusicState, model: MusicViewModel, collections: List<MusicCollection>,
-    settings: () -> Unit, plugins: () -> Unit, permission: () -> Unit, import: () -> Unit,
+    settings: () -> Unit, permission: () -> Unit, import: () -> Unit,
     library: () -> Unit, openCollection: (MusicCollection) -> Unit, bottom: Dp) {
-    val albums = collections.filterNot { it.favorites }
-    val favorites = collections.first { it.favorites }
+    val albums = collections.filter { it.album }
+    val mix = collections.first { it.mix }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 20.dp, bottom = bottom)) {
         item {
             Column(Modifier.padding(horizontal = 24.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Home", Modifier.weight(1f), style = MaterialTheme.typography.displayLarge)
-                    FilledTonalIconButton(settings) { Icon(Icons.Rounded.Settings, "Settings") }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    UtilityIconButton(settings) { Icon(Icons.Rounded.Settings, "Settings") }
                 }
-                Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("${state.tracks.size} songs on this device", Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(plugins) { Text("Plugins") }
-                }
-                Spacer(Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    QuickCollection("Favorites", "${favorites.tracks.size} saved", Icons.Rounded.Favorite,
-                        Modifier.weight(1f), true) { openCollection(favorites) }
-                    QuickCollection("Songs", "${state.tracks.size} tracks", Icons.Rounded.LibraryMusic,
-                        Modifier.weight(1f), false, library)
-                }
-                Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button({ model.play(state.tracks, shuffled = true) }, Modifier.weight(1f),
-                        enabled = state.connected && state.tracks.isNotEmpty()) {
-                        Icon(Icons.Rounded.Shuffle, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Shuffle all")
-                    }
-                    FilledTonalButton(import, Modifier.weight(1f), enabled = !state.busy) {
-                        Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Add music")
-                    }
-                }
+                Spacer(Modifier.height(4.dp))
+                MixHero(mix, state, model, compact = true) { openCollection(mix) }
                 if (state.loading || state.busy) LoadingRow(state)
                 if (!state.permission) { Spacer(Modifier.height(16.dp)); AccessCard(permission, import) }
             }
@@ -101,16 +90,41 @@ internal fun HomeScreen(state: MusicState, model: MusicViewModel, collections: L
 }
 
 @Composable
-private fun QuickCollection(title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector,
-    modifier: Modifier, primary: Boolean, click: () -> Unit) {
-    val fill = if (primary) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer
-    val ink = if (primary) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
-    Surface(onClick = click, modifier = modifier, shape = RoundedCornerShape(20.dp), color = fill, contentColor = ink) {
-        Column(Modifier.padding(16.dp)) {
-            Icon(icon, null, Modifier.size(28.dp))
-            Spacer(Modifier.height(16.dp))
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(subtitle, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall)
+private fun MixHero(collection: MusicCollection, state: MusicState, model: MusicViewModel,
+    compact: Boolean, open: (() -> Unit)? = null) {
+    val modifier = Modifier.fillMaxWidth().then(if (open != null) Modifier.clickable(role = Role.Button,
+        onClickLabel = "Open My Mix", onClick = open) else Modifier)
+    BoxWithConstraints(modifier) {
+        val availableWidth = maxWidth
+        val narrow = availableWidth < 360.dp
+        val display = if (compact) MaterialTheme.typography.displayMedium else MaterialTheme.typography.displayLarge
+        val height = if (compact) 216.dp else 404.dp
+        Box(Modifier.fillMaxWidth().height(height)) {
+            Column(Modifier.align(Alignment.TopStart).padding(top = 8.dp)) {
+                Text("My\nMix", style = display.copy(textGeometricTransform = TextGeometricTransform(scaleX = 1.12f)),
+                    fontWeight = FontWeight.Black)
+                if (!compact) Text(collection.tracks.map { it.artist }.distinct().take(3).joinToString(", "),
+                    Modifier.width(availableWidth * 0.65f).padding(top = 12.dp), maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (collection.tracks.isNotEmpty()) {
+                val first = collection.tracks.first()
+                val second = collection.tracks.getOrElse(1) { first }
+                val third = collection.tracks.getOrElse(2) { first }
+                val artWidth = if (compact) availableWidth * (if (narrow) 0.41f else 0.46f) else availableWidth * 0.63f
+                Artwork(first, Modifier.align(if (compact) Alignment.CenterEnd else Alignment.BottomCenter)
+                    .padding(end = if (compact) 8.dp else 0.dp, bottom = if (compact) 0.dp else 8.dp)
+                    .width(artWidth).height(if (compact) 148.dp else 248.dp).rotate(20f).clip(RoundedCornerShape(50)))
+                Artwork(second, Modifier.align(Alignment.BottomStart).padding(start = if (compact) 16.dp else 0.dp,
+                    bottom = if (compact) 4.dp else 124.dp).size(if (compact) 52.dp else 84.dp).clip(CircleShape))
+                Artwork(third, Modifier.align(Alignment.BottomEnd).padding(end = if (compact) 12.dp else 0.dp,
+                    bottom = 2.dp).size(if (compact) 52.dp else 88.dp).clip(RoundedCornerShape(28.dp)))
+            }
+            Box(Modifier.align(if (compact) Alignment.BottomStart else Alignment.TopEnd)
+                .padding(start = if (compact) 88.dp else 0.dp, top = if (compact) 0.dp else 36.dp, bottom = if (compact) 4.dp else 0.dp)) {
+                ExpressivePlay(false, { model.play(collection.tracks) }, if (compact) 60.dp else 96.dp,
+                    state.connected && collection.tracks.isNotEmpty())
+            }
         }
     }
 }
@@ -130,42 +144,76 @@ private fun AlbumCard(album: MusicCollection, click: () -> Unit) {
 @Composable
 internal fun CollectionScreen(collection: MusicCollection, state: MusicState, model: MusicViewModel,
     player: () -> Unit, back: () -> Unit) {
-    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-        Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp,
-                bottom = if (state.current != null) 112.dp else 24.dp)) {
-                item {
-                    Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        FilledTonalIconButton(back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
-                        Text(if (collection.favorites) "Playlist" else "Album / release", Modifier.padding(start = 16.dp),
-                            style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    CollectionArtwork(collection)
-                    Spacer(Modifier.height(24.dp))
-                    Text(collection.title, style = MaterialTheme.typography.displaySmall)
-                    Text(collection.subtitle, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("${collection.tracks.size} songs", style = MaterialTheme.typography.titleMedium)
-                            Text(time(collection.tracks.sumOf { it.durationMs }), style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+    var menu by remember { mutableStateOf(false) }
+    var rename by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
+    var adding by rememberSaveable(collection.id) { mutableStateOf(false) }
+    BackHandler(adding) { adding = false }
+    ContentTheme(state.coverColor && collection.album, collection.tracks.firstOrNull()) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+            Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp,
+                    bottom = if (state.current != null) 112.dp else 24.dp)) {
+                    item {
+                        Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            UtilityIconButton(back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
+                            Spacer(Modifier.weight(1f))
+                            if (collection.editableId != null) Box {
+                                UtilityIconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Playlist options") }
+                                DropdownMenu(menu, { menu = false }) {
+                                    DropdownMenuItem({ Text("Add songs") }, onClick = { adding = true; menu = false })
+                                    DropdownMenuItem({ Text("Rename") }, onClick = { rename = true; menu = false })
+                                    DropdownMenuItem({ Text("Delete playlist") }, onClick = { deleting = true; menu = false })
+                                }
+                            }
                         }
-                        FilledTonalIconButton({ model.play(collection.tracks, shuffled = true) },
-                            enabled = state.connected && collection.tracks.isNotEmpty()) { Icon(Icons.Rounded.Shuffle, "Shuffle collection") }
-                        Spacer(Modifier.width(12.dp))
-                        ExpressivePlay(false, { model.play(collection.tracks) }, 72.dp, state.connected && collection.tracks.isNotEmpty())
+                        if (collection.mix) MixHero(collection, state, model, compact = false)
+                        else {
+                            CollectionArtwork(collection)
+                            Spacer(Modifier.height(24.dp))
+                            Text(collection.title, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.ExtraBold)
+                            if (collection.subtitle.isNotBlank()) Text(collection.subtitle, Modifier.padding(top = 8.dp),
+                                style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Row(Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("${collection.tracks.size} songs", style = MaterialTheme.typography.titleMedium)
+                                Text(time(collection.tracks.sumOf { it.durationMs }), style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            if (collection.editableId != null) TextButton({ adding = true }) { Text("Add songs") }
+                            FilledTonalIconButton({ model.play(collection.tracks, shuffled = true) },
+                                enabled = state.connected && collection.tracks.isNotEmpty()) { Icon(Icons.Rounded.Shuffle, "Shuffle collection") }
+                            if (!collection.mix) {
+                                Spacer(Modifier.width(12.dp))
+                                ExpressivePlay(false, { model.play(collection.tracks) }, 72.dp, state.connected && collection.tracks.isNotEmpty())
+                            }
+                        }
                     }
+                    items(collection.tracks, key = { it.id }) { track ->
+                        if (collection.editableId != null) PlaylistTrackRow(track, collection.tracks.indexOf(track), collection,
+                            state, model, Modifier.animateItem())
+                        else TrackRow(track, state, model, { model.play(collection.tracks, collection.tracks.indexOf(track)) }, Modifier.animateItem())
+                    }
+                    if (collection.tracks.isEmpty()) item { EmptyState("No songs yet",
+                        if (collection.favorites) "Save songs with the heart to build this playlist." else if (collection.mix) "Your music will appear here." else "Add songs to your playlist.") }
                 }
-                items(collection.tracks, key = { it.id }) { track -> TrackRow(track, state, model,
-                    { model.play(collection.tracks, collection.tracks.indexOf(track)) }, Modifier.animateItem()) }
-                if (collection.tracks.isEmpty()) item { EmptyState("No favorites yet", "Save songs with the heart to build this playlist.") }
-            }
-            if (state.current != null) Box(Modifier.align(Alignment.BottomCenter).widthIn(max = 520.dp).padding(16.dp)) {
-                MiniPlayer(state, model, player)
+                if (state.current != null) Box(Modifier.align(Alignment.BottomCenter).widthIn(max = 520.dp).padding(16.dp)) {
+                    MiniPlayer(state, model, player)
+                }
             }
         }
     }
+    if (rename) PlaylistNameDialog("Rename playlist", collection.title, { rename = false }) {
+        model.renamePlaylist(collection.editableId!!, it); rename = false
+    }
+    if (deleting) AlertDialog(onDismissRequest = { deleting = false }, title = { Text("Delete playlist?") },
+        text = { Text("Delete ${collection.title}? Your audio files will stay on your phone.") },
+        confirmButton = { TextButton({ model.deletePlaylist(collection.editableId!!); deleting = false; back() }) { Text("Delete") } },
+        dismissButton = { TextButton({ deleting = false }) { Text("Cancel") } })
+    if (adding) PlaylistTrackPicker(collection, state, { songs ->
+        model.addToPlaylist(collection.editableId!!, songs); adding = false
+    }) { adding = false }
 }
 
 @Composable
@@ -191,7 +239,7 @@ internal fun PluginsScreen(back: () -> Unit) {
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         LazyColumn(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(), contentPadding = PaddingValues(24.dp)) {
             item {
-                FilledTonalIconButton(back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
+                UtilityIconButton(back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
                 Text("Plugins", Modifier.padding(top = 24.dp, bottom = 12.dp), style = MaterialTheme.typography.displayMedium)
                 Text("Music integrations", style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)

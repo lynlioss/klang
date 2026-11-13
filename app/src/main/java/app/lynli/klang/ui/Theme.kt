@@ -10,7 +10,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import app.lynli.klang.R
@@ -19,14 +18,16 @@ import com.materialkolor.PaletteStyle
 import com.materialkolor.rememberDynamicColorScheme
 
 // Brand expression is reserved for display text. Body, labels, and controls stay native.
-private fun displayFamily(size: Int) = FontFamily(Font(R.font.roboto_flex, weight = FontWeight.ExtraBold,
-    variationSettings = FontVariation.Settings(FontVariation.weight(800), FontVariation.width(125f),
-        FontVariation.opticalSizing(size.sp))))
+private fun displayFamily(size: Int) = FontFamily(Font(when (size) {
+    57 -> R.font.klang_display_57
+    45 -> R.font.klang_display_45
+    else -> R.font.klang_display_36
+}, weight = FontWeight.Black))
 internal val KlangTypography = Typography().let { native ->
     Typography(
-        displayLarge = native.displayLarge.copy(fontFamily = displayFamily(57), fontWeight = FontWeight.ExtraBold, letterSpacing = 0.sp),
-        displayMedium = native.displayMedium.copy(fontFamily = displayFamily(45), fontWeight = FontWeight.ExtraBold, letterSpacing = 0.sp),
-        displaySmall = native.displaySmall.copy(fontFamily = displayFamily(36), fontWeight = FontWeight.ExtraBold, letterSpacing = 0.sp),
+        displayLarge = native.displayLarge.copy(fontFamily = displayFamily(57), fontWeight = FontWeight.Black, letterSpacing = 0.sp),
+        displayMedium = native.displayMedium.copy(fontFamily = displayFamily(45), fontWeight = FontWeight.Black, letterSpacing = 0.sp),
+        displaySmall = native.displaySmall.copy(fontFamily = displayFamily(36), fontWeight = FontWeight.Black, letterSpacing = 0.sp),
     )
 }
 private val LocalKlangDark = staticCompositionLocalOf { false }
@@ -43,21 +44,32 @@ internal fun ColorScheme.blackSurfaces() = copy(
 )
 
 @Composable
-fun KlangTheme(theme: String, dynamic: Boolean, coverColor: Boolean, track: Track?, content: @Composable () -> Unit) {
+fun KlangTheme(theme: String, dynamic: Boolean, content: @Composable () -> Unit) {
     val dark = theme == "dark" || (theme == "system" && isSystemInDarkTheme())
     val context = LocalContext.current
-    val seed by produceState<Int?>(null, track?.id, coverColor) {
-        value = if (coverColor && track != null) ArtworkStore.seed(context, track) else null
-    }
-    val generated = rememberDynamicColorScheme(seedColor = Color(seed ?: 0xFF5075C8.toInt()),
-        isDark = dark, style = PaletteStyle.Vibrant)
-    val target = if (dynamic && !coverColor) {
+    val generated = rememberDynamicColorScheme(seedColor = Color(0xFF787878),
+        isDark = dark, style = PaletteStyle.Monochrome)
+    val target = if (dynamic) {
         if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
     } else generated
     val scheme = animatedScheme(if (dark) target.blackSurfaces() else target)
     CompositionLocalProvider(LocalKlangDark provides dark) {
         MaterialTheme(colorScheme = scheme, typography = KlangTypography, motionScheme = MotionScheme.expressive(), content = content)
     }
+}
+
+/** Cover colors are scoped to playback and album screens, never the app shell. */
+@Composable
+internal fun ContentTheme(enabled: Boolean, track: Track?, content: @Composable () -> Unit) {
+    if (enabled && track != null) CoverTheme(track, content) else content()
+}
+
+@Composable
+internal fun UtilityIconButton(onClick: () -> Unit, modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
+    content: @Composable () -> Unit) {
+    FilledTonalIconButton(onClick, modifier, colors = IconButtonDefaults.filledTonalIconButtonColors(
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurface)) { content() }
 }
 
 /** The mini player is always content-colored, independently of the app appearance switches. */

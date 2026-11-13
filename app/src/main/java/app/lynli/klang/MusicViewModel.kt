@@ -13,6 +13,8 @@ import androidx.media3.session.SessionToken
 import androidx.core.content.ContextCompat
 import app.lynli.klang.data.MusicRepository
 import app.lynli.klang.data.Track
+import app.lynli.klang.data.PlaylistStore
+import app.lynli.klang.data.SavedPlaylist
 import app.lynli.klang.playback.PlaybackService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -28,15 +30,18 @@ data class MusicState(
     val position: Long = 0, val duration: Long = 0, val queue: List<Track> = emptyList(),
     val queueIndex: Int = 0, val shuffle: Boolean = false, val repeat: Int = Player.REPEAT_MODE_OFF,
     val favorites: Set<String> = emptySet(), val message: String? = null,
-    val coverColor: Boolean = false, val dynamicColor: Boolean = false, val theme: String = "system", val sleepMinutes: Int = 0,
+    val playlists: List<SavedPlaylist> = emptyList(),
+    val coverColor: Boolean = true, val dynamicColor: Boolean = false, val theme: String = "system", val sleepMinutes: Int = 0,
 )
 
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = MusicRepository(application)
     private val prefs = application.getSharedPreferences("klang", 0)
+    private val playlistStore = PlaylistStore(application)
     private val mutableState = MutableStateFlow(MusicState(
         favorites = prefs.getStringSet("favorites", emptySet()).orEmpty().toSet(),
-        coverColor = prefs.getBoolean("coverColor", false),
+        playlists = runCatching { playlistStore.read() }.getOrDefault(emptyList()),
+        coverColor = prefs.getBoolean("contentColors", true),
         dynamicColor = prefs.getBoolean("dynamicColor", false), theme = prefs.getString("theme", "system")!!))
     val state = mutableState.asStateFlow()
     private var controller: MediaController? = null
@@ -122,8 +127,37 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putStringSet("favorites", updated).apply()
         mutableState.update { it.copy(favorites = updated) }
     }
+    fun createPlaylist(name: String): String? {
+        if (name.trim().isEmpty()) return null
+        val playlist = playlistStore.create(name)
+        savePlaylists(mutableState.value.playlists + playlist)
+        return playlist.id
+    }
+    fun renamePlaylist(id: String, name: String) {
+        if (name.trim().isNotEmpty()) editPlaylist(id) { it.copy(name = name.trim()) }
+    }
+    fun deletePlaylist(id: String) { savePlaylists(mutableState.value.playlists.filterNot { it.id == id }) }
+    fun addToPlaylist(id: String, tracks: List<Track>) { editPlaylist(id) { it.add(tracks.map(Track::id)) } }
+    fun removeFromPlaylist(id: String, trackId: String) { editPlaylist(id) { it.remove(trackId) } }
+    fun moveInPlaylist(id: String, trackId: String, offset: Int) {
+        val available = mutableState.value.tracks.map { it.id }.toSet()
+        editPlaylist(id) { playlist ->
+            val visible = playlist.trackIds.filter { it in available }
+            val index = visible.indexOf(trackId)
+            val target = index + offset
+            if (index < 0 || target !in visible.indices) playlist
+            else playlist.move(trackId, playlist.trackIds.indexOf(visible[target]) - playlist.trackIds.indexOf(trackId))
+        }
+    }
+    private fun editPlaylist(id: String, edit: (SavedPlaylist) -> SavedPlaylist) {
+        savePlaylists(mutableState.value.playlists.map { if (it.id == id) edit(it) else it })
+    }
+    private fun savePlaylists(playlists: List<SavedPlaylist>) {
+        playlistStore.write(playlists)
+        mutableState.update { it.copy(playlists = playlists) }
+    }
     fun theme(value: String) { prefs.edit().putString("theme", value).apply(); mutableState.update { it.copy(theme = value) } }
-    fun coverColor(value: Boolean) { prefs.edit().putBoolean("coverColor", value).apply(); mutableState.update { it.copy(coverColor = value) } }
+    fun coverColor(value: Boolean) { prefs.edit().putBoolean("contentColors", value).apply(); mutableState.update { it.copy(coverColor = value) } }
     fun dynamicColor(value: Boolean) { prefs.edit().putBoolean("dynamicColor", value).apply(); mutableState.update { it.copy(dynamicColor = value) } }
     fun sleep(minutes: Int) {
         sleepJob?.cancel(); mutableState.update { it.copy(sleepMinutes = minutes) }

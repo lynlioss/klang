@@ -11,8 +11,8 @@ android {
         applicationId = "app.lynli.klang"
         minSdk = 36
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildTypes {
@@ -43,6 +43,7 @@ dependencies {
     implementation("androidx.palette:palette-ktx:1.0.0")
     implementation("com.materialkolor:material-kolor:4.1.1")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20250517")
 }
 
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }

@@ -30,7 +30,7 @@ class MainActivity : ComponentActivity() {
             LifecycleResumeEffect(Unit) { model.refresh(); onPauseOrDispose { } }
             val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { model.refresh() }
             val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { model.importFiles(it) }
-            KlangTheme(state.theme, state.dynamicColor, state.coverColor, state.current ?: state.tracks.firstOrNull()) {
+            KlangTheme(state.theme, state.dynamicColor) {
                 val lightBars = MaterialTheme.colorScheme.surface.luminance() > 0.5f
                 SideEffect {
                     window.isNavigationBarContrastEnforced = false

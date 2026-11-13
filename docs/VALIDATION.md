@@ -17,3 +17,11 @@ The phone helper completed `assembleRelease lintDebug testDebugUnitTest` success
 The delivered APK is 29,301,993 bytes (29.3 decimal MB), includes exactly three starter M4As and the Roboto Flex display font, and requires/targets API 36. Manifest/resources and ZIP integrity pass verification, entries pass 16KB-page alignment checks, and its APK v2 signature matches the existing phone test signing certificate. SHA-256: `a02e070dd2ad092c84090dcd229ab1f11cd3d0b4808805981b893fe9920a9588`.
 
 The resource optimization workaround is now verified through a full source build, with no manual resource restoration. Version 0.3.0 adds Home/collection layouts, the disabled Spotify placeholder, system-theme/album-colors-off defaults, neutral black dark surfaces and independently cover-colored mini players. The UI still needs Lynli’s on-phone trial; no device is connected through ADB.
+
+## Version 0.4.0
+
+`assembleRelease lintDebug testDebugUnitTest --max-workers=1` completed successfully on the phone. Seven tests passed: metadata preservation/fallbacks, Material contrast/neutral dark surfaces, playlist JSON round trips, duplicate prevention and reordering/removal, and recovery of valid entries in a partly malformed playlist list. Lint reports 0 errors and 18 warnings.
+
+The delivered APK is 28,550,448 bytes (28.6 decimal MB), with complete manifest/resources, three starter tracks, aligned entries, valid ZIP checksums, and a verified APK signature matching 0.3.0. SHA-256: `c6d66ad01668e656575946e232e1717bdb78047f58eb6bc150bad05f6a7f03c1`. The HTTP endpoint returns the correct APK name/size.
+
+My Mix, editable playlists, neutral utility controls and scoped cover themes compile successfully. The font instances are static weight-900 Roboto Flex with all variation axes resolved. No ADB device is attached; layout, touch interaction, and playlist workflows still need an on-phone trial.
