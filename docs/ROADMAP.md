@@ -12,4 +12,4 @@ Potential next milestones:
 - Explicitly permissioned plugin loading, provider settings and isolated failures.
 - YouTube or other integrations only through a provider implementation after the base player is stable.
 
-No plugin execution, remote search, or streaming provider is shipped in 0.1.0.
+Version 0.3.0 includes a Plugins page with a disabled Spotify placeholder. No plugin execution, account linking, remote search, or streaming provider is shipped.

@@ -28,7 +28,7 @@ data class MusicState(
     val position: Long = 0, val duration: Long = 0, val queue: List<Track> = emptyList(),
     val queueIndex: Int = 0, val shuffle: Boolean = false, val repeat: Int = Player.REPEAT_MODE_OFF,
     val favorites: Set<String> = emptySet(), val message: String? = null,
-    val coverColor: Boolean = true, val dynamicColor: Boolean = false, val theme: String = "dark", val sleepMinutes: Int = 0,
+    val coverColor: Boolean = false, val dynamicColor: Boolean = false, val theme: String = "system", val sleepMinutes: Int = 0,
 )
 
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
@@ -36,8 +36,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("klang", 0)
     private val mutableState = MutableStateFlow(MusicState(
         favorites = prefs.getStringSet("favorites", emptySet()).orEmpty().toSet(),
-        coverColor = prefs.getBoolean("coverColor", true),
-        dynamicColor = prefs.getBoolean("dynamicColor", false), theme = prefs.getString("theme", "dark")!!))
+        coverColor = prefs.getBoolean("coverColor", false),
+        dynamicColor = prefs.getBoolean("dynamicColor", false), theme = prefs.getString("theme", "system")!!))
     val state = mutableState.asStateFlow()
     private var controller: MediaController? = null
     private var refreshJob: Job? = null

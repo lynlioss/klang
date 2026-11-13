@@ -27,7 +27,6 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -59,12 +58,19 @@ private val Effects = spring<Float>(dampingRatio = 1f, stiffness = 800f)
 fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit, onImport: () -> Unit) {
     var destination by rememberSaveable { mutableIntStateOf(0) }
     var settings by rememberSaveable { mutableStateOf(false) }
+    var plugins by rememberSaveable { mutableStateOf(false) }
+    var collectionId by rememberSaveable { mutableStateOf<String?>(null) }
+    val collections = remember(state.tracks, state.favorites) { musicCollections(state.tracks, state.favorites) }
+    val selectedCollection = collections.find { it.id == collectionId }
+    var lastCollection by remember { mutableStateOf<MusicCollection?>(null) }
+    SideEffect { if (selectedCollection != null) lastCollection = selectedCollection }
     var expanded by rememberSaveable { mutableStateOf(false) }
     val snack = remember { SnackbarHostState() }
     val holder = rememberSaveableStateHolder()
     LaunchedEffect(state.message) { state.message?.let { snack.showSnackbar(it); model.clearMessage() } }
-    BackHandler(expanded || settings || destination != 0) {
-        when { expanded -> expanded = false; settings -> settings = false; else -> destination = 0 }
+    BackHandler(expanded || plugins || settings || collectionId != null || destination != 0) {
+        when { expanded -> expanded = false; plugins -> plugins = false; settings -> settings = false;
+            collectionId != null -> collectionId = null; else -> destination = 0 }
     }
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -82,10 +88,11 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
                     Crossfade(destination, animationSpec = Effects, label = "Destination") { page ->
                         holder.SaveableStateProvider(page) {
                             when (page) {
-                                0 -> MixScreen(state, model, { settings = true }, onPermission, onImport,
-                                    { destination = 2 }, { expanded = true }, bottomSpace)
+                                0 -> HomeScreen(state, model, collections, { settings = true }, { plugins = true }, onPermission, onImport,
+                                    { destination = 2 }, { collectionId = it.id }, bottomSpace)
                                 1 -> SearchScreen(state, model, onImport, bottomSpace)
-                                else -> LibraryScreen(state, model, { settings = true }, onPermission, onImport, bottomSpace)
+                                else -> LibraryScreen(state, model, { settings = true }, onPermission, onImport,
+                                    { collectionId = it.id }, bottomSpace)
                             }
                         }
                     }
@@ -112,7 +119,18 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
             }
             AnimatedVisibility(settings, enter = slideInHorizontally(spring(0.8f, 200f)) { it } + fadeIn(Effects),
                 exit = slideOutHorizontally(spring(0.8f, 200f)) { it } + fadeOut(Effects)) {
-                SettingsScreen(state, model, onPermission, onImport) { settings = false }
+                SettingsScreen(state, model, onPermission, onImport, { plugins = true }) { settings = false }
+            }
+            AnimatedVisibility(collectionId != null,
+                enter = slideInHorizontally(spring(0.8f, 200f)) { it } + fadeIn(Effects),
+                exit = slideOutHorizontally(spring(0.8f, 200f)) { it } + fadeOut(Effects)) {
+                (selectedCollection ?: lastCollection)?.let { collection ->
+                    CollectionScreen(collection, state, model, { expanded = true }) { collectionId = null }
+                }
+            }
+            AnimatedVisibility(plugins, enter = slideInHorizontally(spring(0.8f, 200f)) { it } + fadeIn(Effects),
+                exit = slideOutHorizontally(spring(0.8f, 200f)) { it } + fadeOut(Effects)) {
+                PluginsScreen { plugins = false }
             }
             AnimatedVisibility(expanded && state.current != null,
                 enter = slideInVertically(spring(0.8f, 200f)) { it } + fadeIn(Effects),
@@ -122,11 +140,11 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
                 }
             }
             SnackbarHost(snack, Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
-                .padding(bottom = if (settings || expanded) 16.dp else bottomSpace))
+                .padding(bottom = if (settings || expanded || plugins || collectionId != null) 16.dp else bottomSpace))
         }
     }
 }
-private val destinations = listOf("Mix" to Icons.Rounded.GraphicEq, "Search" to Icons.Rounded.Search, "Library" to Icons.Rounded.LibraryMusic)
+private val destinations = listOf("Home" to Icons.Rounded.Home, "Search" to Icons.Rounded.Search, "Library" to Icons.Rounded.LibraryMusic)
 
 @Composable
 private fun PageTitle(title: String, trailing: @Composable RowScope.() -> Unit = {}) {
@@ -137,67 +155,7 @@ private fun PageTitle(title: String, trailing: @Composable RowScope.() -> Unit =
 }
 
 @Composable
-private fun MixScreen(state: MusicState, model: MusicViewModel, settings: () -> Unit, permission: () -> Unit,
-    import: () -> Unit, library: () -> Unit, player: () -> Unit, bottom: Dp) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = bottom)) {
-        item {
-            Row(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 28.dp), verticalAlignment = Alignment.CenterVertically) {
-                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-                    Icon(Icons.Rounded.GraphicEq, null, Modifier.padding(12.dp).size(24.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                }
-                Text("Klang", Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                FilledTonalIconButton(settings) { Icon(Icons.Rounded.Settings, "Settings") }
-            }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Your\nMix", style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold)
-                    Text("${state.tracks.size} songs", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                ExpressivePlay(state.playing, {
-                    if (state.current != null) model.togglePlay() else model.play(state.tracks, shuffled = true)
-                }, 104.dp, state.connected && state.tracks.isNotEmpty())
-            }
-            Spacer(Modifier.height(20.dp))
-        }
-        if (state.loading || state.busy) item { LoadingRow(state) }
-        if (state.tracks.isNotEmpty()) item {
-            CoverCollage(state.tracks) { track -> model.play(state.tracks, state.tracks.indexOf(track)); player() }
-            Spacer(Modifier.height(24.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton({ model.play(state.tracks, shuffled = true) }, Modifier.weight(1f), enabled = state.connected) {
-                    Icon(Icons.Rounded.Shuffle, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Shuffle")
-                }
-                FilledTonalButton(import, Modifier.weight(1f), enabled = !state.busy) {
-                    Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Add music")
-                }
-            }
-        }
-        if (!state.permission) item { Spacer(Modifier.height(20.dp)); AccessCard(permission, import) }
-        item { SectionHeading("Recently added", "See all", library) }
-        items(state.tracks.take(6), key = { it.id }) { track ->
-            TrackRow(track, state, model, { model.play(state.tracks, state.tracks.indexOf(track)) }, Modifier.animateItem())
-        }
-        if (state.tracks.isEmpty() && !state.loading && !state.busy) item { EmptyLibrary(import, model::installStarter) }
-    }
-}
-
-@Composable
-private fun CoverCollage(tracks: List<Track>, select: (Track) -> Unit) {
-    BoxWithConstraints(Modifier.fillMaxWidth().height(280.dp)) {
-        val featured = tracks.firstOrNull { it.title.contains("KYOTO") } ?: tracks.first()
-        val second = tracks.getOrElse(1) { featured }
-        val third = tracks.getOrElse(2) { featured }
-        Artwork(second, Modifier.align(Alignment.TopStart).size(88.dp).clip(CircleShape)
-            .clickable(role = Role.Button, onClickLabel = "Play ${second.title}") { select(second) })
-        Artwork(featured, Modifier.align(Alignment.Center).width(maxWidth * 0.64f).height(255.dp).rotate(22f)
-            .clip(RoundedCornerShape(50)).clickable(role = Role.Button, onClickLabel = "Play ${featured.title}") { select(featured) })
-        Artwork(third, Modifier.align(Alignment.BottomEnd).size(92.dp).clip(RoundedCornerShape(32.dp))
-            .clickable(role = Role.Button, onClickLabel = "Play ${third.title}") { select(third) })
-    }
-}
-
-@Composable
-private fun AccessCard(permission: () -> Unit, import: () -> Unit) {
+internal fun AccessCard(permission: () -> Unit, import: () -> Unit) {
     Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.padding(16.dp)) {
             Text("Music access", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -247,21 +205,20 @@ private fun SearchScreen(state: MusicState, model: MusicViewModel, import: () ->
 }
 
 @Composable
-private fun LibraryScreen(state: MusicState, model: MusicViewModel, settings: () -> Unit, permission: () -> Unit, import: () -> Unit, bottom: Dp) {
+private fun LibraryScreen(state: MusicState, model: MusicViewModel, settings: () -> Unit, permission: () -> Unit, import: () -> Unit, openCollection: (MusicCollection) -> Unit, bottom: Dp) {
     var filter by rememberSaveable { mutableIntStateOf(0) }
-    var album by rememberSaveable { mutableStateOf<String?>(null) }
     var sort by rememberSaveable { mutableIntStateOf(0) }
     var sortMenu by remember { mutableStateOf(false) }
-    val tracks = remember(state.tracks, state.favorites, filter, sort, album) {
-        val list = state.tracks.filter { (filter != 2 || it.id in state.favorites) && (album == null || it.album == album) }
+    val tracks = remember(state.tracks, state.favorites, filter, sort) {
+        val list = state.tracks.filter { (filter != 2 || it.id in state.favorites) }
         when (sort) { 1 -> list.sortedBy { it.title.lowercase() }; 2 -> list.sortedBy { it.artist.lowercase() }; else -> list.sortedByDescending { it.added } }
     }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = bottom)) {
         item {
             PageTitle("Library") { FilledTonalIconButton(settings) { Icon(Icons.Rounded.Settings, "Settings") } }
-            ChoiceGroup(listOf("Songs", "Albums", "Favorites"), filter) { filter = it; album = null }
+            ChoiceGroup(listOf("Songs", "Albums", "Favorites"), filter) { filter = it }
             Row(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(if (filter == 1 && album == null) "${tracks.groupBy { it.album }.size} albums" else "${tracks.size} songs",
+                Text(if (filter == 1) "${albumCollections(tracks).size} albums" else "${tracks.size} songs",
                     Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 IconButton(import, enabled = !state.busy) { Icon(Icons.Rounded.Add, "Add music") }
                 IconButton(model::refresh) { Icon(Icons.Rounded.Refresh, "Refresh library") }
@@ -275,13 +232,13 @@ private fun LibraryScreen(state: MusicState, model: MusicViewModel, settings: ()
                 }
             }
             if (!state.permission) { AccessCard(permission, import); Spacer(Modifier.height(16.dp)) }
-            if (album != null) AssistChip({ album = null }, label = { Text(album!!, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ArrowBack, null) })
             if (state.busy || state.loading) LoadingRow(state)
         }
-        if (filter == 1 && album == null) {
-            items(tracks.groupBy { it.album }.toList(), key = { it.first }) { (name, songs) ->
-                Surface(Modifier.fillMaxWidth().padding(bottom = 8.dp).animateItem().clip(RoundedCornerShape(20.dp)).clickable { album = name },
+        if (filter == 1) {
+            items(albumCollections(tracks), key = { it.id }) { collection ->
+                val name = collection.title
+                val songs = collection.tracks
+                Surface(Modifier.fillMaxWidth().padding(bottom = 8.dp).animateItem().clip(RoundedCornerShape(20.dp)).clickable { openCollection(collection) },
                     shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Artwork(songs.first(), Modifier.size(80.dp).clip(RoundedCornerShape(12.dp)))
@@ -297,6 +254,9 @@ private fun LibraryScreen(state: MusicState, model: MusicViewModel, settings: ()
         if (tracks.isEmpty() && !state.loading) item {
             if (filter == 2) EmptyState("No favorites", "Tap the heart on a song to save it here.")
             else EmptyLibrary(import, model::installStarter)
+        }
+        if (filter == 1 && tracks.isNotEmpty() && albumCollections(tracks).isEmpty()) item {
+            EmptyState("No albums", "Files with album metadata appear here.")
         }
     }
 }
@@ -318,28 +278,28 @@ private fun ChoiceGroup(labels: List<String>, selected: Int, choose: (Int) -> Un
 }
 
 @Composable
-private fun SectionHeading(title: String, action: String? = null, click: () -> Unit = {}) {
+internal fun SectionHeading(title: String, action: String? = null, click: () -> Unit = {}) {
     Row(Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         if (action != null) TextButton(click) { Text(action) }
     }
 }
 @Composable
-private fun LoadingRow(state: MusicState) {
+internal fun LoadingRow(state: MusicState) {
     Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         LoadingIndicator(Modifier.size(36.dp)); Spacer(Modifier.width(12.dp))
         Text(if (state.busy) "Adding music…" else "Loading library…", style = MaterialTheme.typography.bodyMedium)
     }
 }
 @Composable
-private fun EmptyState(title: String, subtitle: String) {
+internal fun EmptyState(title: String, subtitle: String) {
     Column(Modifier.fillMaxWidth().padding(vertical = 24.dp)) {
         Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Text(subtitle, Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 @Composable
-private fun EmptyLibrary(import: () -> Unit, starter: () -> Unit) {
+internal fun EmptyLibrary(import: () -> Unit, starter: () -> Unit) {
     EmptyState("No music yet", "Add audio files or install the three-track NCS pack.")
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(import) { Text("Add music") }; TextButton(starter) { Text("Install tracks") }
@@ -347,7 +307,7 @@ private fun EmptyLibrary(import: () -> Unit, starter: () -> Unit) {
 }
 
 @Composable
-private fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, play: () -> Unit, modifier: Modifier = Modifier) {
+internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, play: () -> Unit, modifier: Modifier = Modifier) {
     var menu by remember { mutableStateOf(false) }
     val active = state.current?.id == track.id
     val fill by animateColorAsState(if (active) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
@@ -378,8 +338,9 @@ private fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, pla
 }
 
 @Composable
-private fun MiniPlayer(state: MusicState, model: MusicViewModel, expand: () -> Unit) {
+internal fun MiniPlayer(state: MusicState, model: MusicViewModel, expand: () -> Unit) {
     val track = state.current ?: return
+    CoverTheme(track) {
     Surface(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).clickable(onClickLabel = "Open now playing", onClick = expand),
         color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(24.dp), shadowElevation = 4.dp) {
         Column {
@@ -397,10 +358,11 @@ private fun MiniPlayer(state: MusicState, model: MusicViewModel, expand: () -> U
                 modifier = Modifier.fillMaxWidth().height(2.dp), color = MaterialTheme.colorScheme.primary, trackColor = Color.Transparent)
         }
     }
+    }
 }
 
 @Composable
-private fun ExpressivePlay(playing: Boolean, click: () -> Unit, size: Dp = 88.dp, enabled: Boolean = true) {
+internal fun ExpressivePlay(playing: Boolean, click: () -> Unit, size: Dp = 88.dp, enabled: Boolean = true) {
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
     val corner by animateFloatAsState(if (pressed) 22f else if (playing) 32f else 50f, FastSpatial, label = "Play shape")
@@ -548,7 +510,7 @@ private fun QueuePage(state: MusicState, model: MusicViewModel, back: () -> Unit
 }
 
 @Composable
-private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission: () -> Unit, import: () -> Unit, back: () -> Unit) {
+private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission: () -> Unit, import: () -> Unit, plugins: () -> Unit, back: () -> Unit) {
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         LazyColumn(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(), contentPadding = PaddingValues(24.dp)) {
             item {
@@ -568,6 +530,8 @@ private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission:
                 SettingsAction(Icons.Rounded.LibraryMusic, "Music access", if (state.permission) "Allowed · manage in Android settings" else "Allow access to your phone’s music", permission)
                 SettingsAction(Icons.Rounded.Download, "Starter tracks", "KYOTO, Recall and EYES ON US", model::installStarter, !state.busy)
                 SettingsAction(Icons.Rounded.Refresh, "Refresh library", "Scan for added or removed files", model::refresh)
+                SectionHeading("Extensions")
+                SettingsAction(Icons.Rounded.Add, "Plugins", "Browse planned music integrations", plugins)
                 SectionHeading("Playback")
                 Text("Sleep timer", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 12.dp))
                 ChoiceGroup(listOf("Off", "15 min", "30 min", "60 min"), listOf(0, 15, 30, 60).indexOf(state.sleepMinutes).coerceAtLeast(0)) {
@@ -578,7 +542,7 @@ private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission:
                 Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.fillMaxWidth().padding(20.dp)) {
                         Text("Klang", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text("0.2.0 · Created by Lynli", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium)
+                        Text("0.3.0 · Created by Lynli", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium)
                         Text("Music by HESTER, gabriawll and 2frers. Released by NoCopyrightSounds.", Modifier.padding(top = 12.dp),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }

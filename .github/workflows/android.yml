@@ -23,5 +23,5 @@ jobs:
       - run: ./gradlew assembleRelease lintDebug testDebugUnitTest --no-daemon
       - uses: actions/upload-artifact@v4
         with:
-          name: klang-0.2.0-apk
+          name: klang-0.3.0-apk
           path: app/build/outputs/apk/release/app-release.apk

@@ -5,9 +5,23 @@ import androidx.compose.ui.graphics.luminance
 import com.materialkolor.dynamicColorScheme
 import com.materialkolor.PaletteStyle
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ThemeTest {
+    @Test fun darkSurfacesAreNeutralAndKeepReadableContent() {
+        for (seed in listOf(0xFF1252D2, 0xFF993C79, 0xFFF5D010)) {
+            val scheme = dynamicColorScheme(Color(seed), isDark = true).blackSurfaces()
+            for (fill in listOf(scheme.surface, scheme.surfaceContainerLow, scheme.surfaceContainer,
+                scheme.surfaceContainerHigh, scheme.surfaceContainerHighest)) {
+                assertEquals(fill.red, fill.green, 0.001f)
+                assertEquals(fill.red, fill.blue, 0.001f)
+                val ratio = (scheme.onSurfaceVariant.luminance() + 0.05f) / (fill.luminance() + 0.05f)
+                assertTrue("Dark surface text contrast=$ratio", ratio >= 4.5f)
+            }
+        }
+    }
+
     @Test fun contentDerivedMaterialSchemesKeepTextReadable() {
         for (seed in listOf(0xFF1252D2, 0xFF993C79, 0xFF888888, 0xFFF5D010)) {
             for (dark in listOf(false, true)) {

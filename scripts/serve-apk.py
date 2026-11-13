@@ -4,11 +4,11 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 import shutil
 
-APK = Path(__file__).resolve().parents[1] / 'artifacts' / 'Klang-0.2.0.apk'
+APK = Path(__file__).resolve().parents[1] / 'artifacts' / 'Klang-0.3.0.apk'
 
 class Download(BaseHTTPRequestHandler):
     def serve(self, body=True):
-        if self.path.split('?')[0] not in ('/', '/klang.apk', '/Klang-0.2.0.apk'):
+        if self.path.split('?')[0] not in ('/', '/klang.apk', '/' + APK.name):
             self.send_error(404)
             return
         if not APK.exists():
@@ -16,7 +16,7 @@ class Download(BaseHTTPRequestHandler):
             return
         self.send_response(200)
         self.send_header('Content-Type', 'application/vnd.android.package-archive')
-        self.send_header('Content-Disposition', 'attachment; filename="Klang-0.2.0.apk"')
+        self.send_header('Content-Disposition', f'attachment; filename="{APK.name}"')
         self.send_header('Content-Length', str(APK.stat().st_size))
         self.send_header('Cache-Control', 'no-store')
         self.end_headers()
