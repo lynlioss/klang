@@ -23,7 +23,7 @@ for slug, title, artist, source in tracks:
  image.thumbnail((900,900))
  buffer=BytesIO(); image.save(buffer, 'JPEG', quality=92)
  art=buffer.getvalue()
- (root / 'app/src/main/res/drawable' / (slug.replace('-','_')+'.jpg')).write_bytes(art)
+ (root / 'app/src/main/res/drawable-nodpi' / (slug.replace('-','_')+'.jpg')).write_bytes(art)
  dest=root/'app/src/main/assets/starter'/f'{artist} - {title}.mp3'
  shutil.copyfile(Path('/root/.t3/userdata/attachments')/source, dest)
  mp3=MP3(dest)
@@ -51,10 +51,10 @@ for i, name in enumerate(m4a_sources):
  m4a=MP4(dest)
  if not m4a.tags.get('©alb'): m4a.tags['©alb']=[title+' [NCS Release]']
  if not m4a.tags.get('covr'):
-  m4a.tags['covr']=[MP4Cover((root/'app/src/main/res/drawable'/(slug.replace('-','_')+'.jpg')).read_bytes(),imageformat=MP4Cover.FORMAT_JPEG)]
+  m4a.tags['covr']=[MP4Cover((root/'app/src/main/res/drawable-nodpi'/(slug.replace('-','_')+'.jpg')).read_bytes(),imageformat=MP4Cover.FORMAT_JPEG)]
  m4a.save()
  cover=Image.open(BytesIO(m4a.tags['covr'][0])).convert('RGB'); cover.thumbnail((900,900))
- cover.save(root/'app/src/main/res/drawable'/(slug.replace('-','_')+'.jpg'),quality=92)
+ cover.save(root/'app/src/main/res/drawable-nodpi'/(slug.replace('-','_')+'.jpg'),quality=92)
  (root/'app/src/main/assets/starter'/catalog[i]['file']).unlink(missing_ok=True)
  catalog[i].update(file=dest.name,title=m4a.tags.get('©nam',[title])[0],artist=m4a.tags.get('©ART',[artist])[0],album=m4a.tags['©alb'][0],durationMs=int(m4a.info.length*1000))
 (root/'app/src/main/assets/starter/catalog.json').write_text(json.dumps(catalog,indent=2)+'\n')

@@ -4,13 +4,13 @@ A native Android music player by **Lynli**, written in Kotlin with Jetpack Compo
 
 ## Try it
 
-Install the 0.1.0 debug APK on your phone. On first launch, Klang copies its three bundled NCS tracks to **Music/Klang** using Android MediaStore. The tracks are delivered with the APK, so first-run installation works offline. The files are visible to other music apps and remain in your Music folder after uninstalling Klang. Reinstalling the starter pack skips existing completed files.
+Install the 0.2.0 test APK on your phone. During this setup session it is available at http://127.0.0.1:8765/klang.apk in the phone browser. Start the tiny download server later with `python3 scripts/serve-apk.py` after copying the APK to `artifacts/Klang-0.2.0.apk`. On first launch, Klang copies its three bundled NCS tracks to **Music/Klang** using Android MediaStore. The tracks are delivered with the APK, so first-run installation works offline. The files are visible to other music apps and remain in your Music folder after uninstalling Klang. Reinstalling the starter pack skips existing completed files.
 
 Tap **Find my music** to grant music access and scan the rest of your device. You can also use **Add music** to choose audio documents; Klang copies them to Music/Klang, preserving their embedded tags and artwork. The app does not ask for all-files access.
 
 ## In this version
 
-- Reference-inspired Your Mix home, oversized typography, sculptural artwork and a morphing play button.
+- Reference-inspired Your Mix home, oversized typography, sculptural artwork and a morphing play button, cover-derived Material palettes, a wavy seek bar, and full-page settings.
 - Local library, title/artist/album search, albums, sorting and persistent favorites.
 - MP3, M4A and other audio formats supported by Android/Media3.
 - Embedded artwork and metadata, fallback art for untagged tracks.
@@ -28,13 +28,13 @@ Future providers/plugins are planned; the first version focuses on local playbac
 The installed toolchain is Java 17, Gradle 9.9.1, Android SDK platform 37.2/build-tools 37, and a static ARM64 aapt2 from lzhiyong/android-sdk-tools 35.0.2. Google supplies x86 Linux native build tools, so use the phone build helper:
 
 ```sh
-./scripts/build-phone.sh assembleDebug
+./scripts/build-phone.sh assembleRelease
 ./scripts/build-phone.sh lintDebug testDebugUnitTest
 ```
 
 The helper sets Java 17 and overrides aapt2 only on aarch64. It does not modify Google's SDK binaries. Resource packaging uses /opt/android-sdk-tools-arm64/build-tools/aapt2; D8 and APK signing run in the JVM. Gradle has two workers, a 1.5GB heap and in-process Kotlin compilation to suit the phone. `JAVA_HOME` is not set globally; other projects can keep their own Java version.
 
-The generated APK is `app/build/outputs/apk/debug/app-debug.apk`. The debug signing key is local at `~/.android/debug.keystore` and is excluded from Git. Keep it to install later debug builds over this one.
+The generated APK is `app/build/outputs/apk/release/app-release.apk`. The debug signing key is local at `~/.android/debug.keystore` and is excluded from Git. Keep it to install later debug builds over this one.
 
 For another machine, install JDK 17 and Android SDK 37.2 with build-tools 37, put its SDK path in `local.properties`, then run `./gradlew assembleDebug`. A GitHub Actions build is included. The wrapper distribution has SHA-256 verification.
 

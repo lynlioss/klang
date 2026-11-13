@@ -20,8 +20,8 @@ jobs:
           packages: 'platforms;android-37.2 build-tools;37.0.0'
       - run: sdkmanager 'platforms;android-37.2' 'build-tools;37.0.0'
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew assembleDebug lintDebug testDebugUnitTest --no-daemon
+      - run: ./gradlew assembleRelease lintDebug testDebugUnitTest --no-daemon
       - uses: actions/upload-artifact@v4
         with:
-          name: klang-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: klang-0.2.0-apk
+          path: app/build/outputs/apk/release/app-release.apk

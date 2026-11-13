@@ -26,9 +26,9 @@ data class MusicState(
     val busy: Boolean = false, val permission: Boolean = false,
     val current: Track? = null, val playing: Boolean = false, val connected: Boolean = false,
     val position: Long = 0, val duration: Long = 0, val queue: List<Track> = emptyList(),
-    val shuffle: Boolean = false, val repeat: Int = Player.REPEAT_MODE_OFF,
+    val queueIndex: Int = 0, val shuffle: Boolean = false, val repeat: Int = Player.REPEAT_MODE_OFF,
     val favorites: Set<String> = emptySet(), val message: String? = null,
-    val dynamicColor: Boolean = false, val theme: String = "dark", val sleepMinutes: Int = 0,
+    val coverColor: Boolean = true, val dynamicColor: Boolean = false, val theme: String = "dark", val sleepMinutes: Int = 0,
 )
 
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
@@ -36,6 +36,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("klang", 0)
     private val mutableState = MutableStateFlow(MusicState(
         favorites = prefs.getStringSet("favorites", emptySet()).orEmpty().toSet(),
+        coverColor = prefs.getBoolean("coverColor", true),
         dynamicColor = prefs.getBoolean("dynamicColor", false), theme = prefs.getString("theme", "dark")!!))
     val state = mutableState.asStateFlow()
     private var controller: MediaController? = null
@@ -122,6 +123,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         mutableState.update { it.copy(favorites = updated) }
     }
     fun theme(value: String) { prefs.edit().putString("theme", value).apply(); mutableState.update { it.copy(theme = value) } }
+    fun coverColor(value: Boolean) { prefs.edit().putBoolean("coverColor", value).apply(); mutableState.update { it.copy(coverColor = value) } }
     fun dynamicColor(value: Boolean) { prefs.edit().putBoolean("dynamicColor", value).apply(); mutableState.update { it.copy(dynamicColor = value) } }
     fun sleep(minutes: Int) {
         sleepJob?.cancel(); mutableState.update { it.copy(sleepMinutes = minutes) }
@@ -136,13 +138,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private fun syncPlayer() {
         val player = controller ?: return
         mutableState.update { it.copy(connected = true, current = player.currentMediaItem?.let(::track),
-            playing = player.isPlaying, position = player.currentPosition.coerceAtLeast(0),
+            queueIndex = player.currentMediaItemIndex, playing = player.isPlaying, position = player.currentPosition.coerceAtLeast(0),
             duration = player.duration.coerceAtLeast(0), queue = (0 until player.mediaItemCount).map { i -> track(player.getMediaItemAt(i)) },
             shuffle = player.shuffleModeEnabled, repeat = player.repeatMode) }
     }
     private fun message(text: String) { mutableState.update { it.copy(message = text) } }
     fun clearMessage() { mutableState.update { it.copy(message = null) } }
     override fun onCleared() {
-        controller?.removeListener(listener); MediaController.releaseFuture(future); super.onCleared()
+        controller?.removeListener(listener); MediaController.releaseFuture(future)
     }
 }
