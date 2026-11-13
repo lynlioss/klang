@@ -1,0 +1,29 @@
+[
+  {
+    "file": "Hester - KYOTO.m4a",
+    "title": "HESTER - KYOTO",
+    "artist": "HESTER",
+    "album": "KYOTO [NCS Release]",
+    "durationMs": 378694,
+    "releaseUrl": "https://ncs.io/kyoto",
+    "artworkUrl": "https://ncsmusic.s3.eu-west-1.amazonaws.com/tracks/000/002/116/1000x0/kyoto-1781827266-hNgYgJ7gPq.png"
+  },
+  {
+    "file": "gabriawll - Recall.m4a",
+    "title": "Recall",
+    "artist": "gabriawll",
+    "album": "Staring",
+    "durationMs": 125318,
+    "releaseUrl": "https://ncs.io/recall",
+    "artworkUrl": "https://ncsmusic.s3.eu-west-1.amazonaws.com/tracks/000/001/998/1000x0/recall-1762218065-a3SICDBo0n.png"
+  },
+  {
+    "file": "2frers - EYES ON US.m4a",
+    "title": "EYES ON US",
+    "artist": "2frers",
+    "album": "EYES ON US - Single",
+    "durationMs": 130983,
+    "releaseUrl": "https://ncs.io/EYESONUS",
+    "artworkUrl": "https://ncsmusic.s3.eu-west-1.amazonaws.com/tracks/000/002/109/1000x0/eyes-on-us-1780617671-p9CjylKXfs.png"
+  }
+]
