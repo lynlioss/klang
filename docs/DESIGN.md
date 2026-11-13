@@ -10,7 +10,7 @@ Klang design decisions: Roboto Flex display styles are bundled as fixed font ins
 
 Cover colors default on under the new, scoped content preference. They apply to Now playing and album pages; Home, Search, Library, Settings and playlists retain the app palette. The mini player always uses the current cover’s Material palette independently. Palette plus MaterialKolor supplies complete HCT schemes and effects-spring color transitions. Dark app surfaces remain near-black and neutral.
 
-Navigation stays inset over full-height content, with trailing list space keeping final rows accessible. Geometry uses fast spatial springs (0.6 damping / 800 stiffness) or slow spatial springs (0.8 / 200); color/opacity uses effects springs (1.0 / 800). Now playing allocates its remaining height to artwork and anchors transport controls near the bottom. A native Material slider supplies seeking.
+Navigation stays inset over full-height content, with trailing list space keeping final rows accessible. Geometry uses fast spatial springs (0.6 damping / 800 stiffness) or slow spatial springs (0.8 / 200); color/opacity uses effects springs (1.0 / 800). Now playing allocates its remaining height to artwork and anchors transport controls near the bottom. The native Material Slider supplies seeking gestures and accessibility, with a custom animated squiggle track and round playhead. Large rounded tonal previous/next controls flank Play/Pause; shuffle/repeat sit beside elapsed/total time to keep the transport buttons spacious.
 
 Reference screenshots guide composition, not assets. Artwork comes from the music files. Font, Spotify and Material icon attribution is in the credits. The Spotify placeholder remains disabled in the Plugins page, reachable through Settings. No provider runtime or account connection is implemented. Minimum/target Android is API 36; compilation uses SDK 37.2.
 
@@ -18,6 +18,8 @@ Collection playback controls follow the source of the queue: play becomes pause 
 
 ## Sound controls (0.5)
 
-Now playing groups playlist, unavailable lyrics, devices and EQ icons above the seek bar. Artwork colors fade from the top into the normal app surface at the bottom. The full equalizer page pairs a curve/preset card with native vertical centered sliders, in two groups of five, and a single enable switch. Song/headphone assignments stay beneath the sound controls rather than introducing separate editing modes.
+Now playing groups playlist, unavailable lyrics, devices and EQ icons above the seek bar. Artwork colors fade from the top into the normal app surface at the bottom. The full equalizer page pairs a curve/preset card with native vertical centered sliders, in two groups of five selected through frequency-range tabs, and a single enable switch. Song/headphone assignments stay beneath the sound controls rather than introducing separate editing modes.
 
 Playing rows use a decorative four-bar looping indicator; it is not live audio metering. Favorite taps use a fast expressive spatial spring for scale/rotation, and motion follows the Android animator setting. Choreography amplitudes and the indicator period are app design decisions. Artwork state reuses cached images immediately; separate thumbnail/full-size memory caches and bounded disk storage prevent repeated metadata extraction on scrolling.
+
+EQ opened from Now playing inherits the cover palette and slides over the entire player with expressive spatial/effects springs. Its surface extends behind the system bars; Settings EQ keeps the normal app theme.

@@ -420,14 +420,12 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
             colors.primaryContainer.copy(alpha = 0.5f).compositeOver(base),
             colors.surfaceContainerLow, base, base)))) {
             BoxWithConstraints(Modifier.fillMaxSize().then(if (compact) Modifier else Modifier.statusBarsPadding().navigationBarsPadding())) {
-                if (equalizer) {
-                    MaterialTheme(colorScheme = appScheme) { EqualizerScreen({ equalizer = false }, track.title, songContext = true) }
-                } else if (queue) {
+                if (queue) {
                     QueuePage(state, model) { queue = false }
                 } else {
                     val short = maxHeight < 650.dp
                     val spacing = if (short) 8.dp else 16.dp
-                    val playSize = minOf(if (short) 72.dp else 88.dp, (maxWidth - 240.dp).coerceAtLeast(56.dp))
+                    val playSize = if (short) 72.dp else 88.dp
                     val artLimit = minOf(maxWidth - 56.dp, 380.dp)
                     Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally) {
@@ -476,23 +474,27 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
                         Spacer(Modifier.height(spacing))
                         ExpressiveSeekbar(state, model)
                         Spacer(Modifier.height(spacing))
-                        Row(Modifier.widthIn(max = 440.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                        Row(Modifier.widthIn(max = 440.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically) {
-                            IconToggleButton(state.shuffle, { model.shuffle() }) {
-                                Icon(Icons.Rounded.Shuffle, "Shuffle", tint = if (state.shuffle) colors.primary else colors.onSurfaceVariant)
+                            FilledTonalIconButton(model::previous, Modifier.weight(1f).height(if (short) 64.dp else 80.dp),
+                                shape = RoundedCornerShape(40.dp)) {
+                                Icon(Icons.Rounded.SkipPrevious, "Previous", Modifier.size(32.dp))
                             }
-                            IconButton(model::previous) { Icon(Icons.Rounded.SkipPrevious, "Previous", Modifier.size(32.dp)) }
                             ExpressivePlay(state.playing, model::togglePlay, playSize)
-                            IconButton(model::next, enabled = state.queue.size > 1) { Icon(Icons.Rounded.SkipNext, "Next", Modifier.size(32.dp)) }
-                            IconButton(model::repeat) {
-                                Icon(if (state.repeat == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-                                    "Repeat ${when(state.repeat) { Player.REPEAT_MODE_ONE -> "one"; Player.REPEAT_MODE_ALL -> "all"; else -> "off" }}",
-                                    tint = if (state.repeat != Player.REPEAT_MODE_OFF) colors.primary else colors.onSurfaceVariant)
+                            FilledTonalIconButton(model::next, Modifier.weight(1f).height(if (short) 64.dp else 80.dp),
+                                enabled = state.queue.size > 1, shape = RoundedCornerShape(40.dp)) {
+                                Icon(Icons.Rounded.SkipNext, "Next", Modifier.size(32.dp))
                             }
                         }
                         Spacer(Modifier.height(if (short) 8.dp else 24.dp))
                     }
                 }
+            }
+            // Cover-themed EQ overlays the whole player, including the system-bar regions.
+            AnimatedVisibility(equalizer, modifier = Modifier.fillMaxSize(),
+                enter = slideInHorizontally(spring(0.8f, 200f)) { it } + fadeIn(Effects),
+                exit = slideOutHorizontally(spring(0.8f, 200f)) { it } + fadeOut(Effects)) {
+                EqualizerScreen({ equalizer = false }, track.title, songContext = true)
             }
         }
     }
@@ -504,12 +506,59 @@ private fun ExpressiveSeekbar(state: MusicState, model: MusicViewModel) {
     var scrub by remember(state.current?.id) { mutableFloatStateOf(0f) }
     val slider = remember(state.duration) { SliderState(trackRange = 0f..state.duration.coerceAtLeast(1).toFloat()) }
     slider.value = if (dragging) scrub else state.position.toFloat().coerceAtMost(state.duration.toFloat())
+    val motionEnabled = motionEnabled()
+    val amplitude by animateFloatAsState(if (state.playing && motionEnabled) 1f else 0f, FastSpatial, label = "Wave amplitude")
+    val phase = remember { Animatable(0f) }
+    LaunchedEffect(state.playing, motionEnabled) {
+        if (state.playing && motionEnabled) while (true) {
+            phase.snapTo(0f); phase.animateTo((2 * PI).toFloat(), tween(1400, easing = LinearEasing))
+        }
+    }
+    val primary = MaterialTheme.colorScheme.primary
+    val muted = MaterialTheme.colorScheme.outlineVariant
+    val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     Slider(state = slider, onValueChange = { dragging = true; scrub = it },
         onValueChangeFinished = { model.seek(scrub.toLong()); dragging = false }, enabled = state.duration > 0,
-        modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Playback position" })
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(time(if (dragging) scrub.toLong() else state.position), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(time(state.duration), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Playback position" },
+        thumb = { Box(Modifier.size(16.dp).clip(CircleShape).background(primary)) },
+        track = { value ->
+            Canvas(Modifier.fillMaxWidth().height(28.dp)) {
+                if (rtl) {
+                    // Match native slider direction for right-to-left layouts.
+                    drawContext.transform.translate(size.width, 0f)
+                    drawContext.transform.scale(-1f, 1f, Offset.Zero)
+                }
+                val fraction = (value.value / state.duration.coerceAtLeast(1)).coerceIn(0f, 1f)
+                val end = size.width * fraction
+                val mid = size.height / 2
+                if (end + 12.dp.toPx() < size.width) drawLine(muted, Offset(end + 12.dp.toPx(), mid), Offset(size.width, mid), 4.dp.toPx(), StrokeCap.Round)
+                val path = Path()
+                val wavelength = 32.dp.toPx()
+                val waveHeight = 3.dp.toPx() * amplitude
+                var x = 0f
+                while (x <= end) {
+                    val y = mid + sin(x / wavelength * (2 * PI).toFloat() + phase.value) * waveHeight
+                    if (x == 0f) path.moveTo(x, y) else path.lineTo(x, y)
+                    x += 1.dp.toPx()
+                }
+                drawPath(path, primary, style = Stroke(4.dp.toPx(), cap = StrokeCap.Round))
+            }
+        })
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Text(time(if (dragging) scrub.toLong() else state.position), style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        Row {
+            IconToggleButton(state.shuffle, { model.shuffle() }) {
+                Icon(Icons.Rounded.Shuffle, "Shuffle", tint = if (state.shuffle) primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            IconButton(model::repeat) {
+                Icon(if (state.repeat == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                    "Repeat ${when(state.repeat) { Player.REPEAT_MODE_ONE -> "one"; Player.REPEAT_MODE_ALL -> "all"; else -> "off" }}",
+                    tint = if (state.repeat != Player.REPEAT_MODE_OFF) primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Text(time(state.duration), style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
     }
 }
 
@@ -568,7 +617,7 @@ private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission:
                 Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.fillMaxWidth().padding(20.dp)) {
                         Text("Klang", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text("0.5.1 · Created by Lynli", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium)
+                        Text("0.5.2 · Created by Lynli", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium)
                         Text("Music by HESTER, gabriawll and 2frers. Released by NoCopyrightSounds.", Modifier.padding(top = 12.dp),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }

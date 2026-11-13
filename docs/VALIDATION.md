@@ -59,3 +59,9 @@ Now playing uses a non-scrollable adaptive Column, cover tint fading into the no
 Audio guards avoid creating a DSP for an unconfigured format, avoid discarding pending output on empty buffers, and consume PCM during lifecycle transitions. The user's startup playback failure still needs an on-phone regression trial; pipeline unit checks cannot establish its precise hardware/runtime cause. Playback errors now expose Media3's error code and log its cause instead of claiming every error is a missing file.
 
 The APK is 28,636,407 bytes, includes exactly three starter tracks and passes manifest/resource, ZIP/alignment and signing checks with the existing certificate. Full local-server download matched SHA-256 `41797fd74c636689f15047ac934c28843966d2c748c591e61d1c6677fe7c9259`. No ADB device is connected.
+
+## Version 0.5.2
+
+Release assembly and vital lint pass. Restores large rounded tonal previous/next buttons and an animated squiggly seek track with native Slider gestures/semantics. Shuffle/repeat remain reachable beside time labels. Reduced motion disables wave travel/amplitude. EQ opened from Now playing inherits cover colors and overlays the full window with expressive spatial/effects springs, removing the mismatched status-bar strip. Frequency-range tabs replace checked segmented band buttons. Equalizer uses the Plugins display font, measured and scaled to stay single-line.
+
+The APK is 28,652,791 bytes and passes package/resources/ZIP/alignment/signing verification with the same certificate as 0.5.1. Full HTTP GET matches SHA-256 `1692ed172dc5fdc1d41bcbc8031014faebb5dab7fa57c29516c7420661ad8e21`. These are UI-only changes; the 25 passing audio/library tests from 0.5.1 were not rerun. Physical animation/layout verification requires the phone trial.

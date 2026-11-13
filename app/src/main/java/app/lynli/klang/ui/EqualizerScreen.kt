@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -77,7 +78,14 @@ internal fun EqualizerScreen(back: () -> Unit, songTitle: String?, songContext: 
                     Switch(settings.enabled, { value -> store.update { it.copy(enabled = value) } },
                         modifier = Modifier.semantics { contentDescription = "Enable equalizer" })
                 }
-                Text("Equalizer", Modifier.padding(top = 24.dp), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                BoxWithConstraints(Modifier.fillMaxWidth().padding(top = 24.dp)) {
+                    val style = MaterialTheme.typography.displayMedium
+                    val measurer = rememberTextMeasurer()
+                    val width = measurer.measure("Equalizer", style = style).size.width.coerceAtLeast(1)
+                    val scale = (constraints.maxWidth.toFloat() / width).coerceAtMost(1f)
+                    Text("Equalizer", style = style.copy(fontSize = style.fontSize * scale,
+                        lineHeight = style.lineHeight * scale), maxLines = 1, softWrap = false)
+                }
                 Text(scopeLabel, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -115,10 +123,10 @@ internal fun EqualizerScreen(back: () -> Unit, songTitle: String?, songContext: 
                             Text("±12 dB", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Spacer(Modifier.height(12.dp))
-                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                            listOf("Bass & mids", "Treble").forEachIndexed { index, label ->
-                                SegmentedButton(bandPage == index, { bandPage = index },
-                                    shape = SegmentedButtonDefaults.itemShape(index, 2)) { Text(label, maxLines = 1) }
+                        PrimaryTabRow(selectedTabIndex = bandPage, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+                            listOf("31–500 Hz", "1–16 kHz").forEachIndexed { index, label ->
+                                Tab(selected = bandPage == index, onClick = { bandPage = index },
+                                    text = { Text(label, maxLines = 1, softWrap = false) })
                             }
                         }
                         Spacer(Modifier.height(20.dp))
