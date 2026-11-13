@@ -49,3 +49,13 @@ Release assembly and vital lint completed. The combined process was terminated a
 The delivered APK is 28,618,347 bytes, includes three starter tracks, has valid manifest/resources/alignment/ZIP integrity and a certificate matching 0.4.2. A full HTTP GET matched its SHA-256: `08f49436851c687580331f3bcb728f129b0b50d6ea814ccdcb3570c521c726ab`.
 
 Adds ten-band EQ with smoothed double-precision filtering, automatic headroom, dithered integer output, custom presets, song/Bluetooth assignments, output selection, playlist actions, animation feedback, artwork caching and unavailable YouTube Music integration. No ADB-connected device was available; Bluetooth routing/reconnects and listening quality require phone testing.
+
+## Version 0.5.1
+
+Debug lint and all 25 unit tests pass (zero errors, 21 warnings). Four processor integration checks cover initial flush without a configured format, PCM bypass with EQ off, empty buffers, stream transitions and the real Media3 AudioProcessingPipeline. Release assembly/vital lint completed separately with a 1 GB heap.
+
+Now playing uses a non-scrollable adaptive Column, cover tint fading into the normal surface, native seek slider, icon action strip, lyrics placeholder and bottom transport controls. Correct Y translation restores missing Material Symbols. EQ uses native vertical CenteredTrack sliders in two five-band groups; values are outside tracks and single-line. Settings opens default/device EQ without song assignment controls.
+
+Audio guards avoid creating a DSP for an unconfigured format, avoid discarding pending output on empty buffers, and consume PCM during lifecycle transitions. The user's startup playback failure still needs an on-phone regression trial; pipeline unit checks cannot establish its precise hardware/runtime cause. Playback errors now expose Media3's error code and log its cause instead of claiming every error is a missing file.
+
+The APK is 28,636,407 bytes, includes exactly three starter tracks and passes manifest/resource, ZIP/alignment and signing checks with the existing certificate. Full local-server download matched SHA-256 `41797fd74c636689f15047ac934c28843966d2c748c591e61d1c6677fe7c9259`. No ADB device is connected.

@@ -1,4 +1,4 @@
-# Klang 0.4.2 design
+# Klang design
 
 Home opens with My Mix, a compact typographic/artwork composition, followed by albums and recently added tracks. The Home title, device song count, Plugins link, Favorites/Songs shortcut cards and everyday add/shuffle action row are removed. A small settings control is retained. Import actions remain in Library and Settings, or in the empty-library/access state where they are relevant.
 
@@ -10,7 +10,7 @@ Klang design decisions: Roboto Flex display styles are bundled as fixed font ins
 
 Cover colors default on under the new, scoped content preference. They apply to Now playing and album pages; Home, Search, Library, Settings and playlists retain the app palette. The mini player always uses the current cover’s Material palette independently. Palette plus MaterialKolor supplies complete HCT schemes and effects-spring color transitions. Dark app surfaces remain near-black and neutral.
 
-Navigation stays inset over full-height content, with trailing list space keeping final rows accessible. Geometry uses fast spatial springs (0.6 damping / 800 stiffness) or slow spatial springs (0.8 / 200); color/opacity uses effects springs (1.0 / 800). Player artwork is capped at 31% of height/320dp. Its wavy seek track keeps native Slider input and accessibility semantics. Wave travel follows Android’s animation setting.
+Navigation stays inset over full-height content, with trailing list space keeping final rows accessible. Geometry uses fast spatial springs (0.6 damping / 800 stiffness) or slow spatial springs (0.8 / 200); color/opacity uses effects springs (1.0 / 800). Now playing allocates its remaining height to artwork and anchors transport controls near the bottom. A native Material slider supplies seeking.
 
 Reference screenshots guide composition, not assets. Artwork comes from the music files. Font, Spotify and Material icon attribution is in the credits. The Spotify placeholder remains disabled in the Plugins page, reachable through Settings. No provider runtime or account connection is implemented. Minimum/target Android is API 36; compilation uses SDK 37.2.
 
@@ -18,6 +18,6 @@ Collection playback controls follow the source of the queue: play becomes pause 
 
 ## Sound controls (0.5)
 
-Now playing groups Playlist, Devices and EQ into three compact tonal action containers. The full equalizer page pairs a prominent curve/preset card with native centered sliders and a single enable switch. Song/headphone assignments stay beneath the sound controls rather than introducing separate editing modes.
+Now playing groups playlist, unavailable lyrics, devices and EQ icons above the seek bar. Artwork colors fade from the top into the normal app surface at the bottom. The full equalizer page pairs a curve/preset card with native vertical centered sliders, in two groups of five, and a single enable switch. Song/headphone assignments stay beneath the sound controls rather than introducing separate editing modes.
 
 Playing rows use a decorative four-bar looping indicator; it is not live audio metering. Favorite taps use a fast expressive spatial spring for scale/rotation, and motion follows the Android animator setting. Choreography amplitudes and the indicator period are app design decisions. Artwork state reuses cached images immediately; separate thumbnail/full-size memory caches and bounded disk storage prevent repeated metadata extraction on scrolling.

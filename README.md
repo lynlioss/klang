@@ -4,7 +4,7 @@ A native Android music player by **Lynli**, written in Kotlin with Jetpack Compo
 
 ## Try it
 
-Install the 0.5.0 test APK on your phone. During this setup session it is available at http://127.0.0.1:8765/klang.apk in the phone browser. Start the tiny download server later with `python3 scripts/serve-apk.py` after copying the APK to `artifacts/Klang-0.5.0.apk`. On first launch, Klang copies its three bundled NCS tracks to **Music/Klang** using Android MediaStore. The tracks are delivered with the APK, so first-run installation works offline. The files are visible to other music apps and remain in your Music folder after uninstalling Klang. Reinstalling the starter pack skips existing completed files.
+Install the 0.5.1 test APK on your phone. During this setup session it is available at http://127.0.0.1:8765/klang.apk in the phone browser. Start the tiny download server later with `python3 scripts/serve-apk.py` after copying the APK to `artifacts/Klang-0.5.1.apk`. On first launch, Klang copies its three bundled NCS tracks to **Music/Klang** using Android MediaStore. The tracks are delivered with the APK, so first-run installation works offline. The files are visible to other music apps and remain in your Music folder after uninstalling Klang. Reinstalling the starter pack skips existing completed files.
 
 Tap **Find my music** to grant music access and scan the rest of your device. You can also use **Add music** to choose audio documents; Klang copies them to Music/Klang, preserving their embedded tags and artwork. The app does not ask for all-files access.
 
@@ -13,13 +13,13 @@ Tap **Find my music** to grant music access and scan the rest of your device. Yo
 - Home with a compact My Mix collage, stretched display typography, albums and recently added music.
 - My Mix automatically includes all local songs, with a larger dedicated playlist page.
 - Saved playlists: create, rename, add/remove songs, reorder and delete in Library → Playlists. Songs can be added from their options menu.
-- Expressive album and playlist pages, a morphing play button, a wavy seek bar, and full-page settings.
+- Expressive album and playlist pages, a morphing play button, a native Expressive seek bar, and full-page settings.
 - Plugins page with unavailable Spotify and YouTube Music integrations.
 - Local library, title/artist/album search, albums, sorting and persistent favorites.
 - MP3, M4A and other audio formats supported by Android/Media3.
 - Embedded artwork and metadata, with immediate memory-cache reuse and persistent, bounded disk thumbnails.
 - Animated playing indicators and spring feedback on favorite buttons.
-- Now playing actions for playlists, Android output selection, and a full equalizer page.
+- A fixed Now playing layout with artwork gradient, icon actions for playlists/Android output/EQ, and an unavailable lyrics action. EQ is also accessible through Settings.
 - Ten-band service-owned EQ with built-in/custom presets, per-song and Bluetooth-route assignments, smooth changes, automatic headroom, and output trim.
 - Background/lock-screen playback, notification controls, audio focus and headphone-unplug pause.
 - Seeking, previous/next, shuffle, repeat, queue, play-next and queue removal.

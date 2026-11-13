@@ -7,7 +7,12 @@ import androidx.media3.common.audio.BaseAudioProcessor
 import java.nio.ByteBuffer
 
 /** Always present in the PCM chain: toggling EQ never needs to rebuild playback. */
-class EqAudioProcessor(private val store: EqStore) : BaseAudioProcessor() {
+class EqAudioProcessor internal constructor(private val snapshot: () -> EqProcessing) : BaseAudioProcessor() {
+    constructor(store: EqStore) : this({
+        val settings = store.settings.value
+        val route = store.runtime.value
+        EqProcessing(settings.enabled, settings.resolve(route.songId, route.deviceId).gains, settings.outputTrimDb)
+    })
     private var dsp: EqDsp? = null
     private var frame = DoubleArray(0)
     private var random = 0x13579BDF
@@ -22,14 +27,22 @@ class EqAudioProcessor(private val store: EqStore) : BaseAudioProcessor() {
         return input
     }
     override fun onFlush(streamMetadata: AudioProcessor.StreamMetadata) {
+        // Media3 also flushes inactive processors before/after stream configuration.
+        if (inputAudioFormat.sampleRate <= 0 || inputAudioFormat.channelCount <= 0) {
+            dsp = null; frame = DoubleArray(0); return
+        }
         dsp = EqDsp(inputAudioFormat.sampleRate, inputAudioFormat.channelCount)
         frame = DoubleArray(inputAudioFormat.channelCount)
     }
     override fun queueInput(inputBuffer: ByteBuffer) {
-        val engine = dsp ?: return
-        val settings = store.settings.value
-        val route = store.runtime.value
-        engine.configure(settings.enabled, settings.resolve(route.songId, route.deviceId).gains, settings.outputTrimDb)
+        if (!inputBuffer.hasRemaining()) return
+        val engine = dsp ?: run {
+            // Preserve audio during lifecycle transitions rather than leaving input unconsumed.
+            val output = replaceOutputBuffer(inputBuffer.remaining())
+            output.put(inputBuffer); output.flip(); return
+        }
+        val settings = snapshot()
+        engine.configure(settings.enabled, settings.gains, settings.trimDb)
         val output = replaceOutputBuffer(inputBuffer.remaining())
         if (engine.isBypassed()) {
             output.put(inputBuffer); output.flip(); return
@@ -49,3 +62,5 @@ class EqAudioProcessor(private val store: EqStore) : BaseAudioProcessor() {
 }
 
 private fun Double.roundToInt() = kotlin.math.round(this).toInt()
+
+internal data class EqProcessing(val enabled: Boolean, val gains: List<Float> = FLAT_GAINS, val trimDb: Float = 0f)

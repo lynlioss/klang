@@ -43,7 +43,7 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 @Composable
-internal fun EqualizerScreen(back: () -> Unit, songTitle: String?) {
+internal fun EqualizerScreen(back: () -> Unit, songTitle: String?, songContext: Boolean = true) {
     BackHandler { back() }
     val context = LocalContext.current
     fun hasBluetoothAccess() = listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN).all {
@@ -56,12 +56,15 @@ internal fun EqualizerScreen(back: () -> Unit, songTitle: String?) {
     val store = rememberEqStore()
     val settings by store.settings.collectAsStateWithLifecycle()
     val route by store.runtime.collectAsStateWithLifecycle()
-    val curve = settings.resolve(route.songId, route.deviceId)
+    val activeSong = if (songContext) route.songId else null
+    val curve = settings.resolve(activeSong, route.deviceId)
+    fun edit(curve: EqCurve) = store.update { it.editActive(activeSong, route.deviceId, curve) }
     val presets = BUILTIN_PRESETS + settings.presets
     val name = presets.find { it.id == curve.presetId }?.name ?: if (curve.gains == FLAT_GAINS) "Flat" else "Custom"
     var save by rememberSaveable { mutableStateOf(false) }
     var manage by rememberSaveable { mutableStateOf(false) }
-    val songAssigned = route.songId in settings.songCurves
+    var bandPage by rememberSaveable { mutableIntStateOf(0) }
+    val songAssigned = songContext && route.songId in settings.songCurves
     val deviceAssigned = route.deviceId in settings.deviceCurves
     val scopeLabel = when { songAssigned -> songTitle ?: "This song"; deviceAssigned -> route.deviceName; else -> "Default sound" }
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
@@ -74,7 +77,7 @@ internal fun EqualizerScreen(back: () -> Unit, songTitle: String?) {
                     Switch(settings.enabled, { value -> store.update { it.copy(enabled = value) } },
                         modifier = Modifier.semantics { contentDescription = "Enable equalizer" })
                 }
-                Text("Equalizer", Modifier.padding(top = 24.dp), style = MaterialTheme.typography.displaySmall)
+                Text("Equalizer", Modifier.padding(top = 24.dp), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                 Text(scopeLabel, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -82,11 +85,10 @@ internal fun EqualizerScreen(back: () -> Unit, songTitle: String?) {
                 Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
                     Column(Modifier.fillMaxWidth().padding(20.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            AnimatedContent(name, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "EQ preset") {
+                            AnimatedContent(name, modifier = Modifier.weight(1f).padding(end = 12.dp), transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "EQ preset") {
                                 Text(it, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                            Spacer(Modifier.weight(1f))
                             Text(if (settings.enabled) "ON" else "BYPASS", style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer)
                         }
@@ -97,7 +99,7 @@ internal fun EqualizerScreen(back: () -> Unit, songTitle: String?) {
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(presets, key = { it.id }) { preset ->
-                        FilterChip(curve.presetId == preset.id, { store.editCurve(preset.curve()) }, label = { Text(preset.name) })
+                        FilterChip(curve.presetId == preset.id, { edit(preset.curve()) }, label = { Text(preset.name) })
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -108,35 +110,58 @@ internal fun EqualizerScreen(back: () -> Unit, songTitle: String?) {
             item {
                 Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                        EQ_FREQUENCIES.forEachIndexed { index, frequency ->
-                            val value = curve.gains[index]
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(frequencyLabel(frequency), Modifier.width(52.dp), style = MaterialTheme.typography.labelLarge)
-                                CenteredSlider(value, { store.editCurve(curve.withBand(index, it)) },
-                                    Modifier.weight(1f).semantics { contentDescription = "${frequencyLabel(frequency)} gain in decibels" })
-                                Text(dbLabel(value), Modifier.width(44.dp), style = MaterialTheme.typography.labelLarge)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("Tone", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text("±12 dB", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                            listOf("Bass & mids", "Treble").forEachIndexed { index, label ->
+                                SegmentedButton(bandPage == index, { bandPage = index },
+                                    shape = SegmentedButtonDefaults.itemShape(index, 2)) { Text(label, maxLines = 1) }
                             }
                         }
+                        Spacer(Modifier.height(20.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                            for (index in bandPage * 5 until bandPage * 5 + 5) {
+                                val frequency = EQ_FREQUENCIES[index]
+                                val value = curve.gains[index]
+                                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(gainLabel(value), style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
+                                    val slider = remember(index) { SliderState(trackRange = -12f..12f) }
+                                    slider.value = value
+                                    VerticalSlider(state = slider, topToBottom = false,
+                                        onValueChange = { edit(curve.withBand(index, (it * 2).roundToInt() / 2f)) },
+                                        modifier = Modifier.height(208.dp).semantics {
+                                            contentDescription = "${frequencyLabel(frequency)}, gain in decibels"
+                                        }, track = { SliderDefaults.CenteredTrack(sliderState = it) })
+                                    Text(frequencyLabel(frequency).removeSuffix(" Hz"), style = MaterialTheme.typography.labelMedium,
+                                        maxLines = 1, softWrap = false)
+                                }
+                            }
+                        }
+                        Text("Hz", Modifier.fillMaxWidth().padding(top = 8.dp), style = MaterialTheme.typography.labelSmall,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            TextButton({ store.editCurve(EqCurve()) }) { Text("Reset to flat") }
+                            TextButton({ edit(EqCurve()) }) { Text("Reset to flat") }
                         }
                     }
                 }
             }
             item {
                 Text("Remember this sound", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text("Song presets take priority over headphones. Everything else uses your default.",
+                Text(if (songContext) "Song presets take priority over headphones. Everything else uses your default." else "Connected headphones can use their own preset. Everything else uses your default.",
                     Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(12.dp))
                 Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        AssignmentRow("This song", songTitle ?: "Play a song to save its sound", songAssigned, route.songId != null) { checked ->
+                        if (songContext) AssignmentRow("This song", songTitle ?: "Play a song to save its sound", songAssigned, route.songId != null) { checked ->
                             route.songId?.let { id -> store.update {
                                 it.copy(songCurves = if (checked) it.songCurves + (id to curve) else it.songCurves - id)
                             } }
                         }
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        if (songContext) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         if (!bluetoothAccess) {
                             Text("Allow nearby devices to remember a different sound for each pair of headphones.",
                                 Modifier.padding(top = 12.dp), style = MaterialTheme.typography.bodyMedium)
@@ -160,12 +185,15 @@ internal fun EqualizerScreen(back: () -> Unit, songTitle: String?) {
                         Text("Automatic headroom protects boosted frequencies. Lower the output further if your headphones need it.",
                             Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Level", style = MaterialTheme.typography.labelLarge)
+                            Text(dbLabel(settings.outputTrimDb), style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false)
+                        }
+                        run {
                             val trimSlider = remember { SliderState(trackRange = -12f..0f) }
                             trimSlider.value = settings.outputTrimDb
                             Slider(state = trimSlider, onValueChange = { value -> store.update { it.copy(outputTrimDb = value) } },
-                                modifier = Modifier.weight(1f).semantics { contentDescription = "Output trim in decibels" })
-                            Text(dbLabel(settings.outputTrimDb), Modifier.width(48.dp), style = MaterialTheme.typography.labelLarge)
+                                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Output trim in decibels" })
                         }
                     }
                 }
@@ -175,7 +203,7 @@ internal fun EqualizerScreen(back: () -> Unit, songTitle: String?) {
     if (save) PresetNameDialog({ save = false }) { entered ->
         val preset = settings.savePreset(entered, curve)
         store.update { it.copy(presets = it.presets + preset) }
-        store.editCurve(preset.curve()); save = false
+        edit(preset.curve()); save = false
     }
     if (manage) AlertDialog(onDismissRequest = { manage = false }, title = { Text("Your presets") }, text = {
         LazyColumn(Modifier.heightIn(max = 360.dp)) {
@@ -213,24 +241,6 @@ private fun AssignmentRow(title: String, subtitle: String, checked: Boolean, ena
 }
 
 @Composable
-private fun CenteredSlider(value: Float, change: (Float) -> Unit, modifier: Modifier) {
-    val slider = remember { SliderState(trackRange = -12f..12f) }
-    slider.value = value
-    val primary = MaterialTheme.colorScheme.primary
-    val inactive = MaterialTheme.colorScheme.surfaceContainerHighest
-    Slider(state = slider, onValueChange = { change((it * 2).roundToInt() / 2f) }, modifier = modifier,
-        track = { state ->
-            Canvas(Modifier.fillMaxWidth().height(16.dp)) {
-                val middle = size.width / 2
-                val end = size.width * ((state.value + 12) / 24)
-                drawLine(inactive, Offset(0f, size.height / 2), Offset(size.width, size.height / 2), 12.dp.toPx(), StrokeCap.Round)
-                drawLine(primary, Offset(middle, size.height / 2), Offset(end, size.height / 2), 12.dp.toPx(), StrokeCap.Round)
-                drawCircle(primary, 2.dp.toPx(), Offset(middle, size.height / 2))
-            }
-        })
-}
-
-@Composable
 private fun EqCurvePreview(curve: EqCurve, modifier: Modifier) {
     val values = curve.gains.map { animateFloatAsState(it, spring(1f, 1600f), label = "EQ curve").value }
     val ink = MaterialTheme.colorScheme.onSecondaryContainer
@@ -258,3 +268,5 @@ private fun PresetNameDialog(dismiss: () -> Unit, save: (String) -> Unit) {
 }
 private fun frequencyLabel(hz: Double) = if (hz >= 1000) "${(hz / 1000).roundToInt()}k Hz" else "${hz.roundToInt()} Hz"
 private fun dbLabel(value: Float): String = (if (value > 0) "+" else "") + String.format(Locale.ROOT, "%.1f", value) + " dB"
+
+private fun gainLabel(value: Float) = (if (value > 0) "+" else "") + String.format(Locale.ROOT, "%.1f", value)

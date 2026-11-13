@@ -57,7 +57,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         SessionToken(application, ComponentName(application, PlaybackService::class.java))).buildAsync()
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) { syncPlayer() }
-        override fun onPlayerError(error: PlaybackException) { message("Couldn't play this file. Check that it is still on your phone.") }
+        override fun onPlayerError(error: PlaybackException) {
+            android.util.Log.e("KlangPlayback", "Playback failed: ${error.errorCodeName}", error)
+            message("Playback failed (${error.errorCodeName}). Try playing again.")
+        }
     }
     init {
         future.addListener({

@@ -17,3 +17,5 @@ The Plugins settings row uses the rounded [Material Symbol Extension](https://gi
 The YouTube Music mark comes from [Simple Icons](https://github.com/simple-icons/simple-icons/blob/develop/icons/youtubemusic.svg), under CC0, converted to a VectorDrawable. The trademark belongs to YouTube/Google and identifies an unavailable integration.
 
 Output and equalizer actions use rounded Material Symbols [Speaker Group](https://github.com/google/material-design-icons/blob/master/symbols/web/speaker_group/materialsymbolsrounded/speaker_group_24px.svg) and [Tune](https://github.com/google/material-design-icons/blob/master/symbols/web/tune/materialsymbolsrounded/tune_24px.svg), under Apache 2.0.
+
+Player actions also use Material Symbols rounded [Lyrics](https://github.com/google/material-design-icons/blob/master/symbols/web/lyrics/materialsymbolsrounded/lyrics_24px.svg) and [Playlist Add](https://github.com/google/material-design-icons/blob/master/symbols/web/playlist_add/materialsymbolsrounded/playlist_add_24px.svg), under Apache 2.0. Material Symbols use a negative Y view box; their VectorDrawables translate paths into the positive viewport.
