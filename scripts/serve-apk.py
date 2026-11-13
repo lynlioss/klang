@@ -4,7 +4,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 import shutil
 
-APK = Path(__file__).resolve().parents[1] / 'artifacts' / 'Klang-0.4.0.apk'
+APK = Path(__file__).resolve().parents[1] / 'artifacts' / 'Klang-0.4.1.apk'
 
 class Download(BaseHTTPRequestHandler):
     def serve(self, body=True):

@@ -6,6 +6,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.animation.*
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -122,7 +125,7 @@ private fun MixHero(collection: MusicCollection, state: MusicState, model: Music
             }
             Box(Modifier.align(if (compact) Alignment.BottomStart else Alignment.TopEnd)
                 .padding(start = if (compact) 88.dp else 0.dp, top = if (compact) 0.dp else 36.dp, bottom = if (compact) 4.dp else 0.dp)) {
-                ExpressivePlay(false, { model.play(collection.tracks) }, if (compact) 60.dp else 96.dp,
+                ExpressivePlay(state.playing && state.containsCurrent(collection.tracks), { model.playOrToggle(collection.tracks) }, if (compact) 60.dp else 96.dp,
                     state.connected && collection.tracks.isNotEmpty())
             }
         }
@@ -148,13 +151,24 @@ internal fun CollectionScreen(collection: MusicCollection, state: MusicState, mo
     var rename by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
     var adding by rememberSaveable(collection.id) { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    val currentId = state.current?.id
+    val activeRowVisible by remember(currentId, listState) {
+        derivedStateOf {
+            val layout = listState.layoutInfo
+            currentId != null && layout.visibleItemsInfo.any { item ->
+                item.key == currentId && controlsAreVisible(item.offset, item.size,
+                    layout.viewportStartOffset, layout.viewportEndOffset)
+            }
+        }
+    }
     BackHandler(adding) { adding = false }
     ContentTheme(state.coverColor && collection.album, collection.tracks.firstOrNull()) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
             Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp,
+                LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(start = 24.dp, end = 24.dp,
                     bottom = if (state.current != null) 112.dp else 24.dp)) {
-                    item {
+                    item(key = "collection-header") {
                         Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                             UtilityIconButton(back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
                             Spacer(Modifier.weight(1f))
@@ -186,20 +200,26 @@ internal fun CollectionScreen(collection: MusicCollection, state: MusicState, mo
                                 enabled = state.connected && collection.tracks.isNotEmpty()) { Icon(Icons.Rounded.Shuffle, "Shuffle collection") }
                             if (!collection.mix) {
                                 Spacer(Modifier.width(12.dp))
-                                ExpressivePlay(false, { model.play(collection.tracks) }, 72.dp, state.connected && collection.tracks.isNotEmpty())
+                                ExpressivePlay(state.playing && state.containsCurrent(collection.tracks), { model.playOrToggle(collection.tracks) }, 72.dp, state.connected && collection.tracks.isNotEmpty())
                             }
                         }
                     }
                     items(collection.tracks, key = { it.id }) { track ->
                         if (collection.editableId != null) PlaylistTrackRow(track, collection.tracks.indexOf(track), collection,
-                            state, model, Modifier.animateItem())
-                        else TrackRow(track, state, model, { model.play(collection.tracks, collection.tracks.indexOf(track)) }, Modifier.animateItem())
+                            state, model, Modifier.animateItem(), player)
+                        else TrackRow(track, state, model, {
+                            if (state.current?.id == track.id) player()
+                            else model.play(collection.tracks, collection.tracks.indexOf(track))
+                        }, Modifier.animateItem(), playbackControls = true)
                     }
                     if (collection.tracks.isEmpty()) item { EmptyState("No songs yet",
                         if (collection.favorites) "Save songs with the heart to build this playlist." else if (collection.mix) "Your music will appear here." else "Add songs to your playlist.") }
                 }
-                if (state.current != null) Box(Modifier.align(Alignment.BottomCenter).widthIn(max = 520.dp).padding(16.dp)) {
-                    MiniPlayer(state, model, player)
+                AnimatedVisibility(state.current != null && !activeRowVisible,
+                    modifier = Modifier.align(Alignment.BottomCenter).widthIn(max = 520.dp),
+                    enter = slideInVertically(spring(0.8f, 200f)) { it } + fadeIn(spring(1f, 800f)),
+                    exit = slideOutVertically(spring(0.8f, 200f)) { it } + fadeOut(spring(1f, 800f))) {
+                    Box(Modifier.padding(16.dp)) { MiniPlayer(state, model, player) }
                 }
             }
         }

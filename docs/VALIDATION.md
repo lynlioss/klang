@@ -25,3 +25,11 @@ The resource optimization workaround is now verified through a full source build
 The delivered APK is 28,550,448 bytes (28.6 decimal MB), with complete manifest/resources, three starter tracks, aligned entries, valid ZIP checksums, and a verified APK signature matching 0.3.0. SHA-256: `c6d66ad01668e656575946e232e1717bdb78047f58eb6bc150bad05f6a7f03c1`. The HTTP endpoint returns the correct APK name/size.
 
 My Mix, editable playlists, neutral utility controls and scoped cover themes compile successfully. The font instances are static weight-900 Roboto Flex with all variation axes resolved. No ADB device is attached; layout, touch interaction, and playlist workflows still need an on-phone trial.
+
+## Version 0.4.1
+
+The source build completed `assembleRelease lintDebug testDebugUnitTest --max-workers=1`. All ten focused tests passed; three new viewport tests cover visible, clipped, offscreen and resized active rows. Debug lint reports 0 errors.
+
+The APK is 28,550,448 bytes (28.6 MB), verified for manifest/resources, ZIP integrity, three starter tracks, alignment and a signing certificate matching 0.4.0. Download response size and SHA-256 are checked. SHA-256: `99082aa9e3e449d4f11380108e08fcfc67b2221657e3f59971fb1a0b500fad16`.
+
+Collection buttons now pause/resume matching current songs without replacing the queue or resetting position. Active album/playlist entries provide playback/favorite controls, replacing the dock while onscreen; the dock returns with spatial/effects springs on scrolling away. Mini players include favorites. Physical scrolling, animation, playback and touch behavior still require the on-phone trial; no ADB device is connected.

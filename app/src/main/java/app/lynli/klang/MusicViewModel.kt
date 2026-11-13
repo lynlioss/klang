@@ -32,7 +32,9 @@ data class MusicState(
     val favorites: Set<String> = emptySet(), val message: String? = null,
     val playlists: List<SavedPlaylist> = emptyList(),
     val coverColor: Boolean = true, val dynamicColor: Boolean = false, val theme: String = "system", val sleepMinutes: Int = 0,
-)
+) {
+    fun containsCurrent(tracks: List<Track>): Boolean = current?.id?.let { id -> tracks.any { it.id == id } } == true
+}
 
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = MusicRepository(application)
@@ -103,6 +105,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         player.setMediaItems(tracks.map { it.mediaItem() }, index.coerceIn(tracks.indices), 0)
         player.shuffleModeEnabled = shuffled
         player.prepare(); player.play(); syncPlayer()
+    }
+    /** Resume/pause a matching collection without replacing the queue or resetting the position. */
+    fun playOrToggle(tracks: List<Track>) {
+        if (mutableState.value.containsCurrent(tracks)) togglePlay() else play(tracks)
     }
     fun togglePlay() {
         controller?.let { if (it.isPlaying) it.pause() else { if (it.playbackState == Player.STATE_IDLE) it.prepare(); if (it.playbackState == Player.STATE_ENDED) it.seekToDefaultPosition(); it.play() } }

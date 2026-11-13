@@ -1,4 +1,4 @@
-# Klang 0.4 design
+# Klang 0.4.1 design
 
 Home opens with My Mix, a compact typographic/artwork composition, followed by albums and recently added tracks. The Home title, device song count, Plugins link, Favorites/Songs shortcut cards and everyday add/shuffle action row are removed. A small settings control is retained. Import actions remain in Library and Settings, or in the empty-library/access state where they are relevant.
 
@@ -13,3 +13,5 @@ Cover colors default on under the new, scoped content preference. They apply to 
 Navigation stays inset over full-height content, with trailing list space keeping final rows accessible. Geometry uses fast spatial springs (0.6 damping / 800 stiffness) or slow spatial springs (0.8 / 200); color/opacity uses effects springs (1.0 / 800). Player artwork is capped at 31% of height/320dp. Its wavy seek track keeps native Slider input and accessibility semantics. Wave travel follows Android’s animation setting.
 
 Reference screenshots guide composition, not assets. Artwork comes from the music files. Font, Spotify and Material icon attribution is in the credits. The Spotify placeholder remains disabled in the Plugins page, reachable through Settings. No provider runtime or account connection is implemented. Minimum/target Android is API 36; compilation uses SDK 37.2.
+
+Collection playback controls follow the current song: play becomes pause when playing a member of the collection, and resumes at the existing position when paused. The active album/playlist row gains play/pause and heart controls. A LazyListState viewport check hides the floating mini player while the central control area of that row is visible. The dock slides/fades back using slow spatial/effects springs when those controls scroll out of view. List bottom padding stays constant so dock visibility cannot oscillate by changing the viewport. Active-row artwork/title opens Now playing. The mini player gains the same persistent favorite toggle.

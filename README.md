@@ -4,7 +4,7 @@ A native Android music player by **Lynli**, written in Kotlin with Jetpack Compo
 
 ## Try it
 
-Install the 0.4.0 test APK on your phone. During this setup session it is available at http://127.0.0.1:8765/klang.apk in the phone browser. Start the tiny download server later with `python3 scripts/serve-apk.py` after copying the APK to `artifacts/Klang-0.4.0.apk`. On first launch, Klang copies its three bundled NCS tracks to **Music/Klang** using Android MediaStore. The tracks are delivered with the APK, so first-run installation works offline. The files are visible to other music apps and remain in your Music folder after uninstalling Klang. Reinstalling the starter pack skips existing completed files.
+Install the 0.4.1 test APK on your phone. During this setup session it is available at http://127.0.0.1:8765/klang.apk in the phone browser. Start the tiny download server later with `python3 scripts/serve-apk.py` after copying the APK to `artifacts/Klang-0.4.1.apk`. On first launch, Klang copies its three bundled NCS tracks to **Music/Klang** using Android MediaStore. The tracks are delivered with the APK, so first-run installation works offline. The files are visible to other music apps and remain in your Music folder after uninstalling Klang. Reinstalling the starter pack skips existing completed files.
 
 Tap **Find my music** to grant music access and scan the rest of your device. You can also use **Add music** to choose audio documents; Klang copies them to Music/Klang, preserving their embedded tags and artwork. The app does not ask for all-files access.
 
@@ -20,6 +20,8 @@ Tap **Find my music** to grant music access and scan the rest of your device. Yo
 - Embedded artwork and metadata, fallback art for untagged tracks.
 - Background/lock-screen playback, notification controls, audio focus and headphone-unplug pause.
 - Seeking, previous/next, shuffle, repeat, queue, play-next and queue removal.
+- Collection play buttons pause/resume when the current song belongs to that collection, preserving queue and position.
+- Active album/playlist rows offer play/pause and favorites. Their mini player hides when row controls are visible and returns with an expressive spring when scrolled offscreen. The mini player also includes a favorite control.
 - Queue/position restoration after reopening; playback resumes paused.
 - System theme by default, with light/dark overrides. Cover colors default on and apply only to Now playing and album pages. Home, Search, Library and Settings stay neutral; wallpaper colors remain optional. The mini player always follows the current cover.
 - Sleep timer (15/30/60 minutes), cancelled if the app process closes.

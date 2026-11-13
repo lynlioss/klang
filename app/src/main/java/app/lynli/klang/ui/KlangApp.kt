@@ -319,7 +319,7 @@ internal fun EmptyLibrary(import: () -> Unit, starter: () -> Unit) {
 }
 
 @Composable
-internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, play: () -> Unit, modifier: Modifier = Modifier) {
+internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, play: () -> Unit, modifier: Modifier = Modifier, playbackControls: Boolean = false) {
     var menu by remember { mutableStateOf(false) }
     var addToPlaylist by remember { mutableStateOf(false) }
     val active = state.current?.id == track.id
@@ -335,7 +335,8 @@ internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, pl
                 Text(track.artist, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     color = if (active) content else MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (active && state.playing) Icon(Icons.Rounded.GraphicEq, "Playing", tint = content, modifier = Modifier.size(20.dp))
+            if (active && playbackControls) ActiveTrackControls(track, state, model, content)
+            else if (active && state.playing) Icon(Icons.Rounded.GraphicEq, "Playing", tint = content, modifier = Modifier.size(20.dp))
             else Text(time(track.durationMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Box {
                 IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Options for ${track.title}") }
@@ -368,6 +369,7 @@ internal fun MiniPlayer(state: MusicState, model: MusicViewModel, expand: () -> 
                     Text(track.title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(track.artist, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1)
                 }
+                FavoriteButton(track, state, model, MaterialTheme.colorScheme.onPrimaryContainer)
                 IconButton(model::togglePlay) { Icon(if (state.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                     if (state.playing) "Pause" else "Play", tint = MaterialTheme.colorScheme.onPrimaryContainer) }
                 IconButton(model::next, enabled = state.queue.size > 1) { Icon(Icons.Rounded.SkipNext, "Next", tint = MaterialTheme.colorScheme.onPrimaryContainer) }
@@ -564,7 +566,7 @@ private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission:
                 Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.fillMaxWidth().padding(20.dp)) {
                         Text("Klang", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text("0.4.0 · Created by Lynli", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium)
+                        Text("0.4.1 · Created by Lynli", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium)
                         Text("Music by HESTER, gabriawll and 2frers. Released by NoCopyrightSounds.", Modifier.padding(top = 12.dp),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }

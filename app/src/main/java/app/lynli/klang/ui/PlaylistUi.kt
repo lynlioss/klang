@@ -95,12 +95,14 @@ internal fun PlaylistTrackPicker(collection: MusicCollection, state: MusicState,
 
 @Composable
 internal fun PlaylistTrackRow(track: Track, index: Int, collection: MusicCollection, state: MusicState,
-    model: MusicViewModel, modifier: Modifier = Modifier) {
+    model: MusicViewModel, modifier: Modifier = Modifier, openPlayer: () -> Unit = {}) {
     var menu by remember { mutableStateOf(false) }
     Surface(modifier.fillMaxWidth().padding(bottom = 4.dp), shape = RoundedCornerShape(16.dp),
         color = if (state.current?.id == track.id) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainerLow) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Row(Modifier.weight(1f).clickable { model.play(collection.tracks, index) }.padding(10.dp),
+            Row(Modifier.weight(1f).clickable {
+                if (state.current?.id == track.id) openPlayer() else model.play(collection.tracks, index)
+            }.padding(10.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Artwork(track, Modifier.size(52.dp).clip(RoundedCornerShape(12.dp)))
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
@@ -109,6 +111,7 @@ internal fun PlaylistTrackRow(track: Track, index: Int, collection: MusicCollect
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            if (state.current?.id == track.id) ActiveTrackControls(track, state, model, MaterialTheme.colorScheme.onSurface)
             Box {
                 IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Options for ${track.title}") }
                 DropdownMenu(menu, { menu = false }) {
