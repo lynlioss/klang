@@ -336,7 +336,7 @@ internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, pl
                     color = if (active) content else MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (active && playbackControls) ActiveTrackControls(track, state, model, content)
-            else if (active && state.playing) Icon(Icons.Rounded.GraphicEq, "Playing", tint = content, modifier = Modifier.size(20.dp))
+            else if (active && state.playing) PlayingIndicator(content)
             else Text(time(track.durationMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Box {
                 IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Options for ${track.title}") }
@@ -400,6 +400,15 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surfaceContainerLow) {
     val track = state.current ?: return@Surface
     var queue by rememberSaveable { mutableStateOf(false) }
+    var equalizer by rememberSaveable { mutableStateOf(false) }
+    var addPlaylist by remember { mutableStateOf(false) }
+    var devices by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val eqStore = rememberEqStore()
+    val output by eqStore.runtime.collectAsState()
+    if (equalizer) { EqualizerScreen({ equalizer = false }, track.title); return@Surface }
+    if (addPlaylist) AddToPlaylistDialog(track, state, model) { addPlaylist = false }
+    if (devices) OutputDevicesDialog { devices = false }
     BackHandler(queue) { queue = false }
     BoxWithConstraints(Modifier.fillMaxSize().then(if (compact) Modifier else Modifier.statusBarsPadding().navigationBarsPadding())) {
         val artworkSize = minOf(maxWidth - 72.dp, maxHeight * 0.31f, 320.dp).coerceAtLeast(120.dp)
@@ -417,7 +426,7 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
                         (fadeIn(Effects) + scaleIn(SlowSpatial, initialScale = 0.92f)) togetherWith fadeOut(Effects)
                     }, label = "Cover transition") { id ->
                         val shown = state.tracks.find { it.id == id } ?: track
-                        Artwork(shown, Modifier.size(artworkSize).clip(RoundedCornerShape(32.dp)), "${shown.title} cover")
+                        Artwork(shown, Modifier.size(artworkSize).clip(RoundedCornerShape(32.dp)), "${shown.title} cover", large = true)
                     }
                     Spacer(Modifier.height(24.dp))
                     Text(track.title, Modifier.fillMaxWidth(), style = MaterialTheme.typography.headlineSmall,
@@ -444,16 +453,39 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
                             ModeButton(state.shuffle, Icons.Rounded.Shuffle, "Shuffle", model::shuffle)
                             ModeButton(state.repeat != Player.REPEAT_MODE_OFF, if (state.repeat == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
                                 "Repeat ${when(state.repeat) { Player.REPEAT_MODE_ONE -> "one"; Player.REPEAT_MODE_ALL -> "all"; else -> "off" }}", model::repeat)
-                            ModeButton(track.id in state.favorites, if (track.id in state.favorites) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                                if (track.id in state.favorites) "Remove favorite" else "Add favorite", { model.favorite(track) })
+                            FavoriteButton(track, state, model, MaterialTheme.colorScheme.onSurface, Modifier.width(72.dp).height(48.dp))
                         }
                     }
+                    Spacer(Modifier.height(16.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PlayerAction("Playlist", Modifier.weight(1f), { addPlaylist = true }) { Icon(Icons.Rounded.Add, null) }
+                        PlayerAction("Devices", Modifier.weight(1f), {
+                            val router = android.media.MediaRouter2.getInstance(context)
+                            if (!runCatching { router.showSystemOutputSwitcher() }.getOrDefault(false)) devices = true
+                        }) { Icon(androidx.compose.ui.res.painterResource(R.drawable.audio_output), null) }
+                        PlayerAction("EQ", Modifier.weight(1f), { equalizer = true }) {
+                            Icon(androidx.compose.ui.res.painterResource(R.drawable.equalizer), null)
+                        }
+                    }
+                    Text(output.deviceName, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.height(16.dp))
                 }
             }
         }
     }
     }
+    }
+}
+
+@Composable
+private fun PlayerAction(label: String, modifier: Modifier, click: () -> Unit, icon: @Composable () -> Unit) {
+    Surface(click, modifier, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+        Column(Modifier.padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            icon()
+            Text(label, style = MaterialTheme.typography.labelLarge)
+        }
     }
 }
 

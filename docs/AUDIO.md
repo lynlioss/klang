@@ -1,0 +1,13 @@
+# Audio processing
+
+Klang uses a ten-band graphic equalizer in Media3's PCM playback pipeline. Its octave-spaced peaking biquads use RBJ coefficients, double-precision intermediates and independent delay states per channel. Each device uses the source sample rate without app-level resampling. Bands above Nyquist are bypassed. Each band covers −12 to +12 dB.
+
+Gain edits ramp over 25 ms. Stable gain values are interpolated, with filter coefficients refreshed every 32 frames during an edit. Audio buffers and channel workspaces are reused. Flat/disabled processing returns to an exact sample bypass after the ramp. The combined filter response is sampled on a logarithmic grid to set automatic headroom, with an extra 1 dB margin; output trim adds up to 12 dB attenuation. A final clamp protects the integer output boundary. TPDF dither is applied at the final 16-bit quantization boundary only while EQ is active. Boosts may therefore lower overall loudness.
+
+The output is Android-compatible 16-bit PCM. High-resolution inputs are converted by Media3 before this processor. This release does not promise bit-perfect high-resolution output. Hardware offload and compressed passthrough are disabled to prevent devices from skipping the EQ. Android controls the Bluetooth codec and physical output sample rate. There are no invented phone-model tuning profiles: headphone-specific curve assignments and output trim are the practical controls.
+
+A song assignment overrides a Bluetooth-route assignment, which overrides the default curve. Each assignment retains its own editable curve; saved custom presets are reusable snapshots. Deleting a saved preset keeps the assigned sound and removes its label. The selected system route supplies the Bluetooth identity. Android requires Nearby devices (Bluetooth connect/scan) access to expose distinct system routes; the EQ page requests this only when enabling headphone presets. Discovery remains passive. Route identifiers depend on Android/OEM routing providers; reconnect behavior must be checked on the target phone.
+
+The Devices action opens Android's native output switcher, with a route-list fallback on OEMs without it. Bluetooth, wired, USB and any system-provided routes are managed by Android. Klang does not yet include a Google Cast receiver/provider or a server for local-file casting.
+
+Unit checks cover response at several sample rates, stereo isolation, stable extreme settings/rapid edits, exact bypass, persisted settings validation and assignment precedence. Physical output routing, battery use, subjective audio quality and headphone reconnects still require device testing.

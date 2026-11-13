@@ -11,8 +11,8 @@ android {
         applicationId = "app.lynli.klang"
         minSdk = 36
         targetSdk = 36
-        versionCode = 6
-        versionName = "0.4.2"
+        versionCode = 7
+        versionName = "0.5.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildTypes {

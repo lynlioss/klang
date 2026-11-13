@@ -117,7 +117,7 @@ private fun MixHero(collection: MusicCollection, state: MusicState, model: Music
                 val artWidth = if (compact) availableWidth * (if (narrow) 0.41f else 0.46f) else availableWidth * 0.63f
                 Artwork(first, Modifier.align(if (compact) Alignment.CenterEnd else Alignment.BottomCenter)
                     .padding(end = if (compact) 8.dp else 0.dp, bottom = if (compact) 0.dp else 8.dp)
-                    .width(artWidth).height(if (compact) 148.dp else 248.dp).rotate(20f).clip(RoundedCornerShape(50)))
+                    .width(artWidth).height(if (compact) 148.dp else 248.dp).rotate(20f).clip(RoundedCornerShape(50)), large = true)
                 Artwork(second, Modifier.align(Alignment.BottomStart).padding(start = if (compact) 16.dp else 0.dp,
                     bottom = if (compact) 4.dp else 124.dp).size(if (compact) 52.dp else 84.dp).clip(CircleShape))
                 Artwork(third, Modifier.align(Alignment.BottomEnd).padding(end = if (compact) 12.dp else 0.dp,
@@ -136,7 +136,7 @@ private fun MixHero(collection: MusicCollection, state: MusicState, model: Music
 private fun AlbumCard(album: MusicCollection, click: () -> Unit) {
     Column(Modifier.width(172.dp).clip(RoundedCornerShape(16.dp)).clickable(role = Role.Button,
         onClickLabel = "Open ${album.title}", onClick = click)) {
-        Artwork(album.tracks.first(), Modifier.size(172.dp).clip(RoundedCornerShape(28.dp)))
+        Artwork(album.tracks.first(), Modifier.size(172.dp).clip(RoundedCornerShape(28.dp)), large = true)
         Text(album.title, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(album.subtitle, Modifier.padding(top = 4.dp, bottom = 8.dp), style = MaterialTheme.typography.bodyMedium,
@@ -241,10 +241,10 @@ private fun CollectionArtwork(collection: MusicCollection) {
     BoxWithConstraints(Modifier.fillMaxWidth().height(252.dp), contentAlignment = Alignment.Center) {
         if (collection.favorites && collection.tracks.size > 1) {
             Artwork(collection.tracks.last(), Modifier.align(Alignment.TopStart).size(88.dp).clip(CircleShape))
-            Artwork(collection.tracks.first(), Modifier.width(maxWidth * 0.62f).height(224.dp).rotate(14f).clip(RoundedCornerShape(50)))
+            Artwork(collection.tracks.first(), Modifier.width(maxWidth * 0.62f).height(224.dp).rotate(14f).clip(RoundedCornerShape(50)), large = true)
             Artwork(collection.tracks[1], Modifier.align(Alignment.BottomEnd).size(92.dp).clip(RoundedCornerShape(28.dp)))
         } else if (collection.tracks.isNotEmpty()) {
-            Artwork(collection.tracks.first(), Modifier.size(244.dp).clip(RoundedCornerShape(48.dp)))
+            Artwork(collection.tracks.first(), Modifier.size(244.dp).clip(RoundedCornerShape(48.dp)), large = true)
         } else {
             Box(Modifier.size(224.dp).clip(RoundedCornerShape(48.dp)).background(MaterialTheme.colorScheme.tertiaryContainer),
                 contentAlignment = Alignment.Center) {
@@ -264,22 +264,17 @@ internal fun PluginsScreen(back: () -> Unit) {
                 Text("Music integrations", style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(24.dp))
-                Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    Column(Modifier.fillMaxWidth().padding(20.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(painterResource(R.drawable.spotify), "Spotify logo", Modifier.size(48.dp), tint = Color.Unspecified)
+                listOf("Spotify" to R.drawable.spotify, "YouTube Music" to R.drawable.youtube_music).forEach { (name, logo) ->
+                    Surface(Modifier.padding(bottom = 12.dp), shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                        Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(painterResource(logo), "$name logo", Modifier.size(48.dp), tint = Color.Unspecified)
                             Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
-                                Text("Spotify", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Text("Disabled", Modifier.padding(top = 4.dp), style = MaterialTheme.typography.labelLarge,
+                                Text(name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                Text("Unavailable", Modifier.padding(top = 4.dp), style = MaterialTheme.typography.labelLarge,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Switch(checked = false, onCheckedChange = null, enabled = false)
                         }
-                        Spacer(Modifier.height(20.dp))
-                        Text("Not implemented yet", style = MaterialTheme.typography.titleMedium)
-                        Text("Spotify support is planned. This plugin will stay unavailable while Klang’s plugin system is being developed.",
-                            Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }

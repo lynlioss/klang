@@ -11,3 +11,9 @@ Spotify’s logo was obtained as an SVG from [Simple Icons](https://github.com/s
 [Roboto Flex from Google Fonts](https://github.com/google/fonts/tree/main/ofl/robotoflex) is used only for display roles, as bundled static instances at weight 900, width 125, and optical sizes 36/45/57 (other axes at their defaults), under the [SIL Open Font License](ROBOTO-FLEX-LICENSE.txt). Smaller type uses the native Android font.
 
 The Plugins settings row uses the rounded [Material Symbol Extension](https://github.com/google/material-design-icons/blob/master/symbols/web/extension/materialsymbolsrounded/extension_24px.svg), under Apache 2.0, converted to an Android vector.
+
+## YouTube Music
+
+The YouTube Music mark comes from [Simple Icons](https://github.com/simple-icons/simple-icons/blob/develop/icons/youtubemusic.svg), under CC0, converted to a VectorDrawable. The trademark belongs to YouTube/Google and identifies an unavailable integration.
+
+Output and equalizer actions use rounded Material Symbols [Speaker Group](https://github.com/google/material-design-icons/blob/master/symbols/web/speaker_group/materialsymbolsrounded/speaker_group_24px.svg) and [Tune](https://github.com/google/material-design-icons/blob/master/symbols/web/tune/materialsymbolsrounded/tune_24px.svg), under Apache 2.0.

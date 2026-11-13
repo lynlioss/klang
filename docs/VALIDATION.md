@@ -41,3 +41,11 @@ The resumed phone build passed `assembleRelease lintDebug testDebugUnitTest --ma
 Playback ownership is stored in Media3 playlist metadata and persisted with the queue. Only the originating album/playlist’s large button pauses/resumes it. Another collection with the same current song shows Play and starts its own queue when pressed. Per-song playback/favorite controls remain available in every collection containing the current song. Existing queues saved by older versions have no source ID until a collection is started again.
 
 The APK is 28,550,448 bytes, requires/targets API 36, and passes manifest/resources, alignment, ZIP and signing checks. Its certificate matches 0.4.1. SHA-256: `1af2920f07da91a408aeb169c2308fa6b7e39753b73e9f84f715a227126c7820`. No ADB device is attached; a phone trial is still needed for the Media3/UI integration.
+
+## Version 0.5.0
+
+Release assembly and vital lint completed. The combined process was terminated after assembly during debug checks under phone memory pressure. Running debug lint and unit checks separately with a 1 GB heap completed successfully: 21 tests pass and lint reports zero errors (21 warnings). Media3 audio-pipeline APIs carry explicit opt-in annotations.
+
+The delivered APK is 28,618,347 bytes, includes three starter tracks, has valid manifest/resources/alignment/ZIP integrity and a certificate matching 0.4.2. A full HTTP GET matched its SHA-256: `08f49436851c687580331f3bcb728f129b0b50d6ea814ccdcb3570c521c726ab`.
+
+Adds ten-band EQ with smoothed double-precision filtering, automatic headroom, dithered integer output, custom presets, song/Bluetooth assignments, output selection, playlist actions, animation feedback, artwork caching and unavailable YouTube Music integration. No ADB-connected device was available; Bluetooth routing/reconnects and listening quality require phone testing.

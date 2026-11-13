@@ -76,7 +76,9 @@ internal fun UtilityIconButton(onClick: () -> Unit, modifier: androidx.compose.u
 @Composable
 internal fun CoverTheme(track: Track, content: @Composable () -> Unit) {
     val context = LocalContext.current
-    val seed by produceState<Int?>(null, track.id) { value = ArtworkStore.seed(context, track) }
+    val seedState = remember(track.id) { mutableStateOf(ArtworkStore.peekSeed(track)) }
+    LaunchedEffect(track.id) { seedState.value = ArtworkStore.seed(context, track) }
+    val seed = seedState.value
     val target = rememberDynamicColorScheme(seedColor = Color(seed ?: 0xFF5075C8.toInt()),
         isDark = LocalKlangDark.current, style = PaletteStyle.Vibrant)
     MaterialTheme(colorScheme = animatedScheme(target), content = content)
