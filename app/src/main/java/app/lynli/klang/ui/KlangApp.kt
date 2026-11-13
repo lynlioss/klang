@@ -103,7 +103,7 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
                 Settings(state, model, onPermission, onImport)
             }
             if (expanded && state.current != null) ModalBottomSheet(onDismissRequest = { expanded = false },
-                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), dragHandle = null,
+                sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)), dragHandle = null,
                 containerColor = MaterialTheme.colorScheme.surface) {
                 PlayerContent(state, model, { expanded = false })
             }
@@ -397,9 +397,11 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
             }
             Spacer(Modifier.height(18.dp))
             Waveform(state.position, state.duration)
-            Slider(value = if (dragging) scrub else state.position.toFloat().coerceAtMost(state.duration.toFloat()),
+            val sliderState = remember(state.duration) { SliderState(trackRange = 0f..state.duration.coerceAtLeast(1).toFloat()) }
+            sliderState.value = if (dragging) scrub else state.position.toFloat().coerceAtMost(state.duration.toFloat())
+            Slider(state = sliderState,
                 onValueChange = { dragging = true; scrub = it }, onValueChangeFinished = { model.seek(scrub.toLong()); dragging = false },
-                valueRange = 0f..state.duration.coerceAtLeast(1).toFloat(), enabled = state.duration > 0,
+                enabled = state.duration > 0,
                 modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Playback position" })
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(time(if (dragging) scrub.toLong() else state.position), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
