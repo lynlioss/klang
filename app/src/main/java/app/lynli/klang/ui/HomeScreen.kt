@@ -125,7 +125,7 @@ private fun MixHero(collection: MusicCollection, state: MusicState, model: Music
             }
             Box(Modifier.align(if (compact) Alignment.BottomStart else Alignment.TopEnd)
                 .padding(start = if (compact) 88.dp else 0.dp, top = if (compact) 0.dp else 36.dp, bottom = if (compact) 4.dp else 0.dp)) {
-                ExpressivePlay(state.playing && state.containsCurrent(collection.tracks), { model.playOrToggle(collection.tracks) }, if (compact) 60.dp else 96.dp,
+                ExpressivePlay(state.playing && state.isPlayingFrom(collection.id), { model.playOrToggle(collection.tracks, collection.id) }, if (compact) 60.dp else 96.dp,
                     state.connected && collection.tracks.isNotEmpty())
             }
         }
@@ -196,11 +196,11 @@ internal fun CollectionScreen(collection: MusicCollection, state: MusicState, mo
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             if (collection.editableId != null) TextButton({ adding = true }) { Text("Add songs") }
-                            FilledTonalIconButton({ model.play(collection.tracks, shuffled = true) },
+                            FilledTonalIconButton({ model.play(collection.tracks, shuffled = true, sourceId = collection.id) },
                                 enabled = state.connected && collection.tracks.isNotEmpty()) { Icon(Icons.Rounded.Shuffle, "Shuffle collection") }
                             if (!collection.mix) {
                                 Spacer(Modifier.width(12.dp))
-                                ExpressivePlay(state.playing && state.containsCurrent(collection.tracks), { model.playOrToggle(collection.tracks) }, 72.dp, state.connected && collection.tracks.isNotEmpty())
+                                ExpressivePlay(state.playing && state.isPlayingFrom(collection.id), { model.playOrToggle(collection.tracks, collection.id) }, 72.dp, state.connected && collection.tracks.isNotEmpty())
                             }
                         }
                     }
@@ -209,7 +209,7 @@ internal fun CollectionScreen(collection: MusicCollection, state: MusicState, mo
                             state, model, Modifier.animateItem(), player)
                         else TrackRow(track, state, model, {
                             if (state.current?.id == track.id) player()
-                            else model.play(collection.tracks, collection.tracks.indexOf(track))
+                            else model.play(collection.tracks, collection.tracks.indexOf(track), sourceId = collection.id)
                         }, Modifier.animateItem(), playbackControls = true)
                     }
                     if (collection.tracks.isEmpty()) item { EmptyState("No songs yet",

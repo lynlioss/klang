@@ -33,3 +33,11 @@ The source build completed `assembleRelease lintDebug testDebugUnitTest --max-wo
 The APK is 28,550,448 bytes (28.6 MB), verified for manifest/resources, ZIP integrity, three starter tracks, alignment and a signing certificate matching 0.4.0. Download response size and SHA-256 are checked. SHA-256: `99082aa9e3e449d4f11380108e08fcfc67b2221657e3f59971fb1a0b500fad16`.
 
 Collection buttons now pause/resume matching current songs without replacing the queue or resetting position. Active album/playlist entries provide playback/favorite controls, replacing the dock while onscreen; the dock returns with spatial/effects springs on scrolling away. Mini players include favorites. Physical scrolling, animation, playback and touch behavior still require the on-phone trial; no ADB device is connected.
+
+## Version 0.4.2
+
+The resumed phone build passed `assembleRelease lintDebug testDebugUnitTest --max-workers=1`. All 13 tests passed, including three playback-source regression checks for shared songs, distinct playlist IDs, and playback without a collection source. Lint reports 0 errors.
+
+Playback ownership is stored in Media3 playlist metadata and persisted with the queue. Only the originating album/playlist’s large button pauses/resumes it. Another collection with the same current song shows Play and starts its own queue when pressed. Per-song playback/favorite controls remain available in every collection containing the current song. Existing queues saved by older versions have no source ID until a collection is started again.
+
+The APK is 28,550,448 bytes, requires/targets API 36, and passes manifest/resources, alignment, ZIP and signing checks. Its certificate matches 0.4.1. SHA-256: `1af2920f07da91a408aeb169c2308fa6b7e39753b73e9f84f715a227126c7820`. No ADB device is attached; a phone trial is still needed for the Media3/UI integration.

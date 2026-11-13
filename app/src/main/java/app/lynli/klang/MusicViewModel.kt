@@ -3,9 +3,11 @@ package app.lynli.klang
 import android.app.Application
 import android.content.ComponentName
 import android.net.Uri
+import android.os.Bundle
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
@@ -16,6 +18,8 @@ import app.lynli.klang.data.Track
 import app.lynli.klang.data.PlaylistStore
 import app.lynli.klang.data.SavedPlaylist
 import app.lynli.klang.playback.PlaybackService
+import app.lynli.klang.playback.PLAYBACK_SOURCE_KEY
+import app.lynli.klang.playback.canResumeCollection
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,12 +32,12 @@ data class MusicState(
     val busy: Boolean = false, val permission: Boolean = false,
     val current: Track? = null, val playing: Boolean = false, val connected: Boolean = false,
     val position: Long = 0, val duration: Long = 0, val queue: List<Track> = emptyList(),
-    val queueIndex: Int = 0, val shuffle: Boolean = false, val repeat: Int = Player.REPEAT_MODE_OFF,
+    val playbackSource: String? = null, val queueIndex: Int = 0, val shuffle: Boolean = false, val repeat: Int = Player.REPEAT_MODE_OFF,
     val favorites: Set<String> = emptySet(), val message: String? = null,
     val playlists: List<SavedPlaylist> = emptyList(),
     val coverColor: Boolean = true, val dynamicColor: Boolean = false, val theme: String = "system", val sleepMinutes: Int = 0,
 ) {
-    fun containsCurrent(tracks: List<Track>): Boolean = current?.id?.let { id -> tracks.any { it.id == id } } == true
+    fun isPlayingFrom(sourceId: String): Boolean = canResumeCollection(playbackSource, sourceId, current != null)
 }
 
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
@@ -99,16 +103,22 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             mutableState.update { it.copy(busy = false) }; refresh()
         }
     }
-    fun play(tracks: List<Track>, index: Int = 0, shuffled: Boolean = false) {
+    fun play(tracks: List<Track>, index: Int = 0, shuffled: Boolean = false, sourceId: String? = null) {
         if (tracks.isEmpty()) return
         val player = controller ?: return message("Connecting to playback…")
+        player.setPlaylistMetadata(MediaMetadata.Builder().setExtras(Bundle().apply {
+            sourceId?.let { putString(PLAYBACK_SOURCE_KEY, it) }
+        }).build())
         player.setMediaItems(tracks.map { it.mediaItem() }, index.coerceIn(tracks.indices), 0)
         player.shuffleModeEnabled = shuffled
         player.prepare(); player.play(); syncPlayer()
     }
     /** Resume/pause a matching collection without replacing the queue or resetting the position. */
-    fun playOrToggle(tracks: List<Track>) {
-        if (mutableState.value.containsCurrent(tracks)) togglePlay() else play(tracks)
+    fun playOrToggle(tracks: List<Track>, sourceId: String) {
+        val player = controller
+        if (canResumeCollection(player?.playlistMetadata?.extras?.getString(PLAYBACK_SOURCE_KEY),
+                sourceId, player?.currentMediaItem != null)) togglePlay()
+        else play(tracks, sourceId = sourceId)
     }
     fun togglePlay() {
         controller?.let { if (it.isPlaying) it.pause() else { if (it.playbackState == Player.STATE_IDLE) it.prepare(); if (it.playbackState == Player.STATE_ENDED) it.seekToDefaultPosition(); it.play() } }
@@ -177,7 +187,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             item.mediaMetadata.artist?.toString() ?: "Unknown artist", item.mediaMetadata.albumTitle?.toString() ?: "Unknown album", 0)
     private fun syncPlayer() {
         val player = controller ?: return
-        mutableState.update { it.copy(connected = true, current = player.currentMediaItem?.let(::track),
+        mutableState.update { it.copy(connected = true, playbackSource = player.playlistMetadata.extras?.getString(PLAYBACK_SOURCE_KEY), current = player.currentMediaItem?.let(::track),
             queueIndex = player.currentMediaItemIndex, playing = player.isPlaying, position = player.currentPosition.coerceAtLeast(0),
             duration = player.duration.coerceAtLeast(0), queue = (0 until player.mediaItemCount).map { i -> track(player.getMediaItemAt(i)) },
             shuffle = player.shuffleModeEnabled, repeat = player.repeatMode) }

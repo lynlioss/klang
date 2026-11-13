@@ -566,7 +566,7 @@ private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission:
                 Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.fillMaxWidth().padding(20.dp)) {
                         Text("Klang", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text("0.4.1 · Created by Lynli", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium)
+                        Text("0.4.2 · Created by Lynli", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium)
                         Text("Music by HESTER, gabriawll and 2frers. Released by NoCopyrightSounds.", Modifier.padding(top = 12.dp),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }

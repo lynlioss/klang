@@ -101,7 +101,7 @@ internal fun PlaylistTrackRow(track: Track, index: Int, collection: MusicCollect
         color = if (state.current?.id == track.id) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainerLow) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.weight(1f).clickable {
-                if (state.current?.id == track.id) openPlayer() else model.play(collection.tracks, index)
+                if (state.current?.id == track.id) openPlayer() else model.play(collection.tracks, index, sourceId = collection.id)
             }.padding(10.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Artwork(track, Modifier.size(52.dp).clip(RoundedCornerShape(12.dp)))

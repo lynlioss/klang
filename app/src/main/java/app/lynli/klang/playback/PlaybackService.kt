@@ -4,9 +4,10 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
+import android.os.Bundle
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
-import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
@@ -51,6 +52,7 @@ class PlaybackService : MediaSessionService() {
         }
         getSharedPreferences("playback", MODE_PRIVATE).edit().putString("queue", items.toString())
             .putInt("index", player.currentMediaItemIndex.coerceAtLeast(0)).putLong("position", player.currentPosition)
+            .putString("source", player.playlistMetadata.extras?.getString(PLAYBACK_SOURCE_KEY))
             .putInt("repeat", player.repeatMode).putBoolean("shuffle", player.shuffleModeEnabled).apply()
     }
     private fun restoreQueue() {
@@ -62,6 +64,9 @@ class PlaybackService : MediaSessionService() {
                     it.optString("album"), 0).mediaItem()
             }}
             if (items.isNotEmpty()) {
+                player.setPlaylistMetadata(MediaMetadata.Builder().setExtras(Bundle().apply {
+                    prefs.getString("source", null)?.let { putString(PLAYBACK_SOURCE_KEY, it) }
+                }).build())
                 player.setMediaItems(items, prefs.getInt("index", 0).coerceIn(items.indices), prefs.getLong("position", 0))
                 player.repeatMode = prefs.getInt("repeat", Player.REPEAT_MODE_OFF)
                 player.shuffleModeEnabled = prefs.getBoolean("shuffle", false)
