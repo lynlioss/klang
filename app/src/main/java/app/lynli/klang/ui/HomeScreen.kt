@@ -80,7 +80,9 @@ internal fun HomeScreen(state: MusicState, model: MusicViewModel, collections: L
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 20.dp, bottom = bottom)) {
         item {
             Column(Modifier.padding(horizontal = 24.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("Klang", style = MaterialTheme.typography.displaySmall)
                     UtilityIconButton(settings) { Icon(Icons.Rounded.Settings, "Settings") }
                 }
                 Spacer(Modifier.height(4.dp))

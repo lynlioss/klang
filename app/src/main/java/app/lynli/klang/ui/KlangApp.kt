@@ -194,26 +194,36 @@ private fun UpdateBanner(state: MusicState, model: MusicViewModel) {
     val update = state.update ?: return
     val downloading = state.updating
     val progress = state.downloadProgress.coerceIn(0f, 1f)
-    val fill = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
+    val shape = RoundedCornerShape(percent = 50)
+    val container = MaterialTheme.colorScheme.primary
+    val onContainer = MaterialTheme.colorScheme.onPrimary
     Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
         Row(Modifier.padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Text("Update v${update.version} available", Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            // The button's background fills from left to right while the APK downloads.
-            TextButton(
+            // A filled button whose background fills left to right as the APK downloads.
+            Button(
                 onClick = { model.downloadUpdate() },
                 enabled = !downloading,
-                shape = RoundedCornerShape(percent = 50),
-                colors = ButtonDefaults.textButtonColors(
+                shape = shape,
+                colors = ButtonDefaults.buttonColors(
                     containerColor = Color.Transparent,
-                    disabledContentColor = MaterialTheme.colorScheme.onSurface,
+                    contentColor = onContainer,
+                    disabledContainerColor = Color.Transparent,
+                    disabledContentColor = onContainer,
                 ),
+                contentPadding = PaddingValues(horizontal = 20.dp),
                 modifier = Modifier
-                    .widthIn(min = 96.dp)
-                    .clip(RoundedCornerShape(percent = 50))
+                    .padding(horizontal = 4.dp)
+                    .widthIn(min = 112.dp)
+                    .clip(shape)
+                    .background(container)
                     .drawBehind {
-                        if (downloading) drawRect(fill, size = Size(size.width * progress, size.height))
+                        if (downloading) {
+                            drawRect(onContainer.copy(alpha = 0.30f),
+                                size = Size(size.width * progress, size.height))
+                        }
                     },
             ) { Text(if (downloading) "${(progress * 100).toInt()}%" else "Download") }
             IconButton({ model.dismissUpdate() }) { Icon(Icons.Rounded.Close, "Dismiss update") }
