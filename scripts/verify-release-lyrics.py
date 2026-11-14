@@ -15,7 +15,8 @@ parser.add_argument('--mapping', type=Path, default=Path('app/build/outputs/mapp
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 java_home = Path(os.environ.get('JAVA_HOME', '/usr/lib/jvm/java-17-openjdk-arm64'))
-sdk = Path(os.environ.get('ANDROID_HOME', '/opt/android-sdk'))
+local_sdk = root / '.android-tools' / 'sdk'
+sdk = Path(os.environ.get('ANDROID_HOME', str(local_sdk if local_sdk.is_dir() else Path('/opt/android-sdk'))))
 linker = Path('/apex/com.android.runtime/bin/linker64')
 art = Path('/apex/com.android.art/bin/dalvikvm64')
 if not linker.is_file() or not art.is_file():

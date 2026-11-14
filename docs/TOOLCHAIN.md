@@ -10,9 +10,9 @@ CPU: (8) @ 2.100GHz
 Memory: 7308MiB total
 ```
 
-JDK 17 is installed at `/usr/lib/jvm/java-17-openjdk-arm64`. System Java remains version 25; the build helper selects Java 17 locally. Google command-line tools are at `/opt/android-sdk/cmdline-tools/latest`, with platform 37.2 and build-tools 37 in that SDK. Gradle 9.9.1 is installed at `/opt/gradle/gradle-9.9.1` and available through the committed wrapper.
+JDK 17 is installed at `/usr/lib/jvm/java-17-openjdk-arm64`. System Java remains version 25; the build helper selects Java 17 locally. The SDK and ARM64 tools live inside the repository in the git-ignored `.android-tools/` folder, so they are local-only and never committed. Google command-line tools are at `.android-tools/sdk/cmdline-tools/latest`, with platform 37.2 and build-tools 37 in that SDK. Gradle 9.9.1 is installed at `/opt/gradle/gradle-9.9.1` and available through the committed wrapper.
 
-Ubuntu's `/usr/bin/aapt2` cannot parse SDK 36's resource table. The phone uses the static ARM64 build from [lzhiyong/android-sdk-tools 35.0.2](https://github.com/lzhiyong/android-sdk-tools/releases/tag/35.0.2) at `/opt/android-sdk-tools-arm64/build-tools/aapt2` via the Gradle override property. The setup script verifies the downloaded archive's SHA-256. SDK files are unmodified. Compilation, dexing and signing use Java. No x86 emulation or Android Studio is required.
+Ubuntu's `/usr/bin/aapt2` cannot parse SDK 36's resource table. The phone uses the static ARM64 build from [lzhiyong/android-sdk-tools 35.0.2](https://github.com/lzhiyong/android-sdk-tools/releases/tag/35.0.2) at `.android-tools/arm64/build-tools/aapt2` via the Gradle override property. The build scripts fall back to `/opt/android-sdk` and `/opt/android-sdk-tools-arm64` when the local folder is absent, which is what a fresh machine or CI would use. The setup script verifies the downloaded archive's SHA-256. SDK files are unmodified. Compilation, dexing and signing use Java. No x86 emulation or Android Studio is required.
 
 `adb devices` currently has no attached device. Running proot on a phone does not automatically grant ADB access to the host Android system. APK signing/package validation can run here, while interactive playback, notification, permission and screen tests require installing the APK on Android.
 

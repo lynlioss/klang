@@ -1,11 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+root=$PWD
+
+# The proot toolchain lives in a git-ignored folder so it never reaches GitHub.
+# KLANG_* overrides and /opt fallbacks keep other machines working.
+local_sdk=$root/.android-tools/sdk
+[[ -d $local_sdk ]] || local_sdk=/opt/android-sdk
+local_aapt2=$root/.android-tools/arm64/build-tools/aapt2
+[[ -x $local_aapt2 ]] || local_aapt2=/opt/android-sdk-tools-arm64/build-tools/aapt2
+
 export JAVA_HOME="${KLANG_JAVA_HOME:-/usr/lib/jvm/java-17-openjdk-arm64}"
-export ANDROID_HOME="${KLANG_ANDROID_SDK:-/opt/android-sdk}"
+export ANDROID_HOME="${KLANG_ANDROID_SDK:-$local_sdk}"
 export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
 if [[ $(uname -m) == aarch64 ]]; then
-  ./gradlew -Pandroid.aapt2FromMavenOverride="${KLANG_AAPT2:-/opt/android-sdk-tools-arm64/build-tools/aapt2}" -Pandroid.enableResourceOptimizations=false --no-daemon "$@"
+  ./gradlew -Pandroid.aapt2FromMavenOverride="${KLANG_AAPT2:-$local_aapt2}" -Pandroid.enableResourceOptimizations=false --no-daemon "$@"
 else
   ./gradlew --no-daemon "$@"
 fi

@@ -13,9 +13,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument('apk', type=Path)
 parser.add_argument('--compare', type=Path, help='Require the same signing certificate as this installed build')
 args = parser.parse_args()
-sdk = Path(os.environ.get('ANDROID_HOME', '/opt/android-sdk'))
+repo = Path(__file__).resolve().parent.parent
+local_sdk = repo / '.android-tools' / 'sdk'
+local_arm_tools = repo / '.android-tools' / 'arm64' / 'build-tools'
+sdk = Path(os.environ.get('ANDROID_HOME', str(local_sdk if local_sdk.is_dir() else Path('/opt/android-sdk'))))
 build_tools = sdk / 'build-tools' / '37.0.0'
-arm_tools = Path('/opt/android-sdk-tools-arm64/build-tools')
+arm_tools = Path(os.environ.get('KLANG_ARM64_TOOLS', str(local_arm_tools if local_arm_tools.is_dir() else Path('/opt/android-sdk-tools-arm64/build-tools'))))
 aapt2 = Path(os.environ.get('KLANG_AAPT2', str(arm_tools / 'aapt2' if platform.machine() == 'aarch64' else build_tools / 'aapt2')))
 zipalign = arm_tools / 'zipalign' if platform.machine() == 'aarch64' else build_tools / 'zipalign'
 java_home = os.environ.get('JAVA_HOME', '/usr/lib/jvm/java-17-openjdk-arm64')
