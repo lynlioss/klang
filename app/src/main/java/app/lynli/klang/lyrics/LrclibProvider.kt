@@ -1,5 +1,6 @@
 package app.lynli.klang.lyrics
 
+import app.lynli.klang.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -32,7 +33,7 @@ class LrclibHttpClient : LyricsHttpClient {
                 try {
                     connection.connectTimeout = 10_000; connection.readTimeout = 15_000
                     connection.setRequestProperty("Accept", "application/json")
-                    connection.setRequestProperty("User-Agent", "Klang v0.7.3 (https://github.com/lynlioss/klang)")
+                    connection.setRequestProperty("User-Agent", "Klang v${BuildConfig.VERSION_NAME} (https://github.com/lynlioss/klang)")
                     val status = connection.responseCode
                     val retry = connection.getHeaderField("Retry-After")?.toLongOrNull()
                     val body = if (status in 200..299) {

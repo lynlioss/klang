@@ -1,8 +1,11 @@
 .gradle/
 .kotlin/
 .idea/
+# Local proot toolchain (Android SDK, ARM64 aapt2). Never committed.
+.android-tools/
 **/build/
 local.properties
+keystore.properties
 *.jks
 *.keystore
 artifacts/

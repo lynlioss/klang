@@ -36,7 +36,7 @@ with zipfile.ZipFile(args.apk) as apk:
 
 badging = run([str(aapt2), 'dump', 'badging', str(args.apk)])
 package = next(line for line in badging.splitlines() if line.startswith('package:'))
-assert "name='app.lynli.klang'" in package, package
+assert "name='io.github.lynlioss.klang'" in package, package
 assert re.search(r"^(?:sdkVersion|minSdkVersion):'36'$", badging, re.MULTILINE), 'Unexpected minimum Android version'
 assert "targetSdkVersion:'36'" in badging, 'Unexpected target Android version'
 run([str(zipalign), '-c', '-P', '16', '4', str(args.apk)])

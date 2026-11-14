@@ -4,7 +4,7 @@ A native Android music player by **Lynli**, written in Kotlin with Jetpack Compo
 
 ## Try it
 
-Install the 0.7.3 test APK on your phone. During this setup session it is available at http://127.0.0.1:8765/klang.apk in the phone browser. Start the tiny download server later with `python3 scripts/serve-apk.py` after copying the APK to `artifacts/Klang-0.7.3.apk`; the server always serves the highest version in `artifacts/`. A simple first-launch screen lets you allow access to local music and optional playback notifications, or choose individual audio files. Klang includes no bundled songs and does not install any music automatically.
+Install `klang.apk` from the [latest release](https://github.com/lynlioss/klang/releases/latest). To test a local build without publishing, copy the APK into `artifacts/` and run `python3 scripts/serve-apk.py`; the server always serves the highest version there. A simple first-launch screen lets you allow access to local music and optional playback notifications, or choose individual audio files. Klang includes no bundled songs and does not install any music automatically.
 
 Allow **Music & audio** access during onboarding to scan your device. You can also use **Add music** to choose audio documents; Klang copies them to Music/Klang, preserving their embedded tags and artwork. Music access can be changed later in Settings. The app does not ask for all-files access.
 
@@ -14,7 +14,7 @@ Allow **Music & audio** access during onboarding to scan your device. You can al
 - My Mix automatically includes all local songs, with a larger dedicated playlist page.
 - Saved playlists: create, rename, add/remove songs, reorder and delete in Library → Playlists. Songs can be added from their options menu.
 - Expressive album and playlist pages, a morphing play button, a squiggly animated seek bar, and full-page settings.
-- Functional LRCLIB lyrics plugin with a persistent toggle, manifest-defined overview, links and settings. Spotify and YouTube Music remain planned integrations.
+- Functional LRCLIB lyrics plugin with a persistent toggle, manifest-defined overview, links and settings. The plugin API is manifest-defined, so further providers can ship without distributing executable code.
 - Local library, title/artist/album search, albums, sorting and persistent favorites.
 - MP3, M4A and other audio formats supported by Android/Media3.
 - Embedded artwork and metadata, with immediate memory-cache reuse and persistent, bounded disk thumbnails.
@@ -46,7 +46,7 @@ The installed toolchain is Java 17, Gradle 9.9.1, Android SDK platform 37.2/buil
 
 The helper sets Java 17 and overrides aapt2 only on aarch64. On the phone it also sets `android.enableResourceOptimizations=false`: the ARM64 aapt2 build cannot perform AGP 9’s optional resource optimization. Resource shrinking alone does not disable that task. The helper verifies manifest/resources, ZIP integrity, the LRCLIB manifest, alignment and APK signatures after assembly. It does not modify Google's SDK binaries. Resource packaging uses /opt/android-sdk-tools-arm64/build-tools/aapt2; D8 and APK signing run in the JVM. Gradle has two workers, a 1.5GB heap and in-process Kotlin compilation to suit the phone. `JAVA_HOME` is not set globally; other projects can keep their own Java version.
 
-The generated APK is `app/build/outputs/apk/release/app-release.apk`. The debug signing key is local at `~/.android/debug.keystore` and is excluded from Git. Keep it to install later debug builds over this one.
+The generated APK is `app/build/outputs/apk/release/app-release.apk`. The debug signing key is local at `~/.android/debug.keystore` and is excluded from Git. Keep it to install later debug builds over this one. Public releases use a separate, permanent keystore and a tag-driven GitHub workflow; see [releasing notes](docs/RELEASING.md).
 
 For another machine, install JDK 17 and Android SDK 37.2 with build-tools 37, put its SDK path in `local.properties`, then run `./gradlew assembleDebug`. A GitHub Actions build is included. The wrapper distribution has SHA-256 verification.
 

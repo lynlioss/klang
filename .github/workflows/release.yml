@@ -1,0 +1,152 @@
+name: Release
+
+# Manual, one-click release. Pick a bump and the workflow bumps the version,
+# builds a signed APK, commits the bump to main, tags it and publishes the
+# release with klang.apk attached.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        required: true
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+          - current
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Check signing secrets
+        env:
+          KEYSTORE: ${{ secrets.KLANG_KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.KLANG_KEYSTORE_PASSWORD }}
+          ALIAS: ${{ secrets.KLANG_KEY_ALIAS }}
+        run: |
+          missing=""
+          [ -n "$KEYSTORE" ] || missing="$missing KLANG_KEYSTORE_B64"
+          [ -n "$STORE_PASSWORD" ] || missing="$missing KLANG_KEYSTORE_PASSWORD"
+          [ -n "$ALIAS" ] || missing="$missing KLANG_KEY_ALIAS"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing. See docs/RELEASING.md."
+            exit 1
+          fi
+
+      - name: Restore signing keystore
+        env:
+          KEYSTORE: ${{ secrets.KLANG_KEYSTORE_B64 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/signing"
+          printf '%s' "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/signing/release.jks"
+          chmod 600 "$RUNNER_TEMP/signing/release.jks"
+          echo "KLANG_KEYSTORE_FILE=$RUNNER_TEMP/signing/release.jks" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-37.2 build-tools;37.0.0'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Bump version
+        id: version
+        run: |
+          python3 scripts/bump-version.py "${{ inputs.bump }}" | tee "$RUNNER_TEMP/bump.txt"
+          version=$(sed -n 's/^version=//p' "$RUNNER_TEMP/bump.txt")
+          code=$(sed -n 's/^code=//p' "$RUNNER_TEMP/bump.txt")
+          if git rev-parse -q --verify "refs/tags/v$version" > /dev/null; then
+            echo "::error::Tag v$version already exists. Choose a bump, not 'current'."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
+      - name: Build, lint and test
+        env:
+          KLANG_REQUIRE_RELEASE_SIGNING: 'true'
+          KLANG_KEYSTORE_PASSWORD: ${{ secrets.KLANG_KEYSTORE_PASSWORD }}
+          KLANG_KEY_ALIAS: ${{ secrets.KLANG_KEY_ALIAS }}
+          KLANG_KEY_PASSWORD: ${{ secrets.KLANG_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease lintDebug testDebugUnitTest --no-daemon
+
+      - name: Verify APK and rename
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          python3 scripts/verify-apk.py "$APK"
+
+          built=$("$ANDROID_HOME/build-tools/37.0.0/aapt2" dump badging "$APK" |
+            sed -n "s/^package:.*versionName='\([^']*\)'.*/\1/p")
+          if [ "$built" != "$VERSION" ]; then
+            echo "::error::APK reports version $built but the bump produced $VERSION."
+            exit 1
+          fi
+
+          cp "$APK" klang.apk
+          sha256sum klang.apk > klang.apk.sha256
+
+      - name: Commit version bump
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/build.gradle.kts
+          if git diff --cached --quiet; then
+            echo "Nothing to commit: releasing the version already on main."
+          else
+            git commit -m "Release v$VERSION"
+            git push origin HEAD:main
+          fi
+          git tag -a "v$VERSION" -m "Klang $VERSION"
+          git push origin "v$VERSION"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: klang-${{ steps.version.outputs.version }}
+          path: |
+            klang.apk
+            klang.apk.sha256
+          if-no-files-found: error
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Klang ${{ steps.version.outputs.version }}
+          files: |
+            klang.apk
+            klang.apk.sha256
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          body: |
+            Klang ${{ steps.version.outputs.version }} for Android 16 and newer.
+
+            Download `klang.apk` and open it on your phone. To check the download:
+
+            ```
+            sha256sum -c klang.apk.sha256
+            ```
+
+            Android will warn that Play Protect has not seen this app. That is expected
+            for installs from outside Google Play: tap **More details → Install anyway**.
