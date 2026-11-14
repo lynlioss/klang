@@ -29,6 +29,8 @@ import app.lynli.klang.playback.skipPlaybackTrack
 import app.lynli.klang.playback.withPlaybackSource
 import app.lynli.klang.plugins.PluginRegistry
 import app.lynli.klang.plugins.PluginStore
+import app.lynli.klang.update.UpdateInfo
+import app.lynli.klang.update.Updater
 import app.lynli.klang.lyrics.LyricsQuery
 import app.lynli.klang.lyrics.LyricsRepository
 import app.lynli.klang.lyrics.LyricsState
@@ -57,6 +59,8 @@ data class MusicState(
     val sleepEndsAt: Long = 0, val sleepRemaining: Long = 0,
     val hiddenIds: Set<String> = emptySet(), val hiddenTracks: List<Track> = emptyList(),
     val onboardingComplete: Boolean = false, val notificationPermission: Boolean = false,
+    val update: UpdateInfo? = null, val updateDismissed: Boolean = false, val updating: Boolean = false,
+    val downloadProgress: Float = 0f,
 ) {
     fun isPlayingFrom(sourceId: String): Boolean = canResumeCollection(playbackSource, sourceId, current != null)
 }
@@ -116,6 +120,18 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             }.onFailure { message("Playback connection failed. Reopen Klang to try again.") }
         }, ContextCompat.getMainExecutor(application))
         refresh()
+        viewModelScope.launch {
+            try {
+                // A previous update's APK is no longer needed once this version runs.
+                Updater.clearDownloads(getApplication())
+                Updater.latest()?.let { info -> mutableState.update { it.copy(update = info) } }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                // Offline, private repository or rate limited: no banner is correct.
+                android.util.Log.d("KlangUpdate", "Update check skipped: ${error.message}")
+            }
+        }
         viewModelScope.launch {
             while (true) { syncPlayer(); tickSleep(); delay(500) }
         }
@@ -306,6 +322,29 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
     private fun message(text: String) { mutableState.update { it.copy(message = text) } }
     fun clearMessage() { mutableState.update { it.copy(message = null) } }
+    /** Hides the banner for this session only; a relaunch shows it again. */
+    fun dismissUpdate() { mutableState.update { it.copy(updateDismissed = true) } }
+    /** Downloads the released APK and hands it to the system installer. */
+    fun downloadUpdate() {
+        val info = mutableState.value.update ?: return
+        if (mutableState.value.updating) return
+        viewModelScope.launch {
+            mutableState.update { it.copy(updating = true, downloadProgress = 0f) }
+            try {
+                val apk = Updater.download(getApplication(), info) { fraction ->
+                    mutableState.update { it.copy(downloadProgress = fraction) }
+                }
+                Updater.install(getApplication(), apk)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                android.util.Log.e("KlangUpdate", "Update failed", error)
+                message("Update failed. Check your connection and try again.")
+            } finally {
+                mutableState.update { it.copy(updating = false, downloadProgress = 0f) }
+            }
+        }
+    }
     override fun onCleared() {
         controller?.removeListener(listener); MediaController.releaseFuture(future)
     }

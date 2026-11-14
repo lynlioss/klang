@@ -29,8 +29,10 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -98,30 +100,37 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
             val wide = maxWidth >= 840.dp
             val bottomSpace = if (wide) 24.dp else if (state.current != null) 184.dp else 112.dp
             // Screens extend under the dock. Only scroll content gets a trailing spacer.
-            Row(Modifier.fillMaxSize().statusBarsPadding()) {
-                if (wide) NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
-                    Spacer(Modifier.height(24.dp))
-                    destinations.forEachIndexed { i, (label, icon) ->
-                        NavigationRailItem(destination == i, { destination = i }, icon = { Icon(icon, null) }, label = { Text(label) })
+            Column(Modifier.fillMaxSize().statusBarsPadding()) {
+                AnimatedVisibility(
+                    visible = state.update != null && !state.updateDismissed,
+                    enter = expandVertically(spring(0.8f, 380f)) + fadeIn(Effects),
+                    exit = shrinkVertically(spring(0.8f, 380f)) + fadeOut(Effects),
+                ) { UpdateBanner(state, model) }
+                Row(Modifier.weight(1f).fillMaxWidth()) {
+                    if (wide) NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+                        Spacer(Modifier.height(24.dp))
+                        destinations.forEachIndexed { i, (label, icon) ->
+                            NavigationRailItem(destination == i, { destination = i }, icon = { Icon(icon, null) }, label = { Text(label) })
+                        }
                     }
-                }
-                Box(Modifier.weight(1f).fillMaxHeight()) {
-                    Crossfade(destination, animationSpec = Effects, label = "Destination") { page ->
-                        holder.SaveableStateProvider(page) {
-                            when (page) {
-                                0 -> HomeScreen(state, model, collections, { settings = true }, onPermission, onImport,
-                                    { destination = 2 }, { collectionId = it.id }, bottomSpace)
-                                1 -> SearchScreen(state, model, onImport, bottomSpace)
-                                else -> LibraryScreen(state, model, { settings = true }, onPermission, onImport,
-                                    { collectionId = it.id }, bottomSpace)
+                    Box(Modifier.weight(1f).fillMaxHeight()) {
+                        Crossfade(destination, animationSpec = Effects, label = "Destination") { page ->
+                            holder.SaveableStateProvider(page) {
+                                when (page) {
+                                    0 -> HomeScreen(state, model, collections, { settings = true }, onPermission, onImport,
+                                        { destination = 2 }, { collectionId = it.id }, bottomSpace)
+                                    1 -> SearchScreen(state, model, onImport, bottomSpace)
+                                    else -> LibraryScreen(state, model, { settings = true }, onPermission, onImport,
+                                        { collectionId = it.id }, bottomSpace)
+                                }
                             }
                         }
                     }
-                }
-                if (wide && state.current != null) Surface(Modifier.width(360.dp).fillMaxHeight(), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    PlayerContent(state, model, {}, compact = true,
-                        onGoToArtist = { openTrackCollection(it, artist = true) },
-                        onGoToAlbum = { openTrackCollection(it, artist = false) })
+                    if (wide && state.current != null) Surface(Modifier.width(360.dp).fillMaxHeight(), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                        PlayerContent(state, model, {}, compact = true,
+                            onGoToArtist = { openTrackCollection(it, artist = true) },
+                            onGoToAlbum = { openTrackCollection(it, artist = false) })
+                    }
                 }
             }
             if (!wide) Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
@@ -178,6 +187,39 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
     }
 }
 private val destinations = listOf("Home" to Icons.Rounded.Home, "Search" to Icons.Rounded.Search, "Library" to Icons.Rounded.LibraryMusic)
+
+/** A thin bar above the content, so it pushes the app down instead of covering it. */
+@Composable
+private fun UpdateBanner(state: MusicState, model: MusicViewModel) {
+    val update = state.update ?: return
+    val downloading = state.updating
+    val progress = state.downloadProgress.coerceIn(0f, 1f)
+    val fill = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
+    Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+        Row(Modifier.padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Text("Update v${update.version} available", Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            // The button's background fills from left to right while the APK downloads.
+            TextButton(
+                onClick = { model.downloadUpdate() },
+                enabled = !downloading,
+                shape = RoundedCornerShape(percent = 50),
+                colors = ButtonDefaults.textButtonColors(
+                    containerColor = Color.Transparent,
+                    disabledContentColor = MaterialTheme.colorScheme.onSurface,
+                ),
+                modifier = Modifier
+                    .widthIn(min = 96.dp)
+                    .clip(RoundedCornerShape(percent = 50))
+                    .drawBehind {
+                        if (downloading) drawRect(fill, size = Size(size.width * progress, size.height))
+                    },
+            ) { Text(if (downloading) "${(progress * 100).toInt()}%" else "Download") }
+            IconButton({ model.dismissUpdate() }) { Icon(Icons.Rounded.Close, "Dismiss update") }
+        }
+    }
+}
 
 @Composable
 private fun PageTitle(title: String, trailing: @Composable RowScope.() -> Unit = {}) {
@@ -685,6 +727,13 @@ private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission:
                     Column(Modifier.fillMaxWidth().padding(20.dp)) {
                         Text("Klang", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         Text("${BuildConfig.VERSION_NAME} · Created by Lynli", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium)
+                        state.update?.let { update ->
+                            Button({ model.downloadUpdate() }, enabled = !state.updating,
+                                modifier = Modifier.padding(top = 12.dp)) {
+                                Text(if (state.updating) "Downloading ${(state.downloadProgress * 100).toInt()}%"
+                                else "Update to v${update.version}")
+                            }
+                        }
                     }
                 }
                 Row(Modifier.fillMaxWidth().padding(top = 12.dp, start = 4.dp),

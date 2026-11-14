@@ -107,6 +107,14 @@ The workflow runs in this order, so a failure never leaves a half-released versi
 5. Tags `v<version>` and pushes the tag.
 6. Publishes a GitHub release with `klang.apk` and `klang.apk.sha256`.
 
+The asset name matters: the in-app updater looks for an asset literally named `klang.apk`
+in the latest release and reads the version from the tag. Renaming it breaks updates, and
+the release tag must be `v<versionName>` for the version comparison to work.
+
+The updater streams the APK into `cacheDir/updates/`, reports progress for the banner button,
+then hands the file to the system installer. The next launch of Klang — which is the newly
+installed version — clears that folder, so only one update file ever exists at a time.
+
 Version numbers live only in `app/build.gradle.kts`. Gradle stamps them into the APK
 manifest and the app reads them through `BuildConfig.VERSION_NAME`, so the Settings screen
 always matches the installed package. Do not edit them anywhere else.

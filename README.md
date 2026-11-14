@@ -30,6 +30,7 @@ Allow **Music & audio** access during onboarding to scan your device. You can al
 - System theme by default, with light/dark overrides. Cover colors default on and apply only to Now playing and album pages. Home, Search, Library and Settings stay neutral; wallpaper colors remain optional. The mini player always follows the current cover.
 - Song properties from a long-press: a cover-themed Material sheet with a native drag handle, compact song header, segmented metadata rows, file location and playlist membership. Close and Done remain visible while details scroll; Hide from app is reversible in Settings → Library.
 - A minimal GitHub footer in Settings opens the lynlioss/klang repository.
+- In-app updates: on launch Klang asks GitHub for the latest release and, when it is newer, shows a thin banner above the content with a Download button. The button fills left to right as the APK downloads, then opens the system installer. Dismissing the banner leaves an Update button under Settings → About; a relaunch shows the banner again. The cached APK is deleted when the updated version first runs, so updates never accumulate. Klang only installs its own signed updates.
 - Radial sleep timer in the Now playing options menu; drag the ring for any length, with quick presets and a live countdown. Cancelled if the app process closes.
 - Adaptive navigation and a supporting player pane for wide windows.
 
