@@ -133,5 +133,5 @@ internal fun PlaylistTrackRow(track: Track, index: Int, collection: MusicCollect
             }
         }
     }
-    if (properties) TrackPropertiesDialog(track, state, model) { properties = false }
+    if (properties) TrackPropertiesSheet(track, state, model) { properties = false }
 }

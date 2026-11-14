@@ -384,7 +384,7 @@ internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, pl
         }
     }
     if (addToPlaylist) AddToPlaylistDialog(track, state, model) { addToPlaylist = false }
-    if (properties) TrackPropertiesDialog(track, state, model) { properties = false }
+    if (properties) TrackPropertiesSheet(track, state, model) { properties = false }
 
 }
 
@@ -447,7 +447,7 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
         val context = androidx.compose.ui.platform.LocalContext.current
         if (addPlaylist) AddToPlaylistDialog(track, state, model) { addPlaylist = false }
         if (devices) OutputDevicesDialog { devices = false }
-        if (props) TrackPropertiesDialog(track, state, model) { props = false }
+        if (props) TrackPropertiesSheet(track, state, model) { props = false }
         if (sleepSheet) SleepTimerSheet(state, model) { sleepSheet = false }
         BackHandler(queue || equalizer || showingLyrics) { when { equalizer -> equalizer = false; showingLyrics -> showingLyrics = false; else -> queue = false } }
         val colors = MaterialTheme.colorScheme
@@ -464,32 +464,37 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
                     val artLimit = minOf(maxWidth - 56.dp, 380.dp)
                     Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(close) { Icon(Icons.Rounded.KeyboardArrowDown, "Close player") }
-                            Text("Now playing", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 1,
-                                overflow = TextOverflow.Ellipsis)
-                            Box {
-                                IconButton({ overflow = true }) { Icon(Icons.Rounded.MoreVert, "More options") }
-                                DropdownMenu(overflow, { overflow = false }) {
-                                    DropdownMenuItem(text = { Text("Properties") }, onClick = { overflow = false; props = true },
-                                        leadingIcon = { Icon(Icons.Rounded.Info, null) })
-                                    DropdownMenuItem(text = { Text("Go to artist") },
-                                        enabled = track.artist != "Unknown artist" && track.artist.isNotBlank(),
-                                        onClick = { overflow = false; onGoToArtist(track) },
-                                        leadingIcon = { Icon(Icons.Rounded.Person, null) })
-                                    DropdownMenuItem(text = { Text("Go to album") },
-                                        enabled = track.album != "Unknown album" && track.album.isNotBlank(),
-                                        onClick = { overflow = false; onGoToAlbum(track) },
-                                        leadingIcon = { Icon(ImageVector.vectorResource(R.drawable.album), null) })
-                                    DropdownMenuItem(
-                                        text = { Text(if (state.sleepEndsAt > System.currentTimeMillis())
-                                            "Sleep timer · ${remainingText(state.sleepRemaining)}" else "Sleep timer") },
-                                        onClick = { overflow = false; sleepSheet = true },
-                                        leadingIcon = { Icon(ImageVector.vectorResource(R.drawable.timer), null) })
+                        Box(Modifier.fillMaxWidth()) {
+                            Text("Now playing", Modifier.align(Alignment.Center), style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            IconButton(close, Modifier.align(Alignment.CenterStart)) {
+                                Icon(Icons.Rounded.KeyboardArrowDown, "Close player")
+                            }
+                            Row(Modifier.align(Alignment.CenterEnd)) {
+                                Box {
+                                    IconButton({ overflow = true }) { Icon(Icons.Rounded.MoreVert, "More options") }
+                                    DropdownMenu(overflow, { overflow = false }) {
+                                        DropdownMenuItem(text = { Text("Queue") }, onClick = { overflow = false; queue = true },
+                                            leadingIcon = { Icon(Icons.AutoMirrored.Rounded.QueueMusic, null) })
+                                        HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                                        DropdownMenuItem(text = { Text("Properties") }, onClick = { overflow = false; props = true },
+                                            leadingIcon = { Icon(Icons.Rounded.Info, null) })
+                                        DropdownMenuItem(text = { Text("Go to artist") },
+                                            enabled = track.artist != "Unknown artist" && track.artist.isNotBlank(),
+                                            onClick = { overflow = false; onGoToArtist(track) },
+                                            leadingIcon = { Icon(Icons.Rounded.Person, null) })
+                                        DropdownMenuItem(text = { Text("Go to album") },
+                                            enabled = track.album != "Unknown album" && track.album.isNotBlank(),
+                                            onClick = { overflow = false; onGoToAlbum(track) },
+                                            leadingIcon = { Icon(ImageVector.vectorResource(R.drawable.album), null) })
+                                        DropdownMenuItem(
+                                            text = { Text(if (state.sleepEndsAt > System.currentTimeMillis())
+                                                "Sleep timer · ${remainingText(state.sleepRemaining)}" else "Sleep timer") },
+                                            onClick = { overflow = false; sleepSheet = true },
+                                            leadingIcon = { Icon(ImageVector.vectorResource(R.drawable.timer), null) })
+                                    }
                                 }
                             }
-                            IconButton({ queue = true }) { Icon(Icons.AutoMirrored.Rounded.QueueMusic, "Open queue") }
                         }
                         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(vertical = spacing),
                             contentAlignment = Alignment.Center) {
@@ -703,7 +708,7 @@ private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission:
                 Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.fillMaxWidth().padding(20.dp)) {
                         Text("Klang", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text("0.7.0 · Created by Lynli", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium)
+                        Text("0.7.1 · Created by Lynli", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }

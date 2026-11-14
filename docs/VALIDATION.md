@@ -110,6 +110,14 @@ All pixel conversions (`padPx`, `featherMaxPx`, `wordLiftPx`) are now resolved b
 
 The APK is 5,059,159 bytes, versionCode 16, certificate SHA-256 `ce07ecd5eb236643d4848eab7a081323df31572414652dd444e3562a2274449a`. SHA-256 `74bea4e44d61613587627a50668c7a3d846e74cdd451a927290036b142754ab1` was verified against a full HTTP download of `Klang-0.5.9.apk`.
 
+## Version 0.7.1
+
+On-phone feedback on 0.7.0: the Now playing title looked off-centre once the header held three controls, and the properties dialog read as a plain text box next to the app's expressive pages. The header is now an overlay layout: the title is anchored to the true centre of the row, the close control sits at the start, and a single options control sits at the end. Queue moved from its own header button into the top of that menu, followed by a divider and the remaining actions, restoring the one-control-per-side balance.
+
+Properties became a cover-themed bottom sheet instead of a platform dialog. It opens with an editorial `PROPERTIES` overline, an 88 dp shadowed cover, and a cover-palette gradient into the sheet surface. Metadata is presented as a two-column grid of tonal stat cards with a tinted icon disc each — duration, quality, format, bitrate, sample rate and file size — plus a full-width location card and playlist pills, ending in equal-height Hide from app and Done buttons. Values load in place and unknown fields stay as a dash.
+
+`testDebugUnitTest` and `assembleRelease` passed (67 unit tests), package/signature verification passed, and both release parser checks passed in Android Runtime. The APK is 5,192,466 bytes, versionCode 20, signed with the same certificate. `artifacts/Klang-0.7.1.apk` matches SHA-256 `da9420da23c5148001b253e0b10b7443f41cf4faca48096980cf0d0d255d4dc9`. The new sheet and header still need an on-phone look.
+
 ## Version 0.7.0
 
 Song rows now open the same options menu on long-press as their three-dot control, and both that menu and the Now playing overflow offer Properties. The sheet reads MediaStore and MediaMetadataRetriever for format, sample rate, average bitrate (falling back to file size ÷ duration), file size, relative path and playlist membership; anything the platform omits degrades to a dash instead of blocking the sheet. Hide from app persists a MediaStore id set in preferences, filters it out of every library scan, and Settings → Library → Hidden audio files lists the hidden tracks for one-tap or bulk restore. Hidden ids survive library refreshes and app restarts.

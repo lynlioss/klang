@@ -4,7 +4,7 @@ A native Android music player by **Lynli**, written in Kotlin with Jetpack Compo
 
 ## Try it
 
-Install the 0.7.0 test APK on your phone. During this setup session it is available at http://127.0.0.1:8765/klang.apk in the phone browser. Start the tiny download server later with `python3 scripts/serve-apk.py` after copying the APK to `artifacts/Klang-0.7.0.apk`; the server always serves the highest version in `artifacts/`. A simple first-launch screen lets you allow access to local music and optional playback notifications, or choose individual audio files. Klang includes no bundled songs and does not install any music automatically.
+Install the 0.7.1 test APK on your phone. During this setup session it is available at http://127.0.0.1:8765/klang.apk in the phone browser. Start the tiny download server later with `python3 scripts/serve-apk.py` after copying the APK to `artifacts/Klang-0.7.1.apk`; the server always serves the highest version in `artifacts/`. A simple first-launch screen lets you allow access to local music and optional playback notifications, or choose individual audio files. Klang includes no bundled songs and does not install any music automatically.
 
 Allow **Music & audio** access during onboarding to scan your device. You can also use **Add music** to choose audio documents; Klang copies them to Music/Klang, preserving their embedded tags and artwork. Music access can be changed later in Settings. The app does not ask for all-files access.
 
@@ -19,7 +19,7 @@ Allow **Music & audio** access during onboarding to scan your device. You can al
 - MP3, M4A and other audio formats supported by Android/Media3.
 - Embedded artwork and metadata, with immediate memory-cache reuse and persistent, bounded disk thumbnails.
 - Animated playing indicators and spring feedback on favorite buttons.
-- A fixed Now playing layout with artwork gradient, large rounded transport buttons, a squiggly seek bar and icon actions for playlists/lyrics/Android output/EQ, plus an options menu for properties, go to artist/album and the sleep timer. Enable LRCLIB in Settings → Plugins for synchronized lyrics, soft left-to-right word filling, bloom, tiny completion springs, line-tap seeking and offline caching. Songs with supplied word timestamps use word sync; other timed songs use line sync. Lyrics controls hide after three seconds of inactivity and return on touch. EQ is also accessible through Settings.
+- A fixed Now playing layout with artwork gradient, large rounded transport buttons, a squiggly seek bar and icon actions for playlists/lyrics/Android output/EQ, plus an options menu for queue, properties, go to artist/album and the sleep timer. Enable LRCLIB in Settings → Plugins for synchronized lyrics, soft left-to-right word filling, bloom, tiny completion springs, line-tap seeking and offline caching. Songs with supplied word timestamps use word sync; other timed songs use line sync. Lyrics controls hide after three seconds of inactivity and return on touch. EQ is also accessible through Settings.
 - Ten-band service-owned EQ with built-in/custom presets, per-song and Bluetooth-route assignments, smooth changes, automatic headroom, and output trim.
 - Background/lock-screen playback, notification controls, audio focus and headphone-unplug pause.
 - Seeking, previous/next, shuffle, repeat, queue, play-next and queue removal.
@@ -27,7 +27,7 @@ Allow **Music & audio** access during onboarding to scan your device. You can al
 - Active album/playlist rows offer play/pause and favorites. Their mini player hides when row controls are visible and returns with an expressive spring when scrolled offscreen. The mini player also includes a favorite control.
 - Queue/position restoration after reopening; playback resumes paused.
 - System theme by default, with light/dark overrides. Cover colors default on and apply only to Now playing and album pages. Home, Search, Library and Settings stay neutral; wallpaper colors remain optional. The mini player always follows the current cover.
-- Song properties from a long-press: title, artist, album, cover, duration, quality, bitrate, codec/format, file size, location and playlists, with a Hide from app action. Hidden audio can be reviewed and restored from Settings → Library.
+- Song properties from a long-press: a cover-themed sheet with title, artist, album, cover, duration, quality, bitrate, codec/format, file size, location and playlists, plus a Hide from app action. Hidden audio can be reviewed and restored from Settings → Library.
 - Radial sleep timer in the Now playing options menu; drag the ring for any length, with quick presets and a live countdown. Cancelled if the app process closes.
 - Adaptive navigation and a supporting player pane for wide windows.
 

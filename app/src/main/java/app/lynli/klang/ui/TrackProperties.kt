@@ -1,26 +1,34 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 package app.lynli.klang.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.unit.sp
 import app.lynli.klang.MusicState
 import app.lynli.klang.MusicViewModel
 import app.lynli.klang.R
@@ -28,9 +36,12 @@ import app.lynli.klang.data.Track
 import app.lynli.klang.data.TrackDetails
 import java.text.NumberFormat
 
-/** Small, quiet sheet with everything the app knows about a local file. */
+/**
+ * Cover-themed properties sheet: one editorial header, a grid of tonal stat cards and a compact
+ * location/playlist footer. Technical metadata loads in place so the sheet never blocks.
+ */
 @Composable
-internal fun TrackPropertiesDialog(track: Track, state: MusicState, model: MusicViewModel,
+internal fun TrackPropertiesSheet(track: Track, state: MusicState, model: MusicViewModel,
     hide: (() -> Unit)? = null, dismiss: () -> Unit) {
     var details by remember(track.id) { mutableStateOf<TrackDetails?>(null) }
     LaunchedEffect(track.id) { details = runCatching { model.details(track) }.getOrNull() }
@@ -38,74 +49,59 @@ internal fun TrackPropertiesDialog(track: Track, state: MusicState, model: Music
     val playlistNames = remember(state.playlists, track.id) {
         state.playlists.filter { track.id in it.trackIds }.map { it.name }
     }
-    Dialog(dismiss) {
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Surface(Modifier.fillMaxWidth().widthIn(max = 400.dp),
-                shape = RoundedCornerShape(32.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                tonalElevation = 6.dp, shadowElevation = 12.dp) {
-                Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp)) {
-                    Row(verticalAlignment = Alignment.Top) {
-                        Artwork(track, Modifier.size(76.dp).clip(RoundedCornerShape(20.dp)), "${track.title} cover")
-                        Column(Modifier.weight(1f).padding(start = 16.dp)) {
-                            Text(track.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
-                                maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(track.artist, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(track.album, Modifier.padding(top = 2.dp), style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onDismissRequest = dismiss, sheetState = sheet, containerColor = Color.Transparent,
+        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
+        dragHandle = { BottomSheetDefaults.DragHandle(Modifier.padding(top = 10.dp)) }) {
+        CoverTheme(track) {
+            val colors = MaterialTheme.colorScheme
+            Box(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(
+                colors.primaryContainer.copy(alpha = 0.55f).compositeOver(colors.surfaceContainerLow),
+                colors.surfaceContainerLow, colors.surfaceContainerLow)))) {
+                Column(Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState())
+                    .padding(start = 24.dp, end = 24.dp, bottom = 28.dp)) {
+                    Text("PROPERTIES", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 1.6.sp),
+                        fontWeight = FontWeight.Bold, color = colors.primary)
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Artwork(track, Modifier.size(88.dp).shadow(12.dp, RoundedCornerShape(24.dp))
+                            .clip(RoundedCornerShape(24.dp)), "${track.title} cover")
+                        Column(Modifier.weight(1f).padding(start = 18.dp)) {
+                            Text(track.title, style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(track.artist, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodyLarge,
+                                color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(track.album, style = MaterialTheme.typography.bodyMedium,
+                                color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        IconButton(dismiss) { Icon(Icons.Rounded.Close, "Close properties") }
                     }
                     Spacer(Modifier.height(20.dp))
-                    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
-                            Row {
-                                PropertyCell("Duration", time(details?.durationMs ?: track.durationMs), Modifier.weight(1f))
-                                PropertyCell("Quality", details?.quality ?: "…", Modifier.weight(1f))
-                            }
-                            Row {
-                                PropertyCell("Format", formatLine(details), Modifier.weight(1f))
-                                PropertyCell("Bitrate", details?.bitrateKbps?.let { "${NumberFormat.getIntegerInstance().format(it)} kbps" } ?: "…",
-                                    Modifier.weight(1f))
-                            }
-                            val fileSize = details?.sizeBytes
-                            if (fileSize != null) {
-                                PropertyCell("File size", formatSize(fileSize), Modifier.fillMaxWidth())
-                            }
-                            Column(Modifier.padding(vertical = 10.dp)) {
-                                Text("Location", style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(details?.location ?: "Reading file…", Modifier.padding(top = 3.dp),
-                                    style = MaterialTheme.typography.bodySmall, maxLines = 4, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(16.dp))
+                    PropertyGrid(track, details)
+                    Spacer(Modifier.height(12.dp))
+                    LocationTile(details?.location)
+                    Spacer(Modifier.height(22.dp))
                     Text("In playlists", style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        color = colors.onSurfaceVariant)
                     if (playlistNames.isEmpty()) {
-                        Text("Not in a playlist", Modifier.padding(top = 6.dp), style = MaterialTheme.typography.bodyMedium)
+                        Text("Not in a playlist", Modifier.padding(top = 8.dp),
+                            style = MaterialTheme.typography.bodyMedium)
                     } else {
-                        Row(Modifier.padding(top = 8.dp).horizontalScroll(rememberScrollState()),
+                        Row(Modifier.padding(top = 10.dp).horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            playlistNames.forEach { name ->
-                                Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.secondaryContainer,
-                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
-                                    Text(name, Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                        style = MaterialTheme.typography.labelLarge, maxLines = 1)
-                                }
-                            }
+                            playlistNames.forEach { PlaylistPill(it) }
                         }
                     }
-                    Spacer(Modifier.height(20.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(dismiss) { Text("Close") }
-                        Spacer(Modifier.width(8.dp))
-                        FilledTonalButton({ hideTrack() }) {
+                    Spacer(Modifier.height(26.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        FilledTonalButton({ hideTrack() }, Modifier.weight(1.35f).height(56.dp),
+                            shape = RoundedCornerShape(20.dp), contentPadding = PaddingValues(horizontal = 16.dp)) {
                             Icon(ImageVector.vectorResource(R.drawable.visibility_off), null, Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text("Hide from app")
+                            Text("Hide from app", maxLines = 1)
+                        }
+                        Button(dismiss, Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(20.dp)) {
+                            Text("Done")
                         }
                     }
                 }
@@ -115,21 +111,82 @@ internal fun TrackPropertiesDialog(track: Track, state: MusicState, model: Music
 }
 
 @Composable
-private fun PropertyCell(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier.padding(vertical = 10.dp, horizontal = 0.dp)) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, Modifier.padding(top = 3.dp), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium,
-            maxLines = 1, overflow = TextOverflow.Ellipsis)
+private fun PropertyGrid(track: Track, details: TrackDetails?) {
+    val timerIcon = ImageVector.vectorResource(R.drawable.timer)
+    val entries = buildList<Triple<ImageVector, String, String>> {
+        add(Triple(timerIcon, "Duration", time(details?.durationMs ?: track.durationMs)))
+        add(Triple(Icons.Rounded.Star, "Quality", details?.quality ?: "—"))
+        add(Triple(Icons.Rounded.MusicNote, "Format", details?.format ?: "—"))
+        add(Triple(Icons.Rounded.GraphicEq, "Bitrate", details?.bitrateKbps
+            ?.let { "${NumberFormat.getIntegerInstance().format(it)} kbps" } ?: "—"))
+        details?.sampleRateHz?.let { add(Triple(Icons.Rounded.OfflineBolt, "Sample rate", sampleRateText(it))) }
+        details?.sizeBytes?.let { add(Triple(Icons.Rounded.Download, "File size", formatSize(it))) }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        entries.chunked(2).forEach { pair ->
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                pair.forEach { (icon, label, value) -> PropertyTile(icon, label, value, Modifier.weight(1f)) }
+                if (pair.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
     }
 }
 
-private fun formatLine(details: TrackDetails?): String {
-    val format = details?.format ?: "…"
-    val rate = details?.sampleRateHz?.let { hz ->
-        val khz = hz / 1000f
-        if (khz % 1f == 0f) "${khz.toInt()} kHz" else "%.1f kHz".format(khz)
-    } ?: return format
-    return "$format · $rate"
+@Composable
+private fun PropertyTile(icon: ImageVector, label: String, value: String, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    Surface(modifier = modifier, shape = RoundedCornerShape(24.dp),
+        color = colors.surfaceContainerHigh.copy(alpha = 0.92f)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(28.dp).clip(CircleShape).background(colors.primary.copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center) {
+                    Icon(icon, null, Modifier.size(16.dp), tint = colors.primary)
+                }
+                Spacer(Modifier.width(9.dp))
+                Text(label, style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Text(value, Modifier.padding(top = 10.dp), style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun LocationTile(location: String?) {
+    val colors = MaterialTheme.colorScheme
+    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
+        color = colors.surfaceContainerHigh.copy(alpha = 0.92f)) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.Top) {
+            Box(Modifier.size(28.dp).clip(CircleShape).background(colors.primary.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.FolderOpen, null, Modifier.size(16.dp), tint = colors.primary)
+            }
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Text("File location", style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
+                Text(location ?: "Reading file…", Modifier.padding(top = 4.dp),
+                    style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlaylistPill(name: String) {
+    Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.AutoMirrored.Rounded.QueueMusic, null, Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(name, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+        }
+    }
+}
+
+private fun sampleRateText(hz: Int): String {
+    val khz = hz / 1000f
+    return if (khz % 1f == 0f) "${khz.toInt()} kHz" else "%.1f kHz".format(khz)
 }
 
 private fun formatSize(bytes: Long): String = when {
