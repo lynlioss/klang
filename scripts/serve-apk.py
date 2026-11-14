@@ -1,10 +1,28 @@
 #!/usr/bin/env python3
-"""Serve the current test APK to the phone's browser; no workspace file viewer needed."""
+"""Serve the newest built test APK to the phone's browser; no workspace file viewer needed."""
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
+import os
+import re
 import shutil
 
-APK = Path(__file__).resolve().parents[1] / 'artifacts' / 'Klang-0.5.2.apk'
+ARTIFACTS = Path(__file__).resolve().parents[1] / 'artifacts'
+
+def newest_apk() -> Path:
+    override = os.environ.get('KLANG_APK')
+    if override:
+        return Path(override).expanduser().resolve()
+    versioned = []
+    for candidate in ARTIFACTS.glob('Klang-*.apk'):
+        match = re.fullmatch(r'Klang-(\d+(?:\.\d+)*)\.apk', candidate.name)
+        if match:
+            versioned.append((tuple(int(part) for part in match.group(1).split('.')), candidate))
+    if versioned:
+        return max(versioned, key=lambda item: item[0])[1]
+    # No versioned build yet: serve the raw Gradle output.
+    return ARTIFACTS.parent / 'app' / 'build' / 'outputs' / 'apk' / 'release' / 'app-release.apk'
+
+APK = newest_apk()
 
 class Download(BaseHTTPRequestHandler):
     def serve(self, body=True):
@@ -29,5 +47,5 @@ class Download(BaseHTTPRequestHandler):
         self.serve(body=False)
 
 if __name__ == '__main__':
-    print('Klang download: http://127.0.0.1:8765/klang.apk', flush=True)
+    print(f'Klang download: http://127.0.0.1:8765/klang.apk ({APK.name})', flush=True)
     ThreadingHTTPServer(('0.0.0.0', 8765), Download).serve_forever()

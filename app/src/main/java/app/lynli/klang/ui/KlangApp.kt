@@ -1,4 +1,5 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class)
 package app.lynli.klang.ui
 
 import androidx.activity.compose.BackHandler
@@ -7,6 +8,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -29,15 +31,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.vectorResource
-import app.lynli.klang.R
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -45,13 +48,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
 import app.lynli.klang.MusicState
 import app.lynli.klang.MusicViewModel
+import app.lynli.klang.R
 import app.lynli.klang.data.Track
+import app.lynli.klang.plugins.PluginType
 import kotlin.math.PI
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 private val FastSpatial = spring<Float>(dampingRatio = 0.6f, stiffness = 800f)
@@ -64,6 +72,7 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
     var settings by rememberSaveable { mutableStateOf(false) }
     var plugins by rememberSaveable { mutableStateOf(false) }
     var settingsEq by rememberSaveable { mutableStateOf(false) }
+    var hiddenFiles by rememberSaveable { mutableStateOf(false) }
     var collectionId by rememberSaveable { mutableStateOf<String?>(null) }
     val collections = remember(state.tracks, state.favorites, state.playlists) { musicCollections(state) }
     val selectedCollection = collections.find { it.id == collectionId }
@@ -73,9 +82,14 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
     val snack = remember { SnackbarHostState() }
     val holder = rememberSaveableStateHolder()
     LaunchedEffect(state.message) { state.message?.let { snack.showSnackbar(it); model.clearMessage() } }
-    BackHandler(expanded || settingsEq || plugins || settings || collectionId != null || destination != 0) {
+    // Jumping to an artist or album closes the player and every other overlay first.
+    fun openTrackCollection(track: Track, artist: Boolean) {
+        val target = if (artist) artistCollection(track.artist, state.tracks) else albumCollection(track, state.tracks)
+        if (target != null) { expanded = false; settings = false; collectionId = target.id }
+    }
+    BackHandler(expanded || settingsEq || plugins || settings || hiddenFiles || collectionId != null || destination != 0) {
         when { expanded -> expanded = false; settingsEq -> settingsEq = false; plugins -> plugins = false; settings -> settings = false;
-            collectionId != null -> collectionId = null; else -> destination = 0 }
+            hiddenFiles -> hiddenFiles = false; collectionId != null -> collectionId = null; else -> destination = 0 }
     }
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -103,7 +117,9 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
                     }
                 }
                 if (wide && state.current != null) Surface(Modifier.width(360.dp).fillMaxHeight(), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    PlayerContent(state, model, {}, compact = true)
+                    PlayerContent(state, model, {}, compact = true,
+                        onGoToArtist = { openTrackCollection(it, artist = true) },
+                        onGoToAlbum = { openTrackCollection(it, artist = false) })
                 }
             }
             if (!wide) Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
@@ -124,7 +140,7 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
             }
             AnimatedVisibility(settings, enter = slideInHorizontally(spring(0.8f, 200f)) { it } + fadeIn(Effects),
                 exit = slideOutHorizontally(spring(0.8f, 200f)) { it } + fadeOut(Effects)) {
-                SettingsScreen(state, model, onPermission, onImport, { plugins = true }, { settingsEq = true }) { settings = false }
+                SettingsScreen(state, model, onPermission, onImport, { plugins = true }, { settingsEq = true }, { hiddenFiles = true }) { settings = false }
             }
             AnimatedVisibility(collectionId != null,
                 enter = slideInHorizontally(spring(0.8f, 200f)) { it } + fadeIn(Effects),
@@ -135,21 +151,27 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
             }
             AnimatedVisibility(plugins, enter = slideInHorizontally(spring(0.8f, 200f)) { it } + fadeIn(Effects),
                 exit = slideOutHorizontally(spring(0.8f, 200f)) { it } + fadeOut(Effects)) {
-                PluginsScreen { plugins = false }
+                PluginsScreen(model) { plugins = false }
             }
             AnimatedVisibility(settingsEq, enter = slideInHorizontally(spring(0.8f, 200f)) { it } + fadeIn(Effects),
                 exit = slideOutHorizontally(spring(0.8f, 200f)) { it } + fadeOut(Effects)) {
                 EqualizerScreen({ settingsEq = false }, null, songContext = false)
             }
+            AnimatedVisibility(hiddenFiles, enter = slideInHorizontally(spring(0.8f, 200f)) { it } + fadeIn(Effects),
+                exit = slideOutHorizontally(spring(0.8f, 200f)) { it } + fadeOut(Effects)) {
+                HiddenAudioScreen(state, model) { hiddenFiles = false }
+            }
             AnimatedVisibility(expanded && state.current != null,
                 enter = slideInVertically(spring(0.8f, 200f)) { it } + fadeIn(Effects),
                 exit = slideOutVertically(spring(0.8f, 200f)) { it } + fadeOut(Effects)) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surfaceContainer) {
-                    PlayerContent(state, model, { expanded = false })
+                    PlayerContent(state, model, { expanded = false },
+                        onGoToArtist = { openTrackCollection(it, artist = true) },
+                        onGoToAlbum = { openTrackCollection(it, artist = false) })
                 }
             }
             SnackbarHost(snack, Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
-                .padding(bottom = if (settings || expanded || plugins || collectionId != null) 16.dp else bottomSpace))
+                .padding(bottom = if (settings || expanded || plugins || hiddenFiles || collectionId != null) 16.dp else bottomSpace))
         }
     }
 }
@@ -261,12 +283,12 @@ private fun LibraryScreen(state: MusicState, model: MusicViewModel, settings: ()
                 }
             }
         } else if (filter == 2) {
-            items(musicCollections(state).filter { !it.album }, key = { it.id }) { collection ->
+            items(musicCollections(state).filter { !it.album && !it.artist }, key = { it.id }) { collection ->
                 PlaylistListItem(collection, Modifier.animateItem()) { openCollection(collection) }
             }
         } else items(tracks, key = { it.id }) { track -> TrackRow(track, state, model,
             { model.play(tracks, tracks.indexOf(track)) }, Modifier.animateItem()) }
-        if (tracks.isEmpty() && !state.loading && filter != 2) item { EmptyLibrary(import, model::installStarter) }
+        if (tracks.isEmpty() && !state.loading && filter != 2) item { EmptyLibrary(import) }
         if (filter == 1 && tracks.isNotEmpty() && albumCollections(tracks).isEmpty()) item {
             EmptyState("No albums", "Files with album metadata appear here.")
         }
@@ -318,22 +340,22 @@ internal fun EmptyState(title: String, subtitle: String) {
     }
 }
 @Composable
-internal fun EmptyLibrary(import: () -> Unit, starter: () -> Unit) {
-    EmptyState("No music yet", "Add audio files or install the three-track NCS pack.")
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(import) { Text("Add music") }; TextButton(starter) { Text("Install tracks") }
-    }
+internal fun EmptyLibrary(import: () -> Unit) {
+    EmptyState("No music yet", "Add audio files to start your library.")
+    Button(import) { Text("Add music") }
 }
 
 @Composable
 internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, play: () -> Unit, modifier: Modifier = Modifier, playbackControls: Boolean = false) {
     var menu by remember { mutableStateOf(false) }
     var addToPlaylist by remember { mutableStateOf(false) }
+    var properties by remember { mutableStateOf(false) }
     val active = state.current?.id == track.id
     val fill by animateColorAsState(if (active) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
         spring(1f, 3800f), label = "Track selection")
     val content = if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface
-    Surface(modifier.fillMaxWidth().padding(bottom = 4.dp).clip(RoundedCornerShape(16.dp)).clickable(onClick = play), color = fill) {
+    Surface(modifier.fillMaxWidth().padding(bottom = 4.dp).clip(RoundedCornerShape(16.dp))
+        .combinedClickable(onClick = play, onLongClick = { menu = true }), color = fill) {
         Row(Modifier.padding(start = 10.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Artwork(track, Modifier.size(52.dp).clip(RoundedCornerShape(12.dp)))
             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
@@ -355,11 +377,14 @@ internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, pl
                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.QueueMusic, null) })
                     DropdownMenuItem(text = { Text("Play next") }, onClick = { model.playNext(track); menu = false },
                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.QueueMusic, null) })
+                    DropdownMenuItem(text = { Text("Properties") }, onClick = { menu = false; properties = true },
+                        leadingIcon = { Icon(Icons.Rounded.Info, null) })
                 }
             }
         }
     }
     if (addToPlaylist) AddToPlaylistDialog(track, state, model) { addToPlaylist = false }
+    if (properties) TrackPropertiesDialog(track, state, model) { properties = false }
 
 }
 
@@ -402,19 +427,29 @@ internal fun ExpressivePlay(playing: Boolean, click: () -> Unit, size: Dp = 88.d
 }
 
 @Composable
-private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () -> Unit, compact: Boolean = false) {
+private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () -> Unit, compact: Boolean = false,
+    onGoToArtist: (Track) -> Unit = {}, onGoToAlbum: (Track) -> Unit = {}) {
     val appScheme = MaterialTheme.colorScheme
     val base = appScheme.surface
     ContentTheme(state.coverColor, state.current) {
         val track = state.current ?: return@ContentTheme
         var queue by rememberSaveable { mutableStateOf(false) }
         var equalizer by rememberSaveable { mutableStateOf(false) }
+        var showingLyrics by rememberSaveable { mutableStateOf(false) }
+        val pluginConfig by model.plugins.collectAsStateWithLifecycle()
+        val lyricsEnabled = model.pluginManifests.any { it.type == PluginType.LYRICS && it.id in pluginConfig.enabled }
+        LaunchedEffect(lyricsEnabled) { if (!lyricsEnabled) showingLyrics = false }
         var addPlaylist by remember { mutableStateOf(false) }
         var devices by remember { mutableStateOf(false) }
+        var props by remember { mutableStateOf(false) }
+        var sleepSheet by remember { mutableStateOf(false) }
+        var overflow by remember { mutableStateOf(false) }
         val context = androidx.compose.ui.platform.LocalContext.current
         if (addPlaylist) AddToPlaylistDialog(track, state, model) { addPlaylist = false }
         if (devices) OutputDevicesDialog { devices = false }
-        BackHandler(queue || equalizer) { if (equalizer) equalizer = false else queue = false }
+        if (props) TrackPropertiesDialog(track, state, model) { props = false }
+        if (sleepSheet) SleepTimerSheet(state, model) { sleepSheet = false }
+        BackHandler(queue || equalizer || showingLyrics) { when { equalizer -> equalizer = false; showingLyrics -> showingLyrics = false; else -> queue = false } }
         val colors = MaterialTheme.colorScheme
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
             colors.primaryContainer.copy(alpha = 0.5f).compositeOver(base),
@@ -434,6 +469,26 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
                             Text("Now playing", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 1,
                                 overflow = TextOverflow.Ellipsis)
+                            Box {
+                                IconButton({ overflow = true }) { Icon(Icons.Rounded.MoreVert, "More options") }
+                                DropdownMenu(overflow, { overflow = false }) {
+                                    DropdownMenuItem(text = { Text("Properties") }, onClick = { overflow = false; props = true },
+                                        leadingIcon = { Icon(Icons.Rounded.Info, null) })
+                                    DropdownMenuItem(text = { Text("Go to artist") },
+                                        enabled = track.artist != "Unknown artist" && track.artist.isNotBlank(),
+                                        onClick = { overflow = false; onGoToArtist(track) },
+                                        leadingIcon = { Icon(Icons.Rounded.Person, null) })
+                                    DropdownMenuItem(text = { Text("Go to album") },
+                                        enabled = track.album != "Unknown album" && track.album.isNotBlank(),
+                                        onClick = { overflow = false; onGoToAlbum(track) },
+                                        leadingIcon = { Icon(ImageVector.vectorResource(R.drawable.album), null) })
+                                    DropdownMenuItem(
+                                        text = { Text(if (state.sleepEndsAt > System.currentTimeMillis())
+                                            "Sleep timer · ${remainingText(state.sleepRemaining)}" else "Sleep timer") },
+                                        onClick = { overflow = false; sleepSheet = true },
+                                        leadingIcon = { Icon(ImageVector.vectorResource(R.drawable.timer), null) })
+                                }
+                            }
                             IconButton({ queue = true }) { Icon(Icons.AutoMirrored.Rounded.QueueMusic, "Open queue") }
                         }
                         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(vertical = spacing),
@@ -463,7 +518,9 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
                             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
                                 horizontalArrangement = Arrangement.SpaceEvenly) {
                                 IconButton({ addPlaylist = true }) { Icon(ImageVector.vectorResource(R.drawable.playlist_add), "Add to playlist") }
-                                IconButton({}, enabled = false) { Icon(ImageVector.vectorResource(R.drawable.lyrics), "Lyrics unavailable") }
+                                IconButton({ showingLyrics = true }, enabled = lyricsEnabled) {
+                                    Icon(ImageVector.vectorResource(R.drawable.lyrics), if (lyricsEnabled) "Open lyrics" else "Enable a lyrics plugin in settings")
+                                }
                                 IconButton({
                                     val router = android.media.MediaRouter2.getInstance(context)
                                     if (!runCatching { router.showSystemOutputSwitcher() }.getOrDefault(false)) devices = true
@@ -490,6 +547,15 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
                     }
                 }
             }
+            AnimatedVisibility(showingLyrics, modifier = Modifier.fillMaxSize(),
+                enter = slideInVertically(spring(0.8f, 200f)) { it / 5 } + fadeIn(Effects),
+                exit = slideOutVertically(spring(0.8f, 200f)) { it / 5 } + fadeOut(Effects)) {
+                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
+                    colors.primaryContainer.copy(alpha = 0.5f).compositeOver(base), colors.surfaceContainerLow, base, base)))
+                    .then(if (compact) Modifier else Modifier.statusBarsPadding().navigationBarsPadding())) {
+                    LyricsScreen(state, model) { showingLyrics = false }
+                }
+            }
             // Cover-themed EQ overlays the whole player, including the system-bar regions.
             AnimatedVisibility(equalizer, modifier = Modifier.fillMaxSize(),
                 enter = slideInHorizontally(spring(0.8f, 200f)) { it } + fadeIn(Effects),
@@ -501,7 +567,8 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
 }
 
 @Composable
-private fun ExpressiveSeekbar(state: MusicState, model: MusicViewModel) {
+internal fun ExpressiveSeekbar(state: MusicState, model: MusicViewModel, progressOnly: Boolean = false,
+    scrubTooltip: Boolean = false) {
     var dragging by remember(state.current?.id) { mutableStateOf(false) }
     var scrub by remember(state.current?.id) { mutableFloatStateOf(0f) }
     val slider = remember(state.duration) { SliderState(trackRange = 0f..state.duration.coerceAtLeast(1).toFloat()) }
@@ -517,35 +584,56 @@ private fun ExpressiveSeekbar(state: MusicState, model: MusicViewModel) {
     val primary = MaterialTheme.colorScheme.primary
     val muted = MaterialTheme.colorScheme.outlineVariant
     val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
-    Slider(state = slider, onValueChange = { dragging = true; scrub = it },
-        onValueChangeFinished = { model.seek(scrub.toLong()); dragging = false }, enabled = state.duration > 0,
-        modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Playback position" },
-        thumb = { Box(Modifier.size(16.dp).clip(CircleShape).background(primary)) },
-        track = { value ->
-            Canvas(Modifier.fillMaxWidth().height(28.dp)) {
-                if (rtl) {
-                    // Match native slider direction for right-to-left layouts.
-                    drawContext.transform.translate(size.width, 0f)
-                    drawContext.transform.scale(-1f, 1f, Offset.Zero)
+    var trackWidth by remember { mutableIntStateOf(0) }
+    Box(Modifier.fillMaxWidth().onSizeChanged { trackWidth = it.width }) {
+        Slider(state = slider, onValueChange = { dragging = true; scrub = it },
+            onValueChangeFinished = { model.seek(scrub.toLong()); dragging = false }, enabled = state.duration > 0,
+            modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Playback position" },
+            thumb = { Box(Modifier.size(16.dp).clip(CircleShape).background(primary)) },
+            track = { value ->
+                Canvas(Modifier.fillMaxWidth().height(28.dp)) {
+                    if (rtl) {
+                        // Match native slider direction for right-to-left layouts.
+                        drawContext.transform.translate(size.width, 0f)
+                        drawContext.transform.scale(-1f, 1f, Offset.Zero)
+                    }
+                    val fraction = (value.value / state.duration.coerceAtLeast(1)).coerceIn(0f, 1f)
+                    val end = size.width * fraction
+                    val mid = size.height / 2
+                    if (end + 12.dp.toPx() < size.width) drawLine(muted, Offset(end + 12.dp.toPx(), mid), Offset(size.width, mid), 4.dp.toPx(), StrokeCap.Round)
+                    val path = Path()
+                    val wavelength = 32.dp.toPx()
+                    val waveHeight = 3.dp.toPx() * amplitude
+                    var x = 0f
+                    while (x <= end) {
+                        val y = mid + sin(x / wavelength * (2 * PI).toFloat() + phase.value) * waveHeight
+                        if (x == 0f) path.moveTo(x, y) else path.lineTo(x, y)
+                        x += 1.dp.toPx()
+                    }
+                    drawPath(path, primary, style = Stroke(4.dp.toPx(), cap = StrokeCap.Round))
                 }
-                val fraction = (value.value / state.duration.coerceAtLeast(1)).coerceIn(0f, 1f)
-                val end = size.width * fraction
-                val mid = size.height / 2
-                if (end + 12.dp.toPx() < size.width) drawLine(muted, Offset(end + 12.dp.toPx(), mid), Offset(size.width, mid), 4.dp.toPx(), StrokeCap.Round)
-                val path = Path()
-                val wavelength = 32.dp.toPx()
-                val waveHeight = 3.dp.toPx() * amplitude
-                var x = 0f
-                while (x <= end) {
-                    val y = mid + sin(x / wavelength * (2 * PI).toFloat() + phase.value) * waveHeight
-                    if (x == 0f) path.moveTo(x, y) else path.lineTo(x, y)
-                    x += 1.dp.toPx()
-                }
-                drawPath(path, primary, style = Stroke(4.dp.toPx(), cap = StrokeCap.Round))
+            })
+        // While scrubbing, a pill rides above the bar with the exact position under the finger.
+        if (scrubTooltip && dragging && trackWidth > 0 && state.duration > 0) {
+            val pill = 68.dp
+            val pillPx = with(LocalDensity.current) { pill.toPx() }
+            val fraction = (scrub / state.duration).coerceIn(0f, 1f)
+            val x = (fraction * trackWidth - pillPx / 2f).coerceIn(0f, (trackWidth - pillPx).coerceAtLeast(0f))
+            Surface(color = MaterialTheme.colorScheme.inverseSurface,
+                contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                shape = RoundedCornerShape(12.dp), shadowElevation = 6.dp,
+                modifier = Modifier.offset { IntOffset(x.roundToInt(), (-40).dp.roundToPx()) }) {
+                Text(time(scrub.toLong()), Modifier.width(pill).padding(vertical = 6.dp),
+                    style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
+                    textAlign = TextAlign.Center, maxLines = 1)
             }
-        })
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text(time(if (dragging) scrub.toLong() else state.position), style = MaterialTheme.typography.labelMedium,
+        }
+    }
+    if (progressOnly) return
+    val timeStyle = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum")
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        // Equal side widths keep the controls centered independently of the time labels.
+        Text(time(if (dragging) scrub.toLong() else state.position), Modifier.weight(1f), style = timeStyle,
             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
         Row {
             IconToggleButton(state.shuffle, { model.shuffle() }) {
@@ -557,7 +645,7 @@ private fun ExpressiveSeekbar(state: MusicState, model: MusicViewModel) {
                     tint = if (state.repeat != Player.REPEAT_MODE_OFF) primary else MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        Text(time(state.duration), style = MaterialTheme.typography.labelMedium,
+        Text(time(state.duration), Modifier.weight(1f), style = timeStyle, textAlign = TextAlign.End,
             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
     }
 }
@@ -584,7 +672,7 @@ private fun QueuePage(state: MusicState, model: MusicViewModel, back: () -> Unit
 }
 
 @Composable
-private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission: () -> Unit, import: () -> Unit, plugins: () -> Unit, equalizer: () -> Unit, back: () -> Unit) {
+private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission: () -> Unit, import: () -> Unit, plugins: () -> Unit, equalizer: () -> Unit, hidden: () -> Unit, back: () -> Unit) {
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         LazyColumn(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(), contentPadding = PaddingValues(24.dp)) {
             item {
@@ -602,24 +690,20 @@ private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission:
                 SectionHeading("Library")
                 SettingsAction(Icons.Rounded.FolderOpen, "Add audio files", "Copy files into Music/Klang", import, !state.busy)
                 SettingsAction(Icons.Rounded.LibraryMusic, "Music access", if (state.permission) "Allowed · manage in Android settings" else "Allow access to your phone’s music", permission)
-                SettingsAction(Icons.Rounded.Download, "Starter tracks", "KYOTO, Recall and EYES ON US", model::installStarter, !state.busy)
                 SettingsAction(Icons.Rounded.Refresh, "Refresh library", "Scan for added or removed files", model::refresh)
+                SettingsAction(ImageVector.vectorResource(R.drawable.visibility_off), "Hidden audio files",
+                    if (state.hiddenTracks.isEmpty()) "No hidden files" else "${state.hiddenTracks.size} hidden · review or restore", hidden)
                 SectionHeading("Extensions")
-                SettingsAction(ImageVector.vectorResource(R.drawable.extension), "Plugins", "Browse planned music integrations", plugins)
+                SettingsAction(ImageVector.vectorResource(R.drawable.extension), "Plugins", "Lyrics providers and music integrations", plugins)
                 SectionHeading("Playback")
                 SettingsAction(ImageVector.vectorResource(R.drawable.equalizer), "Equalizer", "Presets and headphone sound", equalizer)
-                Text("Sleep timer", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 12.dp))
-                ChoiceGroup(listOf("Off", "15 min", "30 min", "60 min"), listOf(0, 15, 30, 60).indexOf(state.sleepMinutes).coerceAtLeast(0)) {
-                    model.sleep(listOf(0, 15, 30, 60)[it])
-                }
-                Text("Closing the app cancels the timer.", Modifier.padding(top = 10.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("The sleep timer is in the now playing menu.", Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                 SectionHeading("About")
                 Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.fillMaxWidth().padding(20.dp)) {
                         Text("Klang", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text("0.5.2 · Created by Lynli", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium)
-                        Text("Music by HESTER, gabriawll and 2frers. Released by NoCopyrightSounds.", Modifier.padding(top = 12.dp),
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("0.7.0 · Created by Lynli", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }

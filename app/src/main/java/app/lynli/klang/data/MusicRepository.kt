@@ -7,7 +7,6 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.media.MediaMetadataRetriever
 import android.net.Uri
-import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.OpenableColumns
@@ -16,7 +15,6 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
 
 /** Local source boundary; future streaming sources can supply the same MediaItem contract. */
 data class Track(
@@ -36,7 +34,6 @@ data class Track(
 class MusicRepository(private val context: Context) {
     private val resolver = context.contentResolver
     private val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-    private val prefs = context.getSharedPreferences("klang", Context.MODE_PRIVATE)
 
     fun hasLibraryPermission(): Boolean = ContextCompat.checkSelfPermission(context,
         Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -61,27 +58,60 @@ class MusicRepository(private val context: Context) {
         result
     }
 
-    /** Pending rows hide partial files. A failed copy is rolled back, and retries never duplicate packs. */
-    suspend fun installStarter(): Int = withContext(Dispatchers.IO) {
-        val catalog = JSONArray(context.assets.open("starter/catalog.json").bufferedReader().use { it.readText() })
-        var count = 0
-        for (i in 0 until catalog.length()) {
-            val entry = catalog.getJSONObject(i)
-            val name = entry.getString("file")
-            val exists = resolver.query(collection, arrayOf(MediaStore.Audio.Media._ID),
-                "${MediaStore.Audio.Media.RELATIVE_PATH} = ? AND ${MediaStore.Audio.Media.DISPLAY_NAME} = ? AND ${MediaStore.Audio.Media.IS_PENDING} = 0",
-                arrayOf("Music/Klang/", name), null)?.use { it.moveToFirst() } ?: false
-            if (exists) continue
-            writeMusic(name, entry.getString("title"), entry.getString("artist"),
-                entry.getString("album"), entry.getLong("durationMs"), if (name.endsWith(".m4a")) "audio/mp4" else "audio/mpeg") { output ->
-                context.assets.open("starter/$name").use { it.copyTo(output) }
+    /** Reads technical metadata for the properties sheet. Missing values stay null. */
+    suspend fun details(track: Track): TrackDetails = withContext(Dispatchers.IO) {
+        var displayName: String? = null
+        var relativePath: String? = null
+        var size: Long? = null
+        var mimeFromStore: String? = null
+        runCatching {
+            resolver.query(track.uri, arrayOf(MediaStore.Audio.Media.DISPLAY_NAME,
+                MediaStore.Audio.Media.RELATIVE_PATH, MediaStore.Audio.Media.SIZE,
+                MediaStore.Audio.Media.MIME_TYPE), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    displayName = cursor.getString(0)
+                    relativePath = cursor.getString(1)
+                    size = if (cursor.isNull(2)) null else cursor.getLong(2)
+                    mimeFromStore = cursor.getString(3)
+                }
             }
-            count++
         }
-        prefs.edit().putBoolean("starterInstalled", true).apply()
-        count
+        var duration = track.durationMs
+        var bitrate: Int? = null
+        var sampleRate: Int? = null
+        var mime = mimeFromStore
+        runCatching {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(context, track.uri)
+                duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    ?.toLongOrNull() ?: duration
+                bitrate = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)
+                    ?.toLongOrNull()?.takeIf { it > 0 }?.let { (it / 1000).toInt() }
+                sampleRate = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_SAMPLERATE)
+                    ?.toIntOrNull()?.takeIf { it > 0 }
+                if (mime.isNullOrBlank()) mime = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE)
+            } finally { retriever.release() }
+        }
+        // Fall back to the file size when the container omits an average bitrate.
+        val estimated = bitrate ?: size?.takeIf { duration > 0 }?.let { bytes ->
+            ((bytes * 8) / duration).toInt().takeIf { it in 8..10_000 }
+        }
+        val name = displayName ?: track.uri.lastPathSegment?.substringAfterLast('/')
+        TrackDetails(
+            durationMs = duration,
+            format = formatLabel(mime, name),
+            mimeType = mime?.takeIf { it.isNotBlank() },
+            bitrateKbps = estimated,
+            sampleRateHz = sampleRate,
+            sizeBytes = size,
+            location = when {
+                name == null -> null
+                relativePath.isNullOrBlank() -> name
+                else -> relativePath.trimEnd('/') + "/" + name
+            },
+        )
     }
-    fun needsStarter() = !prefs.getBoolean("starterInstalled", false)
 
     suspend fun importFiles(uris: List<Uri>): Int = withContext(Dispatchers.IO) {
         var count = 0

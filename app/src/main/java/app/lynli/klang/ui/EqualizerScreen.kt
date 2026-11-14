@@ -67,7 +67,7 @@ internal fun EqualizerScreen(back: () -> Unit, songTitle: String?, songContext: 
     var bandPage by rememberSaveable { mutableIntStateOf(0) }
     val songAssigned = songContext && route.songId in settings.songCurves
     val deviceAssigned = route.deviceId in settings.deviceCurves
-    val scopeLabel = when { songAssigned -> songTitle ?: "This song"; deviceAssigned -> route.deviceName; else -> "Default sound" }
+    val scopeLabel = when { songAssigned -> songTitle ?: "This song"; deviceAssigned -> route.deviceName; else -> null }
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         LazyColumn(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(),
             contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -86,8 +86,10 @@ internal fun EqualizerScreen(back: () -> Unit, songTitle: String?, songContext: 
                     Text("Equalizer", style = style.copy(fontSize = style.fontSize * scale,
                         lineHeight = style.lineHeight * scale), maxLines = 1, softWrap = false)
                 }
-                Text(scopeLabel, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                scopeLabel?.let {
+                    Text(it, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
             item {
                 Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.secondaryContainer) {

@@ -11,8 +11,8 @@ android {
         applicationId = "app.lynli.klang"
         minSdk = 36
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.5.2"
+        versionCode = 19
+        versionName = "0.7.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildTypes {
@@ -42,6 +42,7 @@ dependencies {
     implementation("androidx.media3:media3-session:1.11.1")
     implementation("androidx.palette:palette-ktx:1.0.0")
     implementation("com.materialkolor:material-kolor:4.1.1")
+    implementation("org.yaml:snakeyaml:2.6")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")
 }

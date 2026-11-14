@@ -109,16 +109,17 @@ class PlaybackService : MediaSessionService() {
         }
         getSharedPreferences("playback", MODE_PRIVATE).edit().putString("queue", items.toString())
             .putInt("index", player.currentMediaItemIndex.coerceAtLeast(0)).putLong("position", player.currentPosition)
-            .putString("source", player.playlistMetadata.extras?.getString(PLAYBACK_SOURCE_KEY))
+            .putString("source", player.playbackSourceOrNull())
             .putInt("repeat", player.repeatMode).putBoolean("shuffle", player.shuffleModeEnabled).apply()
     }
     private fun restoreQueue() {
         val prefs = getSharedPreferences("playback", MODE_PRIVATE)
         runCatching {
             val array = JSONArray(prefs.getString("queue", "[]"))
+            val source = prefs.getString("source", null)
             val items = (0 until array.length()).map { i -> array.getJSONObject(i).let {
                 Track(Uri.parse(it.getString("uri")), it.optString("title"), it.optString("artist"),
-                    it.optString("album"), 0).mediaItem()
+                    it.optString("album"), 0).mediaItem().withPlaybackSource(source)
             }}
             if (items.isNotEmpty()) {
                 player.setPlaylistMetadata(MediaMetadata.Builder().setExtras(Bundle().apply {

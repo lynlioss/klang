@@ -20,7 +20,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.palette.graphics.Palette
-import app.lynli.klang.R
 import app.lynli.klang.data.Track
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -81,7 +80,6 @@ internal object ArtworkStore {
                     BitmapFactory.decodeByteArray(it, 0, it.size, options)
                 }
             }.getOrNull()?.let(::scale)?.also { cache.put(track.id, it) }
-                ?: bundled(track)?.let { BitmapFactory.decodeResource(context.resources, it) }?.let(::scale)?.also { cache.put(track.id, it) }
             decoded?.let(::keepThumbnail)
             if (decoded == null) missing.put(track.id, true)
             else runCatching {
@@ -111,12 +109,6 @@ internal object ArtworkStore {
                 ?: palette.mutedSwatch?.rgb ?: palette.dominantSwatch?.rgb
             value?.also { seeds.put(track.id, it) }
         }
-    }
-    private fun bundled(track: Track) = when (track.title) {
-        "KYOTO", "HESTER - KYOTO" -> R.drawable.kyoto
-        "Recall" -> R.drawable.recall
-        "EYES ON US" -> R.drawable.eyes_on_us
-        else -> null
     }
 }
 

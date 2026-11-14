@@ -11,7 +11,12 @@ else
 fi
 for task in "$@"; do
   case "$task" in
-    assembleRelease|:app:assembleRelease) python3 scripts/verify-apk.py app/build/outputs/apk/release/app-release.apk ;;
+    assembleRelease|:app:assembleRelease)
+      python3 scripts/verify-apk.py app/build/outputs/apk/release/app-release.apk
+      if [[ -f /apex/com.android.art/bin/dalvikvm64 && -f /apex/com.android.runtime/bin/linker64 ]]; then
+        python3 scripts/verify-release-lyrics.py app/build/outputs/apk/release/app-release.apk
+      fi
+      ;;
     assembleDebug|:app:assembleDebug) python3 scripts/verify-apk.py app/build/outputs/apk/debug/app-debug.apk ;;
   esac
 done

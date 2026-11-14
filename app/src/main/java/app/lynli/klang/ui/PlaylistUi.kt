@@ -1,6 +1,8 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 package app.lynli.klang.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -97,13 +99,14 @@ internal fun PlaylistTrackPicker(collection: MusicCollection, state: MusicState,
 internal fun PlaylistTrackRow(track: Track, index: Int, collection: MusicCollection, state: MusicState,
     model: MusicViewModel, modifier: Modifier = Modifier, openPlayer: () -> Unit = {}) {
     var menu by remember { mutableStateOf(false) }
+    var properties by remember { mutableStateOf(false) }
     Surface(modifier.fillMaxWidth().padding(bottom = 4.dp), shape = RoundedCornerShape(16.dp),
         color = if (state.current?.id == track.id) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainerLow) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Row(Modifier.weight(1f).clickable {
-                if (state.current?.id == track.id) openPlayer() else model.play(collection.tracks, index, sourceId = collection.id)
-            }.padding(10.dp),
-                verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.weight(1f).combinedClickable(
+                onClick = { if (state.current?.id == track.id) openPlayer() else model.play(collection.tracks, index, sourceId = collection.id) },
+                onLongClick = { menu = true },
+            ).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Artwork(track, Modifier.size(52.dp).clip(RoundedCornerShape(12.dp)))
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
                     Text(track.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -124,8 +127,11 @@ internal fun PlaylistTrackRow(track: Track, index: Int, collection: MusicCollect
                     DropdownMenuItem({ Text("Remove from playlist") }, onClick = {
                         model.removeFromPlaylist(collection.editableId!!, track.id); menu = false
                     })
+                    DropdownMenuItem({ Text("Properties") }, onClick = { properties = true; menu = false },
+                        leadingIcon = { Icon(Icons.Rounded.Info, null) })
                 }
             }
         }
     }
+    if (properties) TrackPropertiesDialog(track, state, model) { properties = false }
 }

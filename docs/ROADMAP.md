@@ -12,4 +12,4 @@ Potential next milestones:
 - Explicitly permissioned plugin loading, provider settings and isolated failures.
 - YouTube or other integrations only through a provider implementation after the base player is stable.
 
-Version 0.5.0 includes a Plugins page with unavailable Spotify and YouTube Music placeholders. No plugin execution, account linking, remote search, or streaming provider is shipped.
+LRCLIB is the first functional bundled plugin, with type `lyrics`, persistent settings and a synchronized player. JSON manifests and a provider capability boundary support additional providers. Spotify and YouTube Music remain unavailable placeholders. Downloadable plugin code, account linking and streaming providers remain future work. See [the plugin API](PLUGINS.md).

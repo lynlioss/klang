@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.core.view.WindowCompat
 import app.lynli.klang.ui.KlangApp
 import app.lynli.klang.ui.KlangTheme
+import app.lynli.klang.ui.OnboardingScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -28,7 +29,9 @@ class MainActivity : ComponentActivity() {
             val model: MusicViewModel = viewModel()
             val state by model.state.collectAsStateWithLifecycle()
             LifecycleResumeEffect(Unit) { model.refresh(); onPauseOrDispose { } }
-            val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { model.refresh() }
+            val permissionPrefs = remember { getSharedPreferences("klang_permissions", MODE_PRIVATE) }
+            val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { model.refresh() }
+            val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { model.refresh() }
             val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { model.importFiles(it) }
             KlangTheme(state.theme, state.dynamicColor) {
                 val lightBars = MaterialTheme.colorScheme.surface.luminance() > 0.5f
@@ -39,13 +42,20 @@ class MainActivity : ComponentActivity() {
                         isAppearanceLightNavigationBars = lightBars
                     }
                 }
-                KlangApp(state, model, onPermission = {
-                    if (state.permission) startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
-                    else permissions.launch(buildList {
-                        add(Manifest.permission.READ_MEDIA_AUDIO)
-                        add(Manifest.permission.POST_NOTIFICATIONS)
-                    }.toTypedArray())
-                }, onImport = { importer.launch(arrayOf("audio/*")) })
+                fun requestAccess(permission: String, alreadyGranted: Boolean, launch: () -> Unit) {
+                    val permanentlyDenied = permissionPrefs.getBoolean(permission, false) && !shouldShowRequestPermissionRationale(permission)
+                    if (alreadyGranted || permanentlyDenied) startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+                    else { permissionPrefs.edit().putBoolean(permission, true).apply(); launch() }
+                }
+                val musicAccess = { requestAccess(Manifest.permission.READ_MEDIA_AUDIO, state.permission) {
+                    permissions.launch(Manifest.permission.READ_MEDIA_AUDIO)
+                } }
+                val notificationAccess = { requestAccess(Manifest.permission.POST_NOTIFICATIONS, state.notificationPermission) {
+                    notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } }
+                val importFiles = { importer.launch(arrayOf("audio/*")) }
+                if (!state.onboardingComplete) OnboardingScreen(state, musicAccess, notificationAccess, importFiles, model::completeOnboarding)
+                else KlangApp(state, model, onPermission = musicAccess, onImport = importFiles)
             }
         }
     }

@@ -16,6 +16,8 @@ Ubuntu's `/usr/bin/aapt2` cannot parse SDK 36's resource table. The phone uses t
 
 `adb devices` currently has no attached device. Running proot on a phone does not automatically grant ADB access to the host Android system. APK signing/package validation can run here, while interactive playback, notification, permission and screen tests require installing the APK on Android.
 
+The host's Android Runtime can run isolated Java/DEX checks through `/apex/com.android.runtime/bin/linker64 /apex/com.android.art/bin/dalvikvm64`. The phone helper uses this for `scripts/verify-release-lyrics.py`, loading the exact release APK and its R8 mapping to check lyrics parsing without installing the app. This caught a release-only SnakeYAML failure: relocating its classes into the default package made `Class.getPackage()` return null. Package-preservation shrinker rules fix that while keeping code shrinking enabled. These checks verify parser execution, not interactive playback or the Compose screen.
+
 `neofetch` was installed from dylanaraps/neofetch, since Ubuntu's current repositories contain fastfetch instead.
 
 The first AGP 8/SDK 36 build compiled successfully. At Lynli's request, the final toolchain uses the latest available compile SDK (37.2), AGP 9.5.1 and Gradle 9.9.1. The app minimum and target are API 36 (Android 16).
@@ -24,4 +26,4 @@ The first AGP 8/SDK 36 build compiled successfully. At Lynli's request, the fina
 
 The static ARM64 aapt2 supports resource linking but its optional `optimize` command did not produce AGP 9’s requested output. A task could report success while the APK omitted its manifest and resource table. Setting `isShrinkResources=false` alone did not stop that optimization task.
 
-The phone helper now passes `-Pandroid.enableResourceOptimizations=false`, in addition to the aapt2 override. AGP 9.5.1 accepts this legacy option with a deprecation warning. R8 code shrinking stays enabled. The helper runs `scripts/verify-apk.py` after assembly, rejecting missing manifest/resources, corrupt or duplicate ZIP entries, mismatched starter assets, misalignment and invalid signatures. Builds on x86 Linux use Google’s own aapt2 and do not need the phone-only option. If a later AGP removes the legacy option, this workaround will need an updated ARM64 tool or packaging path.
+The phone helper now passes `-Pandroid.enableResourceOptimizations=false`, in addition to the aapt2 override. AGP 9.5.1 accepts this legacy option with a deprecation warning. R8 code shrinking stays enabled. The helper runs `scripts/verify-apk.py` after assembly, rejecting missing manifest/resources, corrupt or duplicate ZIP entries, missing plugin manifests, misalignment and invalid signatures. Builds on x86 Linux use Google’s own aapt2 and do not need the phone-only option. If a later AGP removes the legacy option, this workaround will need an updated ARM64 tool or packaging path.

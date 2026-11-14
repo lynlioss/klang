@@ -65,3 +65,75 @@ The APK is 28,636,407 bytes, includes exactly three starter tracks and passes ma
 Release assembly and vital lint pass. Restores large rounded tonal previous/next buttons and an animated squiggly seek track with native Slider gestures/semantics. Shuffle/repeat remain reachable beside time labels. Reduced motion disables wave travel/amplitude. EQ opened from Now playing inherits cover colors and overlays the full window with expressive spatial/effects springs, removing the mismatched status-bar strip. Frequency-range tabs replace checked segmented band buttons. Equalizer uses the Plugins display font, measured and scaled to stay single-line.
 
 The APK is 28,652,791 bytes and passes package/resources/ZIP/alignment/signing verification with the same certificate as 0.5.1. Full HTTP GET matches SHA-256 `1692ed172dc5fdc1d41bcbc8031014faebb5dab7fa57c29516c7420661ad8e21`. These are UI-only changes; the 25 passing audio/library tests from 0.5.1 were not rerun. Physical animation/layout verification requires the phone trial.
+
+## Version 0.5.5
+
+`testDebugUnitTest lintDebug assembleRelease --max-workers=1` completed successfully. All 46 tests pass; lint reports zero errors and 25 warnings. The lyrics checks cover line-only synchronization, supplied word timestamps, offsets and backward seeking, control inactivity/touch resets, and word completion crossings without replaying past words or large position jumps.
+
+Lyrics use word sync only when word timestamps exist. Line-only songs highlight whole lines. Word fill has a feathered leading edge, stronger bloom and a small spring lift on completion; line transitions use spring scale/lift. Top and bottom controls hide after three seconds of inactivity, keep the reading position steady, and return on touch. Touch exploration keeps the controls visible. A live LRCLIB response for Dying in Reverse / Cage the Elephant confirms no word sync and its first line at 23.01 seconds.
+
+The APK is 5,042,777 bytes and passes manifest/resource, ZIP, alignment and signing checks. Its certificate matches 0.5.4, and a full HTTP download matched SHA-256 `ec6025a0e8d956fda33802fb688394c7efa9a98ccff3ae243560efbfab20f002`. The LRCLIB manifest and official icon are packaged, the estimated timing setting is absent, and no starter-song assets remain. On-phone animation, touch and playback review remain manual checks; no ADB-connected device is available.
+
+## Version 0.5.6
+
+`testDebugUnitTest lintDebug assembleRelease --max-workers=1` completed successfully. All 57 tests pass; lint reports zero errors and 25 warnings. New checks cover same-duration duplicate selection, parsed timing priority, wrong title/artist/duration rejection, upgrade service failures, cancellation, legacy cache refresh, daily refresh, offline fallback and preservation of existing word timing.
+
+Live LRCLIB responses reproduce Homecoming's album-edition mismatch: Graduation (Deluxe Edition - Explicit) returns a line-only record while the matching Graduation record has word timestamps. Running the updated provider against these responses selects 61 lines containing 524 supplied word timestamps. Existing cache files revalidate under the new lookup policy without requiring the user to delete app data.
+
+The APK is 5,042,777 bytes, versionCode 13, and passes package/resources, ZIP, alignment and signing checks. Its certificate matches 0.5.5. Full HTTP download matches SHA-256 `1a4cd1d5091dff9a60d40182081b3221840ecd4f9dad616f0b3a021b7138acca`. On-phone playback and animation remain manual checks; no ADB-connected device is available.
+
+## Version 0.5.7
+
+The exact 0.5.6 APK reproduced a release-only SnakeYAML initialization crash in Android Runtime. R8 moved `TypeDescription` into the default package, where Android's `Class.getPackage()` returns null; its logger called `getName()` and lyric parsing silently fell back to line-only LRC. Release rules now preserve SnakeYAML package names while retaining shrinking, class/member obfuscation and optimization. Lookup version 3 refreshes cached line-only results from 0.5.6 automatically, retaining offline fallback.
+
+`testDebugUnitTest lintDebug assembleRelease --max-workers=1` completed successfully: 57 tests pass and lint reports zero errors and 25 warnings. The revised cache regression was rerun separately with all five repository tests passing, including refresh from a version-2 cached line document without clearing app data.
+
+`scripts/verify-release-lyrics.py` loads the actual optimized APK in the host's Android Runtime. Homecoming's fixture retains six supplied word timestamps with checked text/boundaries, and a line-only YAML document retains zero word timestamps. The complete live Homecoming record separately parses as 61 lines / 524 words in the same release APK. The build helper runs the release-runtime check when host ART is available; no app installation is needed.
+
+The APK is 5,059,159 bytes, versionCode 14, with complete manifest/resources, valid ZIP integrity/alignment and a verified signing certificate matching 0.5.6. The download endpoint serves `Klang-0.5.7.apk`; a full HTTP download matches SHA-256 `f4f95b372262d597686749e6890056d21e043f3510906bdf4e55e833b8de07a1`. Interactive playback, lyric animations and touch behavior still require an on-phone trial; isolated ART checks verify the released parser, not the Compose screen.
+
+## Version 0.5.8
+
+The actual 0.5.7 APK's word drawing lambda reproduced `IndexOutOfBoundsException` in Android's native runtime with an empty pivot list. `onTextLayout` set the layout state after composition, so the first draw could see a valid layout while its captured word geometry was still empty. `onTextLayout` now publishes layout, wrapped word bounds and pivots together as one snapshot; the renderer draws only complete snapshots and skips empty visual fragments. Word reveal, bloom and completion motion remain enabled.
+
+`testDebugUnitTest lintDebug assembleRelease --max-workers=1` completed successfully. All 61 tests pass; lint reports zero errors and 25 warnings. Four new geometry regressions cover first-measured word bounds/pivots, wrapping, whitespace/invisible fragments and remeasurement. The release parser checks pass, including the full Homecoming document with 61 lines / 524 supplied words.
+
+A reflection harness loaded the delivered APK through Android `app_process64`, using native `StaticLayout`, text paint, a bitmap canvas and the release's obfuscated word drawing code. Frames before fill, during a feathered fill and on word completion with a pulse rendered successfully. The separate 0.5.7 harness reproduced the missing-pivot exception. These isolated checks do not install/open Klang or verify full Compose interaction, Media3 playback or the GPU bloom appearance; those remain on-phone checks.
+
+The APK is 5,059,159 bytes, versionCode 15, with complete manifest/resources, ZIP integrity/alignment and a signing certificate matching 0.5.7. A full HTTP download of `Klang-0.5.8.apk` matches SHA-256 `24f2fb2ad08ea454c59d9f20330daad77e0d72bcf347f781e8f44997ef14141d`.
+
+## Version 0.5.9
+
+Word-synced lyrics crashed with `java.lang.StackOverflowError` (stack size 8188KB) while line-synced lyrics worked. Retracing the 0.5.8 crash against its mapping (map-id `5012…`) showed only two frames repeating ~2,000 times: `CanvasDrawScope.getDensity(CanvasDrawScope.kt:60)` and `LayoutNodeDrawScope.getDensity`. `DrawScope.GraphicsLayer.record` installs the drawing `DrawScope` itself as the layer density, so any `Dp.toPx()` inside a `record` block reads `LayoutNodeDrawScope.density`, which delegates back to `CanvasDrawScope.drawParams.density` — the same scope. The word renderer called `1.dp.toPx()` and `8.dp.toPx()` inside `highlightLayer.record`, while the line-only path records a single `drawText` and never reads density.
+
+All pixel conversions (`padPx`, `featherMaxPx`, `wordLiftPx`) are now resolved before `record`, and the recorded block is documented as density-free. `testDebugUnitTest assembleRelease --max-workers=1` passed, the release parser checks passed in Android Runtime, and package/signature verification passed.
+
+The APK is 5,059,159 bytes, versionCode 16, certificate SHA-256 `ce07ecd5eb236643d4848eab7a081323df31572414652dd444e3562a2274449a`. SHA-256 `74bea4e44d61613587627a50668c7a3d846e74cdd451a927290036b142754ab1` was verified against a full HTTP download of `Klang-0.5.9.apk`.
+
+## Version 0.7.0
+
+Song rows now open the same options menu on long-press as their three-dot control, and both that menu and the Now playing overflow offer Properties. The sheet reads MediaStore and MediaMetadataRetriever for format, sample rate, average bitrate (falling back to file size ÷ duration), file size, relative path and playlist membership; anything the platform omits degrades to a dash instead of blocking the sheet. Hide from app persists a MediaStore id set in preferences, filters it out of every library scan, and Settings → Library → Hidden audio files lists the hidden tracks for one-tap or bulk restore. Hidden ids survive library refreshes and app restarts.
+
+Now playing also gained go to artist and go to album entries. Artist collections are derived from the visible library and share the same collection screen as albums, while the playlist tab deliberately keeps listing only saved playlists and the two built-in collections. The sleep timer moved out of Settings into a radial bottom sheet: drag anywhere around the ring to pick 0–180 minutes in five-minute steps, with ±5 steppers and 15/30/45/60/90-minute shortcuts. The remaining time comes from an end timestamp refreshed by the existing 500 ms player tick, so the overflow menu shows a live countdown, and closing the process still cancels the timer.
+
+`testDebugUnitTest` and `assembleRelease` passed (67 unit tests), package/signature verification passed, and both release parser checks passed in Android Runtime. The APK is 5,176,082 bytes, versionCode 19, signed with the same certificate. `artifacts/Klang-0.7.0.apk` matches SHA-256 `f1ca0b59bdfb84d19196ac824e01302c7a66ead9f4ea88cbd1ffe9a2b7ef1dea`. The radial dial, long-press menu and properties sheet still need an on-phone look.
+
+## Version 0.6.1
+
+On-phone feedback on 0.6.0: the word wipe still felt uneven and the line switch was abrupt. The renderer now follows Aurora's karaoke model instead of a moving clip path. Each character owns a sung amount in `0..1`; inside a word the progress is spread across its letters (`progress * letters - i`), the trailing space never lights, and the fill runs 80 ms ahead of the clock so the wipe reads in time with the voice. Quarter-character steps keep the text re-layout to four looks per letter while the motion stays continuous, and the leading character carries the soft edge. Because the per-character path is a span-colour change, the graphics-layer record/clip renderer and its density recursion are gone entirely.
+
+Line switching uses Aurora's semantics: a line becomes current the moment it starts (`indexOfLast { it.startMs <= position }`) and holds until the next one starts, so the highlight no longer blinks off in instrumental gaps. The list glides with `animateScrollBy(item.offset, tween(650, FastOutSlowInEasing))`; a target that is off screen animates in with `animateScrollToItem`. Emphasis is brightness only: active 1.0, next 0.55, past 0.35 over 420 ms, and the depth blur starts at the line after next (`(|distance|-1)*1.6dp`, capped at 7dp). Line-only lyrics (no word timings) draw full-ink text and rely on that row opacity, the way Aurora handles `LyricsSync.LINE`.
+
+Dragging the lyrics progress bar now shows a timestamp pill above the finger, clamped to the track edges, with the position under the thumb rather than the last committed seek. Lyrics mode still renders the bar alone (`progressOnly`), so shuffle, repeat and the time labels stay hidden.
+
+`testDebugUnitTest assembleRelease --max-workers=1` passed (62 unit tests), package/signature verification passed, and both release parser checks passed in Android Runtime. The APK is 5,075,545 bytes, versionCode 18, signed with the same certificate. A full HTTP download of `Klang-0.6.1.apk` matches SHA-256 `f3095d0e2883a8acd625ad5b7f912f68d1d31936870e6821293b7af020fdd447`. The wipe smoothness and the tooltip still need an on-phone look.
+
+## Version 0.6.0
+
+On-phone feedback on 0.5.9: the per-word completion animation was distracting, the active line changed size too much, only three lines fit, and the bloom read as a halo that appeared only at word boundaries. The target look is Apple Music's lyrics view: flat ink, one type size, a bright active line over dim context, and a smooth depth-of-field falloff below.
+
+Removed: the `completionPulses` spring impulse, the `completionBlooms` flash, the lifted/scaled completed-word silhouette, `WordCompletionTracker` and its test, the blurred bloom layer (`bloomLayer`, `BlurEffect`, `entryBloom`), and the active-line scale animation (previously 1.0 vs 0.94). Words now stay on the baseline and simply fill from dim ink to full ink; the feathered frontier keeps the fill looking continuous. Weight drops from Bold to SemiBold.
+
+Layout: the reading anchor moves from 30% to 20% of the viewport, paragraph spacing tightens to 18/26dp, and the lyrics-mode seekbar renders only the progress bar — its time labels, shuffle and repeat buttons are gone (`ExpressiveSeekbar(progressOnly = true)`), which frees another row of height. Upcoming lines blur progressively: the next line stays crisp, then distance 2 starts at 1.5dp and grows to 6dp with `BlurredEdgeTreatment.Unbounded`.
+
+`testDebugUnitTest assembleRelease --max-workers=1` passed (60 unit tests), package/signature verification passed, and both release parser checks passed in Android Runtime. The APK is 5,042,775 bytes, versionCode 17, signed with the same certificate. A full HTTP download of `Klang-0.6.0.apk` matches SHA-256 `37bd77b08a10111fc06035dc8a316901fb40a4122e77fc69afc8e2a33739d111`. The flat ink, typography and depth-of-field appearance still need an on-phone look.

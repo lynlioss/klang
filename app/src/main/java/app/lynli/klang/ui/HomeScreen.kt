@@ -38,7 +38,7 @@ import app.lynli.klang.data.Track
 
 internal data class MusicCollection(val id: String, val title: String, val subtitle: String,
     val tracks: List<Track>, val favorites: Boolean = false, val mix: Boolean = false,
-    val album: Boolean = false, val editableId: String? = null)
+    val album: Boolean = false, val artist: Boolean = false, val editableId: String? = null)
 
 // Use artist as well as album title: different artists can release identically named albums.
 internal fun albumCollections(tracks: List<Track>): List<MusicCollection> = tracks
@@ -47,12 +47,28 @@ internal fun albumCollections(tracks: List<Track>): List<MusicCollection> = trac
     .map { (key, songs) -> MusicCollection("album:${key.first.length}:${key.first}${key.second}",
         key.first, key.second, songs, album = true) }
 
+internal fun artistId(artist: String) = "artist:${artist.length}:$artist"
+
+internal fun artistCollection(artist: String, tracks: List<Track>): MusicCollection? {
+    if (artist.isBlank() || artist == "Unknown artist") return null
+    val songs = tracks.filter { it.artist == artist }
+    if (songs.isEmpty()) return null
+    return MusicCollection(artistId(artist), artist, "${songs.size} songs", songs, artist = true)
+}
+
+internal fun artistCollections(tracks: List<Track>): List<MusicCollection> = tracks.map { it.artist }.distinct()
+    .mapNotNull { artistCollection(it, tracks) }
+
+internal fun albumCollection(track: Track, tracks: List<Track>): MusicCollection? = albumCollections(tracks)
+    .find { it.title == track.album && it.subtitle == track.artist }
+
 internal fun musicCollections(state: MusicState): List<MusicCollection> {
     val tracks = state.tracks.associateBy { it.id }
     return listOf(MusicCollection("mix", "My Mix", "", state.tracks, mix = true),
         MusicCollection("favorites", "Favorites", "Saved songs", state.tracks.filter { it.id in state.favorites }, favorites = true)) +
         state.playlists.map { playlist -> MusicCollection("playlist:${playlist.id}", playlist.name, "",
-            playlist.trackIds.mapNotNull { tracks[it] }, editableId = playlist.id) } + albumCollections(state.tracks)
+            playlist.trackIds.mapNotNull { tracks[it] }, editableId = playlist.id) } +
+        albumCollections(state.tracks) + artistCollections(state.tracks)
 }
 
 @Composable
@@ -87,7 +103,7 @@ internal fun HomeScreen(state: MusicState, model: MusicViewModel, collections: L
                 Modifier.padding(horizontal = 24.dp).animateItem())
         }
         if (state.tracks.isEmpty() && !state.loading && !state.busy) item {
-            Column(Modifier.padding(horizontal = 24.dp)) { EmptyLibrary(import, model::installStarter) }
+            Column(Modifier.padding(horizontal = 24.dp)) { EmptyLibrary(import) }
         }
     }
 }
@@ -152,16 +168,6 @@ internal fun CollectionScreen(collection: MusicCollection, state: MusicState, mo
     var deleting by remember { mutableStateOf(false) }
     var adding by rememberSaveable(collection.id) { mutableStateOf(false) }
     val listState = rememberLazyListState()
-    val currentId = state.current?.id
-    val activeRowVisible by remember(currentId, listState) {
-        derivedStateOf {
-            val layout = listState.layoutInfo
-            currentId != null && layout.visibleItemsInfo.any { item ->
-                item.key == currentId && controlsAreVisible(item.offset, item.size,
-                    layout.viewportStartOffset, layout.viewportEndOffset)
-            }
-        }
-    }
     BackHandler(adding) { adding = false }
     ContentTheme(state.coverColor && collection.album, collection.tracks.firstOrNull()) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
@@ -215,7 +221,7 @@ internal fun CollectionScreen(collection: MusicCollection, state: MusicState, mo
                     if (collection.tracks.isEmpty()) item { EmptyState("No songs yet",
                         if (collection.favorites) "Save songs with the heart to build this playlist." else if (collection.mix) "Your music will appear here." else "Add songs to your playlist.") }
                 }
-                AnimatedVisibility(state.current != null && !activeRowVisible,
+                AnimatedVisibility(state.current != null,
                     modifier = Modifier.align(Alignment.BottomCenter).widthIn(max = 520.dp),
                     enter = slideInVertically(spring(0.8f, 200f)) { it } + fadeIn(spring(1f, 800f)),
                     exit = slideOutVertically(spring(0.8f, 200f)) { it } + fadeOut(spring(1f, 800f))) {
@@ -249,34 +255,6 @@ private fun CollectionArtwork(collection: MusicCollection) {
             Box(Modifier.size(224.dp).clip(RoundedCornerShape(48.dp)).background(MaterialTheme.colorScheme.tertiaryContainer),
                 contentAlignment = Alignment.Center) {
                 Icon(Icons.Rounded.Favorite, null, Modifier.size(88.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
-            }
-        }
-    }
-}
-
-@Composable
-internal fun PluginsScreen(back: () -> Unit) {
-    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-        LazyColumn(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(), contentPadding = PaddingValues(24.dp)) {
-            item {
-                UtilityIconButton(back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
-                Text("Plugins", Modifier.padding(top = 24.dp, bottom = 12.dp), style = MaterialTheme.typography.displayMedium)
-                Text("Music integrations", style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(24.dp))
-                listOf("Spotify" to R.drawable.spotify, "YouTube Music" to R.drawable.youtube_music).forEach { (name, logo) ->
-                    Surface(Modifier.padding(bottom = 12.dp), shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                        Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(painterResource(logo), "$name logo", Modifier.size(48.dp), tint = Color.Unspecified)
-                            Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
-                                Text(name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Text("Unavailable", Modifier.padding(top = 4.dp), style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Switch(checked = false, onCheckedChange = null, enabled = false)
-                        }
-                    }
-                }
             }
         }
     }

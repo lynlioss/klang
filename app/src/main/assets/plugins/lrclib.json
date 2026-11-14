@@ -1,0 +1,20 @@
+{
+  "id": "lrclib",
+  "name": "LRCLIB",
+  "version": "1.0.0",
+  "type": "lyrics",
+  "author": "LRCLIB community",
+  "summary": "Every word, closer to the music.",
+  "description": "Bring your songs to life with lyrics from a free, open database built by music lovers. Follow along with synchronized lyrics, or settle into a quiet read when timings aren't available.",
+  "features": ["Synchronized lyrics", "Word timing when available", "Offline lyrics cache"],
+  "privacy": "When you open lyrics, Klang sends the song title, artist, album and duration to LRCLIB to find a match. No account or API key is needed.",
+  "defaultEnabled": true,
+  "buttons": [
+    {"label": "Homepage", "url": "https://lrclib.net/", "icon": "website"},
+    {"label": "Donate", "url": "https://lrclib.net/", "icon": "donate"}
+  ],
+  "settings": [
+    {"id": "cacheLyrics", "type": "boolean", "title": "Keep lyrics offline", "description": "Save lyrics you open for your next listen", "default": true},
+    {"id": "timingOffset", "type": "range", "title": "Timing adjustment", "description": "Negative values show lyrics earlier; positive values show them later", "default": 0, "min": -3000, "max": 3000, "step": 100, "unit": "ms"}
+  ]
+}

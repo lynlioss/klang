@@ -30,10 +30,9 @@ with zipfile.ZipFile(args.apk) as apk:
     assert apk.testzip() is None, 'Corrupt ZIP entry'
     for name in ('AndroidManifest.xml', 'resources.arsc', 'classes.dex'):
         assert name in names and apk.getinfo(name).file_size > 0, f'Missing {name}'
-    catalog = json.loads(apk.read('assets/starter/catalog.json'))
-    expected = {'assets/starter/' + item['file'] for item in catalog}
-    actual = {name for name in names if name.startswith('assets/starter/') and name.endswith(('.m4a', '.mp3'))}
-    assert actual == expected and len(actual) == 3, 'Starter audio pack differs from catalog'
+    assert not any(name.startswith('assets/starter/') for name in names), 'Removed starter assets are still packaged'
+    plugin = json.loads(apk.read('assets/plugins/lrclib.json'))
+    assert plugin['id'] == 'lrclib' and plugin['type'] == 'lyrics', 'Missing LRCLIB plugin'
 
 badging = run([str(aapt2), 'dump', 'badging', str(args.apk)])
 package = next(line for line in badging.splitlines() if line.startswith('package:'))
@@ -52,5 +51,5 @@ cert = certificate(args.apk)
 if args.compare:
     assert cert == certificate(args.compare), 'Signing identity changed: APK cannot update the installed app'
 print(package)
-print(f'Complete, aligned, signature verified; 3 starter tracks; {args.apk.stat().st_size:,} bytes')
+print(f'Complete, aligned, signature verified; LRCLIB plugin; {args.apk.stat().st_size:,} bytes')
 print(f'Certificate SHA-256: {cert}')
