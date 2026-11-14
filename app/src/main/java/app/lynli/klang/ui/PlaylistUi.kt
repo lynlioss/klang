@@ -114,7 +114,9 @@ internal fun PlaylistTrackRow(track: Track, index: Int, collection: MusicCollect
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            if (state.current?.id == track.id) ActiveTrackControls(track, state, model, MaterialTheme.colorScheme.onSurface)
+            if (state.current?.id == track.id && state.playing) PlayingIndicator(MaterialTheme.colorScheme.onSurface)
+            else Text(time(track.durationMs), style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
             Box {
                 IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Options for ${track.title}") }
                 DropdownMenu(menu, { menu = false }) {

@@ -216,7 +216,7 @@ internal fun CollectionScreen(collection: MusicCollection, state: MusicState, mo
                         else TrackRow(track, state, model, {
                             if (state.current?.id == track.id) player()
                             else model.play(collection.tracks, collection.tracks.indexOf(track), sourceId = collection.id)
-                        }, Modifier.animateItem(), playbackControls = true)
+                        }, Modifier.animateItem())
                     }
                     if (collection.tracks.isEmpty()) item { EmptyState("No songs yet",
                         if (collection.favorites) "Save songs with the heart to build this playlist." else if (collection.mix) "Your music will appear here." else "Add songs to your playlist.") }

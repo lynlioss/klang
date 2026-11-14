@@ -110,6 +110,16 @@ All pixel conversions (`padPx`, `featherMaxPx`, `wordLiftPx`) are now resolved b
 
 The APK is 5,059,159 bytes, versionCode 16, certificate SHA-256 `ce07ecd5eb236643d4848eab7a081323df31572414652dd444e3562a2274449a`. SHA-256 `74bea4e44d61613587627a50668c7a3d846e74cdd451a927290036b142754ab1` was verified against a full HTTP download of `Klang-0.5.9.apk`.
 
+## Version 0.7.3
+
+Active album and playlist rows restore the existing four-bar playing indicator in place of pause/favorite buttons. Mini players remain available for transport and favorites. The shared mini player handles left-to-next/right-to-previous drags with axis locking, real-time surface movement, directional fling thresholds and Material spatial springs. Previous swipes use the adjacent-item command instead of restarting the current track after three seconds. Short/cancelled/upward drags return without changing playback, and unavailable adjacent tracks add light resistance.
+
+Only a paused player with no pending playback intent can be dismissed downward. The action rechecks the current item and live player state, stops playback, clears media items and collection metadata, and cancels the sleep timer. The existing service queue persistence saves the empty queue. Previous/next/dismiss accessibility actions provide alternatives to swiping.
+
+The repository was transferred to [lynlioss/klang](https://github.com/lynlioss/klang), retaining its private visibility and Git history. The app's Settings footer, lyrics client identification and local origin now use the organization URL. GitHub resolves the old URL to the transferred repository. Version is 0.7.3, versionCode 22.
+
+`testDebugUnitTest lintDebug assembleRelease --max-workers=1` passed: all 79 tests, including 12 swipe/playback regressions, with no failures; lint reports zero errors and 28 warnings. APK manifest/resources, ZIP integrity, alignment and signature verification passed. The certificate matches 0.7.2, and both release parser checks passed in Android Runtime. The released DEX includes the new organization URL and no old repository URL. `artifacts/Klang-0.7.3.apk` is 5,226,095 bytes, SHA-256 `ec78d034de6e361470ba84b093a4906e197d47ea4e89c9f4a4b616841d02123e`; full HTTP downloads through both APK paths matched the hash and filename. No connected ADB device is available, so touch gestures, animations and notification dismissal still need an on-phone trial.
+
 ## Version 0.7.2
 
 The properties sheet now places the cover theme around the native Material modal and uses an opaque surface container low, so the drag handle sits on the sheet rather than showing through over Now playing. Default modal insets replace the zero-inset override, and its top corners/handle spacing match the working sleep timer. The uppercase overline, gradient and individual stat cards are replaced by a compact song header and Material segmented list items. The header, close icon and action footer stay visible while metadata scrolls; values stack at larger font scales, playlist pills wrap, and an unreadable location stops showing a perpetual loading message.

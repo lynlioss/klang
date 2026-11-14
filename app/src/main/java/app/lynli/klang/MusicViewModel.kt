@@ -23,7 +23,9 @@ import app.lynli.klang.data.SavedPlaylist
 import app.lynli.klang.playback.PlaybackService
 import app.lynli.klang.playback.PLAYBACK_SOURCE_KEY
 import app.lynli.klang.playback.canResumeCollection
+import app.lynli.klang.playback.dismissPausedPlayback
 import app.lynli.klang.playback.playbackSourceOrNull
+import app.lynli.klang.playback.skipPlaybackTrack
 import app.lynli.klang.playback.withPlaybackSource
 import app.lynli.klang.plugins.PluginRegistry
 import app.lynli.klang.plugins.PluginStore
@@ -46,6 +48,7 @@ data class MusicState(
     val tracks: List<Track> = emptyList(), val loading: Boolean = true,
     val busy: Boolean = false, val permission: Boolean = false,
     val current: Track? = null, val playing: Boolean = false, val connected: Boolean = false,
+    val playWhenReady: Boolean = false, val hasPreviousTrack: Boolean = false, val hasNextTrack: Boolean = false,
     val position: Long = 0, val duration: Long = 0, val queue: List<Track> = emptyList(),
     val playbackSource: String? = null, val queueIndex: Int = 0, val shuffle: Boolean = false, val repeat: Int = Player.REPEAT_MODE_OFF,
     val favorites: Set<String> = emptySet(), val message: String? = null,
@@ -198,6 +201,18 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun next() { controller?.seekToNextMediaItem() }
     fun previous() { controller?.let { if (it.currentPosition > 3000) it.seekTo(0) else it.seekToPreviousMediaItem() } }
+    /** A mini player swipe selects the adjacent track, even after the restart threshold. */
+    fun skipTrack(expectedTrackId: String, forward: Boolean): Boolean {
+        val changed = controller?.skipPlaybackTrack(expectedTrackId, forward) == true
+        if (changed) syncPlayer()
+        return changed
+    }
+    /** Clearing the paused queue also clears its saved service state and playback notification. */
+    fun dismissPlayer(expectedTrackId: String): Boolean {
+        val dismissed = controller?.dismissPausedPlayback(expectedTrackId) == true
+        if (dismissed) { sleep(0); syncPlayer() }
+        return dismissed
+    }
     fun seek(position: Long) { controller?.seekTo(position.coerceAtLeast(0)); syncPlayer() }
     fun playbackPosition(): Long = controller?.currentPosition?.coerceAtLeast(0) ?: mutableState.value.position
     fun lyricsOpened() { lyricsViewers.update { it + 1 } }
@@ -284,6 +299,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private fun syncPlayer() {
         val player = controller ?: return
         mutableState.update { it.copy(connected = true, playbackSource = player.playbackSourceOrNull(), current = player.currentMediaItem?.let(::track),
+            playWhenReady = player.playWhenReady, hasPreviousTrack = player.hasPreviousMediaItem(), hasNextTrack = player.hasNextMediaItem(),
             queueIndex = player.currentMediaItemIndex, playing = player.isPlaying, position = player.currentPosition.coerceAtLeast(0),
             duration = player.duration.coerceAtLeast(0), queue = (0 until player.mediaItemCount).map { i -> track(player.getMediaItemAt(i)) },
             shuffle = player.shuffleModeEnabled, repeat = player.repeatMode) }

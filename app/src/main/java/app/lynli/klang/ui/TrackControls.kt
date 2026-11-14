@@ -78,14 +78,3 @@ internal fun PlayingIndicator(ink: Color) {
         }
     }
 }
-
-@Composable
-internal fun ActiveTrackControls(track: Track, state: MusicState, model: MusicViewModel, ink: Color) {
-    Row {
-        IconButton(model::togglePlay) {
-            Icon(if (state.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                if (state.playing) "Pause ${track.title}" else "Play ${track.title}", tint = ink)
-        }
-        FavoriteButton(track, state, model, ink)
-    }
-}

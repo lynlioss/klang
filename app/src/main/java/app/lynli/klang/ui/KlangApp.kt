@@ -347,7 +347,7 @@ internal fun EmptyLibrary(import: () -> Unit) {
 }
 
 @Composable
-internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, play: () -> Unit, modifier: Modifier = Modifier, playbackControls: Boolean = false) {
+internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, play: () -> Unit, modifier: Modifier = Modifier) {
     var menu by remember { mutableStateOf(false) }
     var addToPlaylist by remember { mutableStateOf(false) }
     var properties by remember { mutableStateOf(false) }
@@ -365,8 +365,7 @@ internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, pl
                 Text(track.artist, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     color = if (active) content else MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (active && playbackControls) ActiveTrackControls(track, state, model, content)
-            else if (active && state.playing) PlayingIndicator(content)
+            if (active && state.playing) PlayingIndicator(content)
             else Text(time(track.durationMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Box {
                 IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Options for ${track.title}") }
@@ -387,31 +386,6 @@ internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, pl
     if (addToPlaylist) AddToPlaylistDialog(track, state, model) { addToPlaylist = false }
     if (properties) TrackPropertiesSheet(track, state, model) { properties = false }
 
-}
-
-@Composable
-internal fun MiniPlayer(state: MusicState, model: MusicViewModel, expand: () -> Unit) {
-    val track = state.current ?: return
-    CoverTheme(track) {
-    Surface(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).clickable(onClickLabel = "Open now playing", onClick = expand),
-        color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(24.dp), shadowElevation = 4.dp) {
-        Column {
-            Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Artwork(track, Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)))
-                Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                    Text(track.title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(track.artist, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1)
-                }
-                FavoriteButton(track, state, model, MaterialTheme.colorScheme.onPrimaryContainer)
-                IconButton(model::togglePlay) { Icon(if (state.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    if (state.playing) "Pause" else "Play", tint = MaterialTheme.colorScheme.onPrimaryContainer) }
-                IconButton(model::next, enabled = state.queue.size > 1) { Icon(Icons.Rounded.SkipNext, "Next", tint = MaterialTheme.colorScheme.onPrimaryContainer) }
-            }
-            LinearProgressIndicator(progress = { if (state.duration > 0) (state.position.toFloat() / state.duration).coerceIn(0f, 1f) else 0f },
-                modifier = Modifier.fillMaxWidth().height(2.dp), color = MaterialTheme.colorScheme.primary, trackColor = Color.Transparent)
-        }
-    }
-    }
 }
 
 @Composable
@@ -709,19 +683,19 @@ private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission:
                 Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.fillMaxWidth().padding(20.dp)) {
                         Text("Klang", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text("0.7.2 · Created by Lynli", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium)
+                        Text("0.7.3 · Created by Lynli", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium)
                     }
                 }
                 Row(Modifier.fillMaxWidth().padding(top = 12.dp, start = 4.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     Icon(ImageVector.vectorResource(R.drawable.github), "GitHub", Modifier.size(24.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("acontxt/klang", Modifier.weight(1f).padding(horizontal = 12.dp),
+                    Text("lynlioss/klang", Modifier.weight(1f).padding(horizontal = 12.dp),
                         style = MaterialTheme.typography.bodyMedium)
                     UtilityIconButton({
-                        githubLinkError = runCatching { uriHandler.openUri("https://github.com/acontxt/klang") }.isFailure
+                        githubLinkError = runCatching { uriHandler.openUri("https://github.com/lynlioss/klang") }.isFailure
                     }) {
-                        Icon(ImageVector.vectorResource(R.drawable.open_in_new), "Open acontxt/klang on GitHub")
+                        Icon(ImageVector.vectorResource(R.drawable.open_in_new), "Open lynlioss/klang on GitHub")
                     }
                 }
                 if (githubLinkError) Text("Couldn't open GitHub.", Modifier.padding(top = 8.dp),

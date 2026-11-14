@@ -4,7 +4,7 @@ A native Android music player by **Lynli**, written in Kotlin with Jetpack Compo
 
 ## Try it
 
-Install the 0.7.2 test APK on your phone. During this setup session it is available at http://127.0.0.1:8765/klang.apk in the phone browser. Start the tiny download server later with `python3 scripts/serve-apk.py` after copying the APK to `artifacts/Klang-0.7.2.apk`; the server always serves the highest version in `artifacts/`. A simple first-launch screen lets you allow access to local music and optional playback notifications, or choose individual audio files. Klang includes no bundled songs and does not install any music automatically.
+Install the 0.7.3 test APK on your phone. During this setup session it is available at http://127.0.0.1:8765/klang.apk in the phone browser. Start the tiny download server later with `python3 scripts/serve-apk.py` after copying the APK to `artifacts/Klang-0.7.3.apk`; the server always serves the highest version in `artifacts/`. A simple first-launch screen lets you allow access to local music and optional playback notifications, or choose individual audio files. Klang includes no bundled songs and does not install any music automatically.
 
 Allow **Music & audio** access during onboarding to scan your device. You can also use **Add music** to choose audio documents; Klang copies them to Music/Klang, preserving their embedded tags and artwork. Music access can be changed later in Settings. The app does not ask for all-files access.
 
@@ -24,11 +24,12 @@ Allow **Music & audio** access during onboarding to scan your device. You can al
 - Background/lock-screen playback, notification controls, audio focus and headphone-unplug pause.
 - Seeking, previous/next, shuffle, repeat, queue, play-next and queue removal.
 - Collection play buttons pause/resume only for the album or playlist that started the queue, preserving position. Shared songs do not activate other collections; playing those starts their own queue.
-- Active album/playlist rows offer play/pause and favorites. Their mini player hides when row controls are visible and returns with an expressive spring when scrolled offscreen. The mini player also includes a favorite control.
+- Active album/playlist rows show the animated playing waveform. Playback and favorite controls stay in the mini player and song menu.
+- Swipe the mini player left for the next song or right for the previous song. Swipes follow the queue's shuffle/repeat order and preserve whether playback is paused. Swipe a paused mini player down to dismiss playback and clear the queue; playing another song brings it back.
 - Queue/position restoration after reopening; playback resumes paused.
 - System theme by default, with light/dark overrides. Cover colors default on and apply only to Now playing and album pages. Home, Search, Library and Settings stay neutral; wallpaper colors remain optional. The mini player always follows the current cover.
 - Song properties from a long-press: a cover-themed Material sheet with a native drag handle, compact song header, segmented metadata rows, file location and playlist membership. Close and Done remain visible while details scroll; Hide from app is reversible in Settings → Library.
-- A minimal GitHub footer in Settings opens the acontxt/klang repository.
+- A minimal GitHub footer in Settings opens the lynlioss/klang repository.
 - Radial sleep timer in the Now playing options menu; drag the ring for any length, with quick presets and a live countdown. Cancelled if the app process closes.
 - Adaptive navigation and a supporting player pane for wide windows.
 
