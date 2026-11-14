@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -678,6 +679,8 @@ private fun QueuePage(state: MusicState, model: MusicViewModel, back: () -> Unit
 
 @Composable
 private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission: () -> Unit, import: () -> Unit, plugins: () -> Unit, equalizer: () -> Unit, hidden: () -> Unit, back: () -> Unit) {
+    val uriHandler = LocalUriHandler.current
+    var githubLinkError by remember { mutableStateOf(false) }
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         LazyColumn(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(), contentPadding = PaddingValues(24.dp)) {
             item {
@@ -702,15 +705,27 @@ private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission:
                 SettingsAction(ImageVector.vectorResource(R.drawable.extension), "Plugins", "Lyrics providers and music integrations", plugins)
                 SectionHeading("Playback")
                 SettingsAction(ImageVector.vectorResource(R.drawable.equalizer), "Equalizer", "Presets and headphone sound", equalizer)
-                Text("The sleep timer is in the now playing menu.", Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                 SectionHeading("About")
                 Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.fillMaxWidth().padding(20.dp)) {
                         Text("Klang", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text("0.7.1 · Created by Lynli", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium)
+                        Text("0.7.2 · Created by Lynli", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium)
                     }
                 }
+                Row(Modifier.fillMaxWidth().padding(top = 12.dp, start = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Icon(ImageVector.vectorResource(R.drawable.github), "GitHub", Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("acontxt/klang", Modifier.weight(1f).padding(horizontal = 12.dp),
+                        style = MaterialTheme.typography.bodyMedium)
+                    UtilityIconButton({
+                        githubLinkError = runCatching { uriHandler.openUri("https://github.com/acontxt/klang") }.isFailure
+                    }) {
+                        Icon(ImageVector.vectorResource(R.drawable.open_in_new), "Open acontxt/klang on GitHub")
+                    }
+                }
+                if (githubLinkError) Text("Couldn't open GitHub.", Modifier.padding(top = 8.dp),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
         }
     }

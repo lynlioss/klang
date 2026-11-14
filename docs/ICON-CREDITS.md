@@ -2,6 +2,10 @@
 
 Only icons used by Klang are included as generated Kotlin vectors from AndroidX material-icons-extended 1.7.8. Their original Android Open Source Project copyright and Apache 2.0 headers are retained. See ICON-LICENSE.txt. The small material-icons-core dependency provides shared vector builders and standard icons. This avoids shipping and dexing thousands of unused icons in a debug APK.
 
+## GitHub
+
+The GitHub mark comes from [Simple Icons](https://github.com/simple-icons/simple-icons/blob/develop/icons/github.svg), under [CC0](https://github.com/simple-icons/simple-icons/blob/develop/LICENSE.md), converted to an Android VectorDrawable. The trademark belongs to GitHub and identifies the repository link in Settings.
+
 ## Spotify
 
 Spotify’s logo was obtained as an SVG from [Simple Icons](https://github.com/simple-icons/simple-icons/blob/develop/icons/spotify.svg) and converted losslessly to an Android VectorDrawable. Simple Icons distributes its icon collection under [CC0](https://github.com/simple-icons/simple-icons/blob/develop/LICENSE.md). The Spotify mark remains Spotify’s trademark. It identifies the explicitly unavailable integration on the Plugins page.

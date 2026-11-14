@@ -1,13 +1,11 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package app.lynli.klang.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -19,16 +17,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import app.lynli.klang.MusicState
 import app.lynli.klang.MusicViewModel
 import app.lynli.klang.R
@@ -37,72 +34,83 @@ import app.lynli.klang.data.TrackDetails
 import java.text.NumberFormat
 
 /**
- * Cover-themed properties sheet: one editorial header, a grid of tonal stat cards and a compact
- * location/playlist footer. Technical metadata loads in place so the sheet never blocks.
+ * One cover-themed Material surface, including the native drag handle. Metadata scrolls independently
+ * of the song header and dismissal actions when the window or font size leaves less room.
  */
 @Composable
 internal fun TrackPropertiesSheet(track: Track, state: MusicState, model: MusicViewModel,
     hide: (() -> Unit)? = null, dismiss: () -> Unit) {
     var details by remember(track.id) { mutableStateOf<TrackDetails?>(null) }
-    LaunchedEffect(track.id) { details = runCatching { model.details(track) }.getOrNull() }
+    var readingDetails by remember(track.id) { mutableStateOf(true) }
+    LaunchedEffect(track.id) {
+        details = runCatching { model.details(track) }.getOrNull()
+        readingDetails = false
+    }
     val hideTrack = hide ?: { model.hide(track); dismiss() }
     val playlistNames = remember(state.playlists, track.id) {
         state.playlists.filter { track.id in it.trackIds }.map { it.name }
     }
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(onDismissRequest = dismiss, sheetState = sheet, containerColor = Color.Transparent,
-        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
-        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
-        dragHandle = { BottomSheetDefaults.DragHandle(Modifier.padding(top = 10.dp)) }) {
-        CoverTheme(track) {
-            val colors = MaterialTheme.colorScheme
-            Box(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(
-                colors.primaryContainer.copy(alpha = 0.55f).compositeOver(colors.surfaceContainerLow),
-                colors.surfaceContainerLow, colors.surfaceContainerLow)))) {
-                Column(Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState())
-                    .padding(start = 24.dp, end = 24.dp, bottom = 28.dp)) {
-                    Text("PROPERTIES", style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 1.6.sp),
-                        fontWeight = FontWeight.Bold, color = colors.primary)
-                    Spacer(Modifier.height(10.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Artwork(track, Modifier.size(88.dp).shadow(12.dp, RoundedCornerShape(24.dp))
-                            .clip(RoundedCornerShape(24.dp)), "${track.title} cover")
-                        Column(Modifier.weight(1f).padding(start = 18.dp)) {
-                            Text(track.title, style = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(track.artist, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodyLarge,
-                                color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(track.album, style = MaterialTheme.typography.bodyMedium,
-                                color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
+    CoverTheme(track) {
+        val colors = MaterialTheme.colorScheme
+        // Klang design choice: match the sleep timer's corners and handle spacing. Keep the theme
+        // outside the modal so its container, handle, system insets and content share one surface.
+        ModalBottomSheet(onDismissRequest = dismiss, sheetState = sheet,
+            modifier = Modifier.semantics { paneTitle = "Song details" },
+            containerColor = colors.surfaceContainerLow,
+            contentColor = colors.onSurface,
+            shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+            dragHandle = { BottomSheetDefaults.DragHandle(Modifier.padding(top = 10.dp)) }) {
+            Column(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 16.dp, bottom = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Artwork(track, Modifier.size(64.dp).clip(MaterialTheme.shapes.large), "${track.title} cover")
+                    Column(Modifier.weight(1f).padding(start = 16.dp, end = 8.dp)) {
+                        Text(track.title, Modifier.semantics { heading() },
+                            style = MaterialTheme.typography.titleLargeEmphasized,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(track.artist, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodyMedium,
+                            color = colors.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(track.album, style = MaterialTheme.typography.bodySmall,
+                            color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    Spacer(Modifier.height(20.dp))
-                    PropertyGrid(track, details)
-                    Spacer(Modifier.height(12.dp))
-                    LocationTile(details?.location)
-                    Spacer(Modifier.height(22.dp))
+                    IconButton(dismiss, Modifier.align(Alignment.Top)) {
+                        Icon(Icons.Rounded.Close, "Close song details")
+                    }
+                }
+                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
+                    .padding(start = 24.dp, end = 24.dp, bottom = 16.dp)) {
+                    PropertyList(track, details)
+                    Spacer(Modifier.height(16.dp))
+                    LocationTile(details?.location, readingDetails)
+                    Spacer(Modifier.height(16.dp))
                     Text("In playlists", style = MaterialTheme.typography.labelLarge,
                         color = colors.onSurfaceVariant)
                     if (playlistNames.isEmpty()) {
-                        Text("Not in a playlist", Modifier.padding(top = 8.dp),
-                            style = MaterialTheme.typography.bodyMedium)
+                        Text("Not in a playlist", Modifier.padding(top = 6.dp),
+                            style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
                     } else {
-                        Row(Modifier.padding(top = 10.dp).horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FlowRow(Modifier.fillMaxWidth().padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             playlistNames.forEach { PlaylistPill(it) }
                         }
                     }
-                    Spacer(Modifier.height(26.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        FilledTonalButton({ hideTrack() }, Modifier.weight(1.35f).height(56.dp),
-                            shape = RoundedCornerShape(20.dp), contentPadding = PaddingValues(horizontal = 16.dp)) {
-                            Icon(ImageVector.vectorResource(R.drawable.visibility_off), null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Hide from app", maxLines = 1)
-                        }
-                        Button(dismiss, Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(20.dp)) {
-                            Text("Done")
-                        }
+                }
+                FlowRow(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val buttonHeight = ButtonDefaults.MediumContainerHeight
+                    TextButton(onClick = hideTrack, modifier = Modifier.heightIn(min = buttonHeight),
+                        shapes = ButtonDefaults.shapesFor(buttonHeight)) {
+                        Icon(ImageVector.vectorResource(R.drawable.visibility_off), null, Modifier.size(ButtonDefaults.SmallIconSize))
+                        Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                        Text("Hide from app")
+                    }
+                    Button(onClick = dismiss, modifier = Modifier.heightIn(min = buttonHeight),
+                        shapes = ButtonDefaults.shapesFor(buttonHeight),
+                        contentPadding = ButtonDefaults.contentPaddingFor(buttonHeight)) {
+                        Text("Done", style = ButtonDefaults.textStyleFor(buttonHeight))
                     }
                 }
             }
@@ -111,7 +119,7 @@ internal fun TrackPropertiesSheet(track: Track, state: MusicState, model: MusicV
 }
 
 @Composable
-private fun PropertyGrid(track: Track, details: TrackDetails?) {
+private fun PropertyList(track: Track, details: TrackDetails?) {
     val timerIcon = ImageVector.vectorResource(R.drawable.timer)
     val entries = buildList<Triple<ImageVector, String, String>> {
         add(Triple(timerIcon, "Duration", time(details?.durationMs ?: track.durationMs)))
@@ -122,53 +130,43 @@ private fun PropertyGrid(track: Track, details: TrackDetails?) {
         details?.sampleRateHz?.let { add(Triple(Icons.Rounded.OfflineBolt, "Sample rate", sampleRateText(it))) }
         details?.sizeBytes?.let { add(Triple(Icons.Rounded.Download, "File size", formatSize(it))) }
     }
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        entries.chunked(2).forEach { pair ->
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                pair.forEach { (icon, label, value) -> PropertyTile(icon, label, value, Modifier.weight(1f)) }
-                if (pair.size == 1) Spacer(Modifier.weight(1f))
-            }
-        }
-    }
-}
-
-@Composable
-private fun PropertyTile(icon: ImageVector, label: String, value: String, modifier: Modifier = Modifier) {
-    val colors = MaterialTheme.colorScheme
-    Surface(modifier = modifier, shape = RoundedCornerShape(24.dp),
-        color = colors.surfaceContainerHigh.copy(alpha = 0.92f)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(28.dp).clip(CircleShape).background(colors.primary.copy(alpha = 0.16f)),
-                    contentAlignment = Alignment.Center) {
-                    Icon(icon, null, Modifier.size(16.dp), tint = colors.primary)
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        // Klang design choice: stack values when scaled text would crowd the two text columns.
+        val stackValues = maxWidth / LocalDensity.current.fontScale < 300.dp
+        Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+            entries.forEachIndexed { index, (icon, label, value) ->
+                SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(index, entries.size),
+                    modifier = Modifier.fillMaxWidth(),
+                    leadingContent = { Icon(icon, null, Modifier.size(20.dp)) },
+                    trailingContent = if (stackValues) null else {
+                        { Text(value, style = MaterialTheme.typography.bodyLarge) }
+                    },
+                    supportingContent = if (stackValues) {
+                        { Text(value, style = MaterialTheme.typography.bodyLarge) }
+                    } else null,
+                    colors = ListItemDefaults.segmentedColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        trailingContentColor = MaterialTheme.colorScheme.onSurface,
+                        supportingContentColor = MaterialTheme.colorScheme.onSurface)) {
+                    Text(label, style = MaterialTheme.typography.bodyMedium)
                 }
-                Spacer(Modifier.width(9.dp))
-                Text(label, style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Text(value, Modifier.padding(top = 10.dp), style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
 
 @Composable
-private fun LocationTile(location: String?) {
+private fun LocationTile(location: String?, reading: Boolean) {
     val colors = MaterialTheme.colorScheme
-    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
-        color = colors.surfaceContainerHigh.copy(alpha = 0.92f)) {
-        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.Top) {
-            Box(Modifier.size(28.dp).clip(CircleShape).background(colors.primary.copy(alpha = 0.16f)),
-                contentAlignment = Alignment.Center) {
-                Icon(Icons.Rounded.FolderOpen, null, Modifier.size(16.dp), tint = colors.primary)
-            }
-            Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                Text("File location", style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
-                Text(location ?: "Reading file…", Modifier.padding(top = 4.dp),
-                    style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
-            }
-        }
+    SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(0, 1), modifier = Modifier.fillMaxWidth(),
+        leadingContent = { Icon(Icons.Rounded.FolderOpen, null, Modifier.size(20.dp)) },
+        supportingContent = {
+            Text(location ?: if (reading) "Reading file…" else "Unavailable",
+                style = MaterialTheme.typography.bodySmall)
+        },
+        colors = ListItemDefaults.segmentedColors(containerColor = colors.surfaceContainerHigh)) {
+        Text("File location", style = MaterialTheme.typography.bodyMedium)
     }
 }
 

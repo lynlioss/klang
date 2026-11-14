@@ -110,6 +110,14 @@ All pixel conversions (`padPx`, `featherMaxPx`, `wordLiftPx`) are now resolved b
 
 The APK is 5,059,159 bytes, versionCode 16, certificate SHA-256 `ce07ecd5eb236643d4848eab7a081323df31572414652dd444e3562a2274449a`. SHA-256 `74bea4e44d61613587627a50668c7a3d846e74cdd451a927290036b142754ab1` was verified against a full HTTP download of `Klang-0.5.9.apk`.
 
+## Version 0.7.2
+
+The properties sheet now places the cover theme around the native Material modal and uses an opaque surface container low, so the drag handle sits on the sheet rather than showing through over Now playing. Default modal insets replace the zero-inset override, and its top corners/handle spacing match the working sleep timer. The uppercase overline, gradient and individual stat cards are replaced by a compact song header and Material segmented list items. The header, close icon and action footer stay visible while metadata scrolls; values stack at larger font scales, playlist pills wrap, and an unreadable location stops showing a perpetual loading message.
+
+Settings removes the sleep timer location hint and ends with a neutral GitHub logo, `acontxt/klang` and an accessible external-link button opening the repository. Version is 0.7.2, versionCode 21.
+
+`testDebugUnitTest lintDebug assembleRelease --max-workers=1` passed: 67 unit tests, no test failures, and lint with zero errors (28 warnings). Package/resources, ZIP integrity, alignment and APK signature verification passed, as did both release parser checks in Android Runtime. The certificate matches 0.7.1. `artifacts/Klang-0.7.2.apk` is 5,226,095 bytes, SHA-256 `e6b1103358b921ee3a6f1ce2e454ea2683d6e15bdc79a30ae17766921a8da5e0`. Full downloads through both `/klang.apk` and `/Klang-0.7.2.apk` returned the new filename and matched that hash. No ADB device is attached; on-phone layout and drag/tap dismissal still need a manual trial.
+
 ## Version 0.7.1
 
 On-phone feedback on 0.7.0: the Now playing title looked off-centre once the header held three controls, and the properties dialog read as a plain text box next to the app's expressive pages. The header is now an overlay layout: the title is anchored to the true centre of the row, the close control sits at the start, and a single options control sits at the end. Queue moved from its own header button into the top of that menu, followed by a divider and the remaining actions, restoring the one-control-per-side balance.
