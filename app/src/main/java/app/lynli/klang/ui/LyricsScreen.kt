@@ -257,7 +257,7 @@ private fun LyricsBody(document: LyricsDocument, state: MusicState, model: Music
             }, contentPadding = PaddingValues(top = if (document.synchronized) anchor else 32.dp, bottom = maxHeight * 0.72f),
             verticalArrangement = Arrangement.spacedBy(if (compact) 18.dp else 26.dp)) {
             if (document.synchronized) itemsIndexed(document.lines) { index, line ->
-                LyricRow(line, index == current, abs(index - focus), position, offsetMs, compact, motion) {
+                LyricRow(line, index == current, index < current, abs(index - focus), position, offsetMs, compact, motion) {
                     model.seek((line.startMs + offsetMs).coerceAtLeast(0)); following = true
                 }
             } else item {
@@ -277,7 +277,7 @@ private fun LyricsBody(document: LyricsDocument, state: MusicState, model: Music
 }
 
 @Composable
-private fun LyricRow(line: LyricLine, active: Boolean, distance: Int, position: State<Long>, offsetMs: Int,
+private fun LyricRow(line: LyricLine, active: Boolean, played: Boolean, distance: Int, position: State<Long>, offsetMs: Int,
     compact: Boolean, motion: Boolean, seek: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val shown = remember(line) { line.displayText }
@@ -285,20 +285,13 @@ private fun LyricRow(line: LyricLine, active: Boolean, distance: Int, position: 
     var layout by remember(shown) { mutableStateOf<TextLayoutResult?>(null) }
     val reveal = remember(line) { Path() }
     val scheme = MaterialTheme.motionScheme
-    // Aurora's emphasis: brightness carries the current line, the type size never changes.
-    val opacity by animateFloatAsState(
-        when {
-            active -> 1f
-            distance <= 1 -> 0.55f
-            else -> 0.35f
-        },
-        if (motion && !active) scheme.fastEffectsSpec() else snap(), label = "Lyric opacity")
-    // Depth of field: the next line stays crisp, every later line softens a little more.
+    // Completed lines keep full ink; upcoming lines stay gray until their timestamp.
+    val ink = colors.onSurface.copy(alpha = if (karaoke || (!active && !played)) 0.42f else 1f)
+    // Depth of field applies only to upcoming lines; completed vocals remain crisp.
     val soften by animateFloatAsState(
-        if (!motion || distance <= 1) 0f else ((distance - 1) * 1.6f).coerceAtMost(7f),
-        if (motion && !active) scheme.fastEffectsSpec() else snap(), label = "Lyric softness")
+        if (!motion || played || distance <= 1) 0f else ((distance - 1) * 1.6f).coerceAtMost(7f),
+        if (motion && !active && !played) scheme.fastEffectsSpec() else snap(), label = "Lyric softness")
     Text(shown, modifier = Modifier.fillMaxWidth().graphicsLayer {
-        alpha = opacity
         val radius = soften.dp.toPx()
         renderEffect = if (soften > 0.5f) BlurEffect(radius, radius, TileMode.Clamp) else null
         clip = renderEffect != null
@@ -327,7 +320,7 @@ private fun LyricRow(line: LyricLine, active: Boolean, distance: Int, position: 
         },
         onTextLayout = { layout = it },
         style = if (compact) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.headlineLarge,
-        fontWeight = FontWeight.SemiBold, color = colors.onSurface.copy(alpha = if (karaoke) 0.42f else 1f))
+        fontWeight = FontWeight.SemiBold, color = ink)
 }
 
 @Composable
