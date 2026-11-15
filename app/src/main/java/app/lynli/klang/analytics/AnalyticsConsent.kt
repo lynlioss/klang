@@ -6,6 +6,7 @@ internal data class AnalyticsPreferences(
     val consent: AnalyticsConsent = AnalyticsConsent.NOT_ASKED,
     val epoch: String? = null,
     val firstOpenReported: Boolean = false,
+    val onboardingCompletionReported: Boolean = false,
 )
 
 internal interface AnalyticsPreferenceStore {

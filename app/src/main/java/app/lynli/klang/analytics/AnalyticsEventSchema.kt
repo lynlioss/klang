@@ -10,7 +10,7 @@ internal object AnalyticsEventSchema {
     }
 
     private val allowedEvents = setOf(
-        "analytics_enabled", "app_first_opened", "app_opened", "onboarding_started", "onboarding_completed",
+        "analytics_enabled", "app_first_opened", "app_opened", "onboarding_completed",
         "music_imported", "playback_started", "audio_deleted", "plugin_installed", "plugin_uninstalled",
         "favorite_toggled", "playlist_created", "playlist_deleted", "sleep_timer_set",
     )

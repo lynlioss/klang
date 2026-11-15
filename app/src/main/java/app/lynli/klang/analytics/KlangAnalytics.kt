@@ -35,6 +35,8 @@ internal class KlangAnalytics(context: Context) {
 
     fun appOpened() = controller.appOpened(appPreferences.getBoolean("onboardingComplete", false))
 
+    fun onboardingCompleted() = controller.onboardingCompleted()
+
     fun capture(event: String, properties: Map<String, Any> = emptyMap()) = controller.capture(event, properties)
 }
 
@@ -48,12 +50,14 @@ private class AndroidAnalyticsPreferenceStore(context: Context) : AnalyticsPrefe
         val epoch = prefs.getString("epoch", null)?.takeIf {
             runCatching { java.util.UUID.fromString(it).toString() == it }.getOrDefault(false)
         }
-        return AnalyticsPreferences(consent, epoch, prefs.getBoolean("firstOpenReported", false))
+        return AnalyticsPreferences(consent, epoch, prefs.getBoolean("firstOpenReported", false),
+            prefs.getBoolean("onboardingCompletionReported", false))
     }
 
     override fun write(preferences: AnalyticsPreferences): Boolean = prefs.edit()
         .putString("consent", preferences.consent.name)
         .putString("epoch", preferences.epoch)
         .putBoolean("firstOpenReported", preferences.firstOpenReported)
+        .putBoolean("onboardingCompletionReported", preferences.onboardingCompletionReported)
         .commit()
 }

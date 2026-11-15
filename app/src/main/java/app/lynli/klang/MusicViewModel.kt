@@ -73,6 +73,7 @@ data class MusicState(
     val hiddenIds: Set<String> = emptySet(), val hiddenTracks: List<Track> = emptyList(),
     val onboardingComplete: Boolean = false, val recommendedPluginsSeen: Boolean = true, val notificationPermission: Boolean = false,
     val analyticsConsent: AnalyticsConsent = AnalyticsConsent.NOT_ASKED,
+    val analyticsPromptPending: Boolean = false,
     val update: UpdateInfo? = null, val updateDismissed: Boolean = false, val updating: Boolean = false,
     val downloadProgress: Float = 0f,
 ) {
@@ -106,6 +107,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val mutableState = MutableStateFlow(MusicState(
         onboardingComplete = prefs.getBoolean("onboardingComplete", false),
         analyticsConsent = analytics.consent,
+        analyticsPromptPending = prefs.getBoolean("analyticsPromptPending", false),
         recommendedPluginsSeen = prefs.getBoolean("recommendedPluginsSeen", prefs.getBoolean("onboardingComplete", false)),
         permission = repository.hasLibraryPermission(), notificationPermission = hasNotificationPermission(),
         favorites = prefs.getStringSet("favorites", emptySet()).orEmpty().toSet(),
@@ -301,15 +303,19 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         mutablePluginCatalog.update { it.copy(installed = pluginRegistry.entries) }
     }
     fun completeOnboarding() {
-        // Finishing setup must not accidentally grant consent or skip the explicit choice.
-        if (mutableState.value.onboardingComplete || analytics.consent == AnalyticsConsent.NOT_ASKED) return
-        prefs.edit().putBoolean("onboardingComplete", true).apply()
-        mutableState.update { it.copy(onboardingComplete = true) }
-        analytics.capture(event = "onboarding_completed")
+        if (mutableState.value.onboardingComplete) return
+        val askAnalytics = analytics.consent == AnalyticsConsent.NOT_ASKED
+        prefs.edit().putBoolean("onboardingComplete", true).putBoolean("analyticsPromptPending", askAnalytics).apply()
+        mutableState.update { it.copy(onboardingComplete = true, analyticsPromptPending = askAnalytics) }
+        analytics.onboardingCompleted()
     }
     fun setAnalyticsConsent(enabled: Boolean) {
-        val saved = analytics.setConsent(enabled, if (mutableState.value.onboardingComplete) "settings" else "onboarding")
-        mutableState.update { it.copy(analyticsConsent = analytics.consent) }
+        val current = mutableState.value
+        if (!current.onboardingComplete) return
+        val saved = analytics.setConsent(enabled, if (current.analyticsPromptPending) "onboarding" else "settings")
+        if (saved && current.analyticsPromptPending) prefs.edit().putBoolean("analyticsPromptPending", false).apply()
+        mutableState.update { it.copy(analyticsConsent = analytics.consent,
+            analyticsPromptPending = if (saved) false else it.analyticsPromptPending) }
         if (!saved) message("Couldn't save your analytics choice. Please try again.")
     }
     fun appOpened() = analytics.appOpened()

@@ -21,7 +21,7 @@ class AnalyticsEventSchemaTest {
     }
 
     @Test fun automaticScreensCrashesAndOtherUnexpectedEventsAreDropped() {
-        listOf("\$screen", "\$exception", "\$autocapture", "Deep Link Opened", "Application Installed", "arbitrary_event")
+        listOf("\$screen", "\$exception", "\$autocapture", "Deep Link Opened", "Application Installed", "onboarding_started", "arbitrary_event")
             .forEach { assertNull(AnalyticsEventSchema.filter(PostHogEvent(it, "anonymous"))) }
     }
 }

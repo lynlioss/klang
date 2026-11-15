@@ -8,8 +8,9 @@ class ConsentAnalyticsTest {
         val fixture = Fixture()
         fixture.analytics.appOpened(onboardingComplete = false)
         fixture.analytics.capture("playback_started")
+        fixture.analytics.onboardingCompleted()
         assertTrue(fixture.clients.isEmpty())
-        fixture.analytics.setConsent(false, "onboarding", onboardingComplete = false)
+        fixture.analytics.setConsent(false, "onboarding", onboardingComplete = true)
         fixture.restart()
         fixture.analytics.appOpened(onboardingComplete = true)
         fixture.analytics.capture("playlist_created")
@@ -17,18 +18,36 @@ class ConsentAnalyticsTest {
         assertTrue(fixture.clients.isEmpty())
     }
 
-    @Test fun explicitYesPersistsBeforeSdkAndRecordsConsentingActivationOnce() {
+    @Test fun yesAfterSetupRecordsCompletionOnceWithoutReplayingOnboardingInteractions() {
         val fixture = Fixture()
         fixture.analytics.capture("music_imported", mapOf("track_count" to 5))
-        assertTrue(fixture.analytics.setConsent(true, "onboarding", onboardingComplete = false))
-        assertEquals(listOf("analytics_enabled", "app_first_opened", "onboarding_started", "app_opened"),
+        fixture.analytics.onboardingCompleted()
+        assertTrue(fixture.clients.isEmpty())
+        assertTrue(fixture.analytics.setConsent(true, "onboarding", onboardingComplete = true))
+        assertEquals(listOf("analytics_enabled", "app_first_opened", "onboarding_completed", "app_opened"),
             fixture.clients.single().events.map { it.first })
-        fixture.analytics.capture("onboarding_completed")
+        assertEquals(true, fixture.clients.single().events.last().second["onboarding_complete"])
+        fixture.analytics.onboardingCompleted()
         fixture.restart()
         fixture.analytics.appOpened(onboardingComplete = true)
+        fixture.analytics.setConsent(true, "onboarding", onboardingComplete = true)
+        fixture.analytics.onboardingCompleted()
         assertEquals(listOf("app_opened"), fixture.clients.last().events.map { it.first })
         assertEquals(fixture.clients.first().epoch, fixture.clients.last().epoch)
         assertTrue(fixture.store.preferences.firstOpenReported)
+        assertTrue(fixture.store.preferences.onboardingCompletionReported)
+    }
+
+    @Test fun completedSetupAndRestartStillCreateNoSdkWhileChoiceIsPending() {
+        val fixture = Fixture()
+        fixture.analytics.onboardingCompleted()
+        fixture.analytics.appOpened(onboardingComplete = true)
+        fixture.restart()
+        fixture.analytics.appOpened(onboardingComplete = true)
+        assertEquals(AnalyticsConsent.NOT_ASKED, fixture.analytics.consent)
+        assertTrue(fixture.clients.isEmpty())
+        assertFalse(fixture.store.preferences.firstOpenReported)
+        assertFalse(fixture.store.preferences.onboardingCompletionReported)
     }
 
     @Test fun refusalToPersistYesCannotStartTheSdk() {
@@ -48,7 +67,7 @@ class ConsentAnalyticsTest {
 
     @Test fun revokeBlocksCloseTimeFlushAndReenableCannotReplayOldConsentPeriod() {
         val fixture = Fixture()
-        fixture.analytics.setConsent(true, "onboarding", onboardingComplete = false)
+        fixture.analytics.setConsent(true, "onboarding", onboardingComplete = true)
         val previous = fixture.clients.single()
         fixture.analytics.capture("playback_started")
         assertTrue(fixture.analytics.setConsent(false, "settings", onboardingComplete = true))
@@ -70,6 +89,18 @@ class ConsentAnalyticsTest {
         assertEquals(listOf("analytics_enabled", "app_opened"), fixture.clients.single().events.map { it.first })
     }
 
+    @Test fun noAfterSetupThenEnablingInSettingsDoesNotBackfillCompletion() {
+        val fixture = Fixture()
+        fixture.analytics.onboardingCompleted()
+        fixture.analytics.setConsent(false, "onboarding", onboardingComplete = true)
+        fixture.restart()
+        assertTrue(fixture.clients.isEmpty())
+        fixture.analytics.setConsent(true, "settings", onboardingComplete = true)
+        assertEquals(listOf("analytics_enabled", "app_opened"), fixture.clients.single().events.map { it.first })
+        assertFalse(fixture.store.preferences.firstOpenReported)
+        assertFalse(fixture.store.preferences.onboardingCompletionReported)
+    }
+
     @Test fun everyConsentedActionIncludesTheCurrentAndroidAndDeviceVersion() {
         val fixture = Fixture()
         fixture.analytics.setConsent(true, "settings", onboardingComplete = true)
@@ -84,10 +115,12 @@ class ConsentAnalyticsTest {
     @Test fun missingBuildConfigurationDoesNotBufferActionsForLater() {
         val store = MemoryStore()
         val analytics = ConsentAnalytics(store, { emptyMap() }, { null })
-        assertTrue(analytics.setConsent(true, "onboarding", onboardingComplete = false))
-        analytics.appOpened(onboardingComplete = false)
+        assertTrue(analytics.setConsent(true, "onboarding", onboardingComplete = true))
+        analytics.appOpened(onboardingComplete = true)
+        analytics.onboardingCompleted()
         analytics.capture("playback_started")
         assertFalse(store.preferences.firstOpenReported)
+        assertFalse(store.preferences.onboardingCompletionReported)
     }
 
     private class MemoryStore(var preferences: AnalyticsPreferences = AnalyticsPreferences()) : AnalyticsPreferenceStore {

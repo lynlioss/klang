@@ -16,11 +16,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.lynli.klang.MusicState
-import app.lynli.klang.analytics.AnalyticsConsent
 
 @Composable
 internal fun OnboardingScreen(state: MusicState, musicAccess: () -> Unit, notifications: () -> Unit,
-    chooseFiles: () -> Unit, analyticsChoice: (Boolean) -> Unit, complete: () -> Unit) {
+    chooseFiles: () -> Unit, complete: () -> Unit) {
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 24.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally) {
@@ -30,18 +29,17 @@ internal fun OnboardingScreen(state: MusicState, musicAccess: () -> Unit, notifi
                     fontWeight = FontWeight.Bold)
                 Text("Connect the music on your phone to start listening.", Modifier.padding(top = 12.dp, bottom = 28.dp),
                     style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                AnalyticsConsentCard(state.analyticsConsent, analyticsChoice)
-                Spacer(Modifier.height(12.dp))
                 PermissionCard(Icons.Rounded.LibraryMusic, "Music & audio", "Find and play the songs saved on your phone.",
                     state.permission, "Allow music access", musicAccess)
                 Spacer(Modifier.height(12.dp))
                 PermissionCard(Icons.Rounded.Notifications, "Playback notifications", "Keep playback controls close, even outside Klang. Optional.",
                     state.notificationPermission, "Allow notifications", notifications)
                 TextButton(chooseFiles, Modifier.padding(top = 16.dp)) { Text("Choose individual audio files") }
+                Text("Optional analytics use PostHog in the EU.", Modifier.padding(top = 12.dp),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(24.dp))
             }
-            Button(complete, Modifier.widthIn(max = 520.dp).fillMaxWidth().heightIn(min = 56.dp),
-                enabled = state.analyticsConsent != AnalyticsConsent.NOT_ASKED) {
+            Button(complete, Modifier.widthIn(max = 520.dp).fillMaxWidth().heightIn(min = 56.dp)) {
                 Text(if (state.permission || state.tracks.isNotEmpty()) "Start listening" else "Continue for now")
             }
         }

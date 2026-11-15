@@ -21,6 +21,7 @@ import androidx.core.view.WindowCompat
 import app.lynli.klang.ui.KlangApp
 import app.lynli.klang.ui.KlangTheme
 import app.lynli.klang.ui.OnboardingScreen
+import app.lynli.klang.ui.AnalyticsConsentScreen
 
 class MainActivity : ComponentActivity() {
     override fun onStart() {
@@ -86,8 +87,8 @@ class MainActivity : ComponentActivity() {
                     notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
                 } }
                 val importFiles = { importer.launch(arrayOf("audio/*")) }
-                if (!state.onboardingComplete) OnboardingScreen(state, musicAccess, notificationAccess, importFiles,
-                    model::setAnalyticsConsent, model::completeOnboarding)
+                if (!state.onboardingComplete) OnboardingScreen(state, musicAccess, notificationAccess, importFiles, model::completeOnboarding)
+                else if (state.analyticsPromptPending) AnalyticsConsentScreen(model::setAnalyticsConsent)
                 else if (!state.recommendedPluginsSeen) app.lynli.klang.ui.RecommendedPluginsScreen(model, complete = model::completePluginRecommendations)
                 else KlangApp(state, model, onPermission = musicAccess, onImport = importFiles,
                     importRequest = importRequest, incomingMusicLink = incomingMusicLink)

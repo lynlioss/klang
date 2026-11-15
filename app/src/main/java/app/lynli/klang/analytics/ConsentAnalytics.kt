@@ -35,12 +35,16 @@ internal class ConsentAnalytics(
             previous?.closeAndDiscard()
             return saved
         }
-        if (consent == AnalyticsConsent.GRANTED) return true
+        if (consent == AnalyticsConsent.GRANTED) {
+            if (source == "onboarding" && onboardingComplete) onboardingCompleted()
+            return true
+        }
         val next = preferences.copy(consent = AnalyticsConsent.GRANTED, epoch = newEpoch())
         if (!store.write(next)) return false
         preferences = next
         client = clientFactory(next.epoch!!)
         capture("analytics_enabled", mapOf("source" to source))
+        if (source == "onboarding" && onboardingComplete) onboardingCompleted()
         appOpened(onboardingComplete)
         return true
     }
@@ -48,15 +52,19 @@ internal class ConsentAnalytics(
     @Synchronized
     fun appOpened(onboardingComplete: Boolean) {
         if (consent != AnalyticsConsent.GRANTED || client == null) return
-        if (!onboardingComplete && !preferences.firstOpenReported) {
-            val next = preferences.copy(firstOpenReported = true)
-            if (store.write(next)) {
-                preferences = next
-                capture("app_first_opened")
-                capture("onboarding_started")
-            }
-        }
         capture("app_opened", mapOf("onboarding_complete" to onboardingComplete))
+    }
+
+    @Synchronized
+    fun onboardingCompleted() {
+        if (consent != AnalyticsConsent.GRANTED || client == null || preferences.onboardingCompletionReported) return
+        val reportFirstOpen = !preferences.firstOpenReported
+        val next = preferences.copy(firstOpenReported = true, onboardingCompletionReported = true)
+        if (!store.write(next)) return
+        preferences = next
+        if (reportFirstOpen) capture("app_first_opened")
+        // Report the completed setup only after consent, without recording earlier interactions.
+        capture("onboarding_completed")
     }
 
     @Synchronized

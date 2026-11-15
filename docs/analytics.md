@@ -1,6 +1,8 @@
 # Optional analytics
 
-Klang asks during onboarding whether to share app usage and basic device information with PostHog. The Yes and No buttons have equal emphasis and neither is preselected. Either choice lets the user continue. Existing installs remain off until the user enables **Settings → Privacy → Share analytics**.
+Klang finishes music setup, then shows a dedicated analytics page before plugin recommendations. It briefly describes the shared data and PostHog's EU region. The Yes and No buttons sit at the bottom with equal emphasis and no preselection; either choice continues immediately. Onboarding itself only has a short notice about optional PostHog analytics in the EU.
+
+The pending page survives an app restart. Existing installs keep their saved analytics choice and do not repeat setup. Users can change sharing in **Settings → Privacy → Share analytics**, using a switch with a short description and no extra on/off text.
 
 No SDK instance, event queue, analytics identity or PostHog request exists before explicit consent. Events while analytics is off are discarded rather than saved for later. Turning the switch off immediately closes the transport gate, cancels HTTP calls, persists the choice, resets the SDK identity and discards queued data. Enabling again creates a new anonymous consent period, so old queued data and identities cannot be reused. Previously delivered events are not deleted by the switch.
 
@@ -22,10 +24,9 @@ All events require consent and include `android_version`, `android_api_level`, `
 
 | Event | Meaning |
 | --- | --- |
-| `analytics_enabled` | An explicit Yes or switch-on action, with `source=onboarding` or `settings`. |
-| `app_first_opened` | First consenting open during initial setup, once per install. This is counted after consent, not at download time. |
-| `onboarding_started` | Initial setup is in progress when consent is granted, once per install. Pre-consent interactions are excluded. |
-| `onboarding_completed` | The consenting user completes initial setup. Enabling later does not invent a historical completion. |
+| `analytics_enabled` | An explicit Yes on the page after setup (`source=onboarding`) or switch-on action (`source=settings`). |
+| `app_first_opened` | First consenting activation after initial setup, once per install. This is counted after Yes, not at download time. |
+| `onboarding_completed` | The user chooses Yes on the page after completing initial setup. Sent once per install after consent; earlier setup interactions are never recorded or replayed. Enabling later in settings does not backfill this event. |
 | `app_opened` | The activity enters the foreground, or consent is enabled, with current `onboarding_complete` status. Use unique users for daily or weekly activity. |
 | `music_imported` | Local file import succeeds; includes `track_count`. |
 | `playback_started` | A queue starts; includes `queue_size`, categorical `source_type`, and `shuffled`. |
@@ -44,13 +45,13 @@ In [project 351549](https://eu.posthog.com/project/351549), save these views to 
 | Report | Query |
 | --- | --- |
 | New consenting installs | Trends → `app_first_opened` → total count; daily or weekly interval. |
-| Setup completion | Funnel → `onboarding_started` → `onboarding_completed`; both events use the same consent period identifier. |
+| Consenting setup completions | Trends → `onboarding_completed` → total count; daily or weekly interval. |
 | Daily active Android versions | Trends → `app_opened` → unique users → breakdown `android_version` → daily interval. |
 | Weekly active Android versions | Same query with weekly interval. |
 | Android API distribution | `app_opened` → unique users → breakdown `android_api_level`. |
 | Phone models | `app_opened` → unique users → breakdown `device_model` or `device_manufacturer`. |
 
-Choose a 30- or 90-day date range. PostHog computes daily and weekly groupings from event timestamps; the phone does not need a scheduled background upload. These views can populate after CI builds a configured APK and consenting users run it. The existing starter dashboard may also use the unchanged product event names.
+Choose a 30- or 90-day date range. PostHog computes daily and weekly groupings from event timestamps; the phone does not need a scheduled background upload. Since consent now follows setup, `onboarding_started` is no longer recorded and a setup-start-to-completion funnel cannot measure users who abandon setup or decline analytics. The existing starter dashboard may still use the unchanged product event names.
 
 ## App download totals
 
@@ -66,6 +67,6 @@ Create a Trends view of `github_downloads_snapshot`, using the maximum of the `t
 
 ## Validation
 
-The Checks workflow builds, lints and runs the JVM suite on GitHub, including consent transitions, persistence failures, queued requests after revocation, rejection before DNS, redirect rejection, payload filtering and missing configuration. It also checks the server-side download aggregation. Tests use a local mock server and never send events to PostHog. No Android build or test was run on the phone while editing this PR; CI results remain pending.
+The Checks workflow builds, lints and runs the JVM suite on GitHub, including consent transitions, persistence failures, completed setup before consent, completion deduplication, queued requests after revocation, rejection before DNS, redirect rejection, payload filtering and missing configuration. It also checks the server-side download aggregation. Tests use a local mock server and never send events to PostHog. Android builds and tests run in GitHub CI.
 
-After CI passes, verify on a test device: a fresh launch and No must produce no PostHog traffic; Yes enables the documented events; turning sharing off cancels and blocks requests; relaunch remains off; turning it on again uses a new anonymous identifier without replaying old queued events. Confirm the Android version breakdown in PostHog with actual consenting traffic. These device checks have not been performed by the PR edit.
+After CI passes, verify on a test device: finishing music setup shows the dedicated page with bottom Yes/No actions, and setup sends no PostHog traffic. No continues without telemetry; Yes records completion once after consent. Restarting before choosing resumes the analytics page. Turning sharing off cancels and blocks requests; relaunch remains off; turning it on again uses a new anonymous identifier without replaying old queued events or setup history. Confirm the Android version breakdown in PostHog with actual consenting traffic. No Android build or device check was run on the phone for this change.
