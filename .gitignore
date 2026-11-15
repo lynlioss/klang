@@ -5,6 +5,7 @@
 .android-tools/
 **/build/
 local.properties
+.env
 keystore.properties
 *.jks
 *.keystore

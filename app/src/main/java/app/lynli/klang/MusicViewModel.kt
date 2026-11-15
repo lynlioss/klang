@@ -15,6 +15,7 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.core.content.ContextCompat
+import app.lynli.klang.analytics.AnalyticsConsent
 import app.lynli.klang.data.MusicRepository
 import app.lynli.klang.data.Track
 import app.lynli.klang.data.TrackDetails
@@ -71,6 +72,7 @@ data class MusicState(
     val sleepEndsAt: Long = 0, val sleepRemaining: Long = 0,
     val hiddenIds: Set<String> = emptySet(), val hiddenTracks: List<Track> = emptyList(),
     val onboardingComplete: Boolean = false, val recommendedPluginsSeen: Boolean = true, val notificationPermission: Boolean = false,
+    val analyticsConsent: AnalyticsConsent = AnalyticsConsent.NOT_ASKED,
     val update: UpdateInfo? = null, val updateDismissed: Boolean = false, val updating: Boolean = false,
     val downloadProgress: Float = 0f,
 ) {
@@ -83,6 +85,7 @@ internal data class AudioDeletionState(val track: Track, val deleting: Boolean =
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = MusicRepository(application)
     private val prefs = application.getSharedPreferences("klang", 0)
+    private val analytics = (application as KlangApplication).analytics
     private val playlistStore = PlaylistStore(application)
     private val pluginRegistry = PluginRegistry(application)
     private val pluginStore = PluginStore(application) { pluginRegistry.manifests }
@@ -102,6 +105,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val lyricsRetry = MutableStateFlow(0)
     private val mutableState = MutableStateFlow(MusicState(
         onboardingComplete = prefs.getBoolean("onboardingComplete", false),
+        analyticsConsent = analytics.consent,
         recommendedPluginsSeen = prefs.getBoolean("recommendedPluginsSeen", prefs.getBoolean("onboardingComplete", false)),
         permission = repository.hasLibraryPermission(), notificationPermission = hasNotificationPermission(),
         favorites = prefs.getStringSet("favorites", emptySet()).orEmpty().toSet(),
@@ -278,6 +282,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (mutableState.value.queue.isEmpty()) sleep(0)
         syncPlayer()
         refresh()
+        analytics.capture(event = "audio_deleted")
         message("Audio file deleted")
     }
     private fun hasNotificationPermission() = ContextCompat.checkSelfPermission(getApplication(),
@@ -296,15 +301,26 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         mutablePluginCatalog.update { it.copy(installed = pluginRegistry.entries) }
     }
     fun completeOnboarding() {
+        // Finishing setup must not accidentally grant consent or skip the explicit choice.
+        if (mutableState.value.onboardingComplete || analytics.consent == AnalyticsConsent.NOT_ASKED) return
         prefs.edit().putBoolean("onboardingComplete", true).apply()
         mutableState.update { it.copy(onboardingComplete = true) }
+        analytics.capture(event = "onboarding_completed")
     }
+    fun setAnalyticsConsent(enabled: Boolean) {
+        val saved = analytics.setConsent(enabled, if (mutableState.value.onboardingComplete) "settings" else "onboarding")
+        mutableState.update { it.copy(analyticsConsent = analytics.consent) }
+        if (!saved) message("Couldn't save your analytics choice. Please try again.")
+    }
+    fun appOpened() = analytics.appOpened()
     fun importFiles(uris: List<Uri>) {
         if (uris.isEmpty() || mutableState.value.busy) return
         viewModelScope.launch {
             mutableState.update { it.copy(busy = true) }
-            runCatching { repository.importFiles(uris) }.onSuccess { message("$it tracks added to Music/Klang") }
-                .onFailure { message("Import stopped: ${it.localizedMessage}. Any completed files are in your library.") }
+            runCatching { repository.importFiles(uris) }.onSuccess { count ->
+                analytics.capture(event = "music_imported", properties = mapOf("track_count" to count))
+                message("$count tracks added to Music/Klang")
+            }.onFailure { message("Import stopped: ${it.localizedMessage}. Any completed files are in your library.") }
             mutableState.update { it.copy(busy = false) }; refresh()
         }
     }
@@ -318,6 +334,16 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         player.setMediaItems(tracks.map { it.mediaItem().withPlaybackSource(sourceId) }, start.index, 0)
         player.shuffleModeEnabled = start.shuffle
         player.prepare(); player.play(); syncPlayer()
+        analytics.capture(event = "playback_started", properties = mapOf(
+            "queue_size" to tracks.size,
+            "source_type" to when {
+                sourceId == null -> "library"
+                sourceId == "mix" -> "mix"
+                sourceId.startsWith("playlist:") -> "playlist"
+                else -> "collection"
+            },
+            "shuffled" to start.shuffle,
+        ))
     }
     /** Resume/pause a matching collection without replacing the queue or resetting the position. */
     fun playOrToggle(tracks: List<Track>, sourceId: String) {
@@ -390,6 +416,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 mutablePlugins.value = pluginStore.enable(candidate.manifest.id, enabled)
                 mutablePluginCatalog.update { it.copy(installed = pluginRegistry.entries, updates = it.updates - candidate.manifest.id) }
                 retryLyrics()
+                analytics.capture(event = "plugin_installed", properties = mapOf(
+                    "plugin_type" to candidate.manifest.type.name.lowercase(),
+                    "operation" to if (existing == null) "installed" else "updated",
+                ))
                 message(if (existing == null) "${candidate.manifest.name} installed" else "${candidate.manifest.name} updated")
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) { mutablePluginCatalog.update { it.copy(error = error.message ?: "Couldn't install this plugin.") } }
@@ -398,6 +428,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun uninstallPlugin(id: String) {
         if (mutablePluginCatalog.value.busyId != null) return
+        val pluginType = pluginRegistry.entries.find { it.manifest.id == id }?.manifest?.type?.name?.lowercase() ?: "unknown"
         mutablePluginCatalog.update { it.copy(busyId = id, error = null) }
         viewModelScope.launch {
             try {
@@ -408,6 +439,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 retryLyrics()
                 // Disabling first cancels the in-flight lookup before deleting its cache.
                 lyricsRepository.clearCache(id)
+                analytics.capture(event = "plugin_uninstalled", properties = mapOf("plugin_type" to pluginType))
                 message("Plugin uninstalled")
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) { mutablePluginCatalog.update { it.copy(error = "Couldn't uninstall this plugin.") } }
@@ -462,11 +494,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val updated = mutableState.value.favorites.toMutableSet().apply { if (!add(track.id)) remove(track.id) }.toSet()
         prefs.edit().putStringSet("favorites", updated).apply()
         mutableState.update { it.copy(favorites = updated) }
+        analytics.capture(event = "favorite_toggled", properties = mapOf("is_favorite" to (track.id in updated)))
     }
     fun createPlaylist(name: String): String? {
         if (name.trim().isEmpty()) return null
         val playlist = playlistStore.create(name)
         updatePlaylists { it + playlist }
+        analytics.capture(event = "playlist_created")
         return playlist.id
     }
     fun renamePlaylist(id: String, name: String) {
@@ -475,6 +509,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun deletePlaylist(id: String) {
         val cover = mutableState.value.playlists.find { it.id == id }?.coverFile
         updatePlaylists { items -> items.filterNot { it.id == id } }
+        analytics.capture(event = "playlist_deleted")
         viewModelScope.launch { PlaylistCovers.delete(getApplication(), cover) }
     }
     fun setPlaylistCover(id: String, uri: Uri) {
@@ -528,6 +563,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val endsAt = if (duration > 0) System.currentTimeMillis() + duration * 60_000L else 0
         mutableState.update { it.copy(sleepMinutes = duration, sleepEndsAt = endsAt,
             sleepRemaining = if (endsAt > 0) duration * 60_000L else 0) }
+        analytics.capture(event = "sleep_timer_set", properties = mapOf(
+            "duration_minutes" to duration,
+            "is_active" to (duration > 0),
+        ))
         if (duration > 0) sleepJob = viewModelScope.launch {
             delay(duration * 60_000L)
             controller?.pause()

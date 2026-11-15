@@ -781,6 +781,8 @@ private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission:
                 SettingsAction(ImageVector.vectorResource(R.drawable.extension), "Plugins", "Lyrics providers and music integrations", plugins)
                 SectionHeading("Playback")
                 SettingsAction(ImageVector.vectorResource(R.drawable.equalizer), "Equalizer", "Presets and headphone sound", equalizer)
+                SectionHeading("Privacy")
+                AnalyticsSetting(state.analyticsConsent, model::setAnalyticsConsent)
                 SectionHeading("About")
                 Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.fillMaxWidth().padding(20.dp)) {
