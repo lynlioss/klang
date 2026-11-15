@@ -111,6 +111,8 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val wide = maxWidth >= 840.dp
             val bottomSpace = if (wide) 24.dp else if (state.current != null) 184.dp else 112.dp
+            val density = LocalDensity.current
+            var dockHeightPx by remember { mutableIntStateOf(0) }
             // Screens extend under the dock. Only scroll content gets a trailing spacer.
             Column(Modifier.fillMaxSize().statusBarsPadding()) {
                 AnimatedVisibility(
@@ -146,7 +148,8 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
                 }
             }
             if (!wide) Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
-                .imePadding().widthIn(max = 520.dp).padding(horizontal = 16.dp, vertical = 8.dp)) {
+                .imePadding().onSizeChanged { dockHeightPx = it.height }
+                .widthIn(max = 520.dp).padding(horizontal = 16.dp, vertical = 8.dp)) {
                 AnimatedVisibility(state.current != null, enter = expandVertically(spring(0.8f, 380f)) + fadeIn(Effects),
                     exit = shrinkVertically(spring(0.8f, 380f)) + fadeOut(Effects)) {
                     Column { MiniPlayer(state, model) { expanded = true }; Spacer(Modifier.height(8.dp)) }
@@ -193,8 +196,10 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
                         onGoToAlbum = { openTrackCollection(it, artist = false) })
                 }
             }
-            SnackbarHost(snack, Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
-                .padding(bottom = if (settings || expanded || plugins || hiddenFiles || collectionId != null) 16.dp else bottomSpace)) { data ->
+            val snackbarBottom = if (settings || expanded || plugins || settingsEq || hiddenFiles || collectionId != null || wide) 16.dp
+                else if (dockHeightPx > 0) with(density) { dockHeightPx.toDp() } + 8.dp else bottomSpace
+            SnackbarHost(snack, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().imePadding()
+                .padding(bottom = snackbarBottom)) { data ->
                 Snackbar(data, shape = MaterialTheme.shapes.medium)
             }
         }

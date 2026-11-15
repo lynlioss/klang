@@ -4,6 +4,7 @@ package app.lynli.klang.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -130,13 +131,13 @@ private fun PluginList(catalog: PluginCatalog, config: PluginConfiguration, mode
                             PluginGlyph(plugin, Modifier.size(48.dp))
                             Column(Modifier.weight(1f).padding(start = 16.dp)) {
                                 Text(plugin.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Text("${plugin.type.label} · ${if (enabled) "Enabled" else "Disabled"}", Modifier.padding(top = 4.dp), style = MaterialTheme.typography.labelLarge,
+                                Text(plugin.type.label, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.labelLarge,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         catalog.updates[plugin.id]?.let { update ->
-                            IconButton({ model.installPlugin(update) }, enabled = catalog.busyId == null) {
-                                Icon(Icons.Rounded.SystemUpdateAlt, "Update ${plugin.name} to ${update.manifest.version}", tint = MaterialTheme.colorScheme.primary)
+                            FilledTonalIconButton({ model.installPlugin(update) }, enabled = catalog.busyId == null) {
+                                Icon(Icons.Rounded.Autorenew, "Update ${plugin.name} to ${update.manifest.version}")
                             }
                         }
                         if (catalog.busyId == plugin.id) LoadingIndicator(Modifier.size(32.dp).padding(end = 4.dp))
@@ -167,6 +168,13 @@ private fun PluginOverview(plugin: PluginManifest, config: PluginConfiguration, 
     var linkError by remember(plugin.id) { mutableStateOf(false) }
     var removing by remember { mutableStateOf(false) }
     val busy = catalog.busyId != null
+    val active = plugin.id in config.enabled
+    val motion = motionEnabled()
+    val effects = if (motion) MaterialTheme.motionScheme.fastEffectsSpec<Color>() else snap()
+    val toggleContainer by animateColorAsState(if (active) colors.primaryContainer else colors.surfaceContainerHigh,
+        effects, label = "Plugin toggle surface")
+    val toggleContent by animateColorAsState(if (active) colors.onPrimaryContainer else colors.onSurface,
+        effects, label = "Plugin toggle content")
     if (removing) AlertDialog(onDismissRequest = { removing = false }, shape = MaterialTheme.shapes.extraLarge,
         icon = { Icon(Icons.Rounded.DeleteOutline, null) }, title = { Text("Uninstall ${plugin.name}?") },
         text = { Text("This removes the plugin, its settings and saved lyrics. You can install it again from its GitHub link.") },
@@ -181,25 +189,32 @@ private fun PluginOverview(plugin: PluginManifest, config: PluginConfiguration, 
             }
         }
         item {
-            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                PluginGlyph(plugin, Modifier.size(56.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(plugin.name, style = MaterialTheme.typography.headlineLargeEmphasized)
-                    Text("${plugin.author} · v${plugin.version}", Modifier.padding(top = 4.dp),
-                        style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+            Surface(shape = MaterialTheme.shapes.extraLarge, color = colors.surfaceContainerLow) {
+                Column(Modifier.fillMaxWidth().padding(24.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                        PluginGlyph(plugin, Modifier.size(64.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(plugin.name, style = MaterialTheme.typography.headlineLargeEmphasized)
+                            Text(plugin.author, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall,
+                                color = colors.onSurfaceVariant)
+                        }
+                    }
+                    Surface(Modifier.padding(top = 16.dp), shape = RoundedCornerShape(50),
+                        color = colors.secondaryContainer, contentColor = colors.onSecondaryContainer) {
+                        Text("v${plugin.version}", Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.labelLarge)
+                    }
                 }
             }
         }
         item {
-            Surface(shape = MaterialTheme.shapes.extraLarge, color = colors.secondaryContainer, contentColor = colors.onSecondaryContainer) {
-                Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f).padding(end = 16.dp)) {
-                        Text("Use ${plugin.name}", style = MaterialTheme.typography.titleMediumEmphasized)
-                        Text(if (plugin.id in config.enabled) "Ready in Now playing" else "Turn on to follow along",
-                            Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall)
-                    }
-                    Switch(plugin.id in config.enabled, { model.enablePlugin(plugin.id, it) }, enabled = !busy,
+            Surface(shape = RoundedCornerShape(50), color = toggleContainer, contentColor = toggleContent) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Icon(Icons.Rounded.MusicNote, null)
+                    Text("Use ${plugin.name}", Modifier.weight(1f), style = MaterialTheme.typography.titleLargeEmphasized)
+                    Switch(active, { model.enablePlugin(plugin.id, it) }, enabled = !busy,
+                        thumbContent = { if (active) Icon(Icons.Rounded.Check, null, Modifier.size(SwitchDefaults.IconSize)) },
                         modifier = Modifier.semantics { contentDescription = "Enable ${plugin.name}" })
                 }
             }
@@ -208,7 +223,7 @@ private fun PluginOverview(plugin: PluginManifest, config: PluginConfiguration, 
             Surface(shape = MaterialTheme.shapes.extraLarge, color = colors.tertiaryContainer, contentColor = colors.onTertiaryContainer) {
                 Column(Modifier.fillMaxWidth().padding(20.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Icon(Icons.Rounded.SystemUpdateAlt, null)
+                        Icon(Icons.Rounded.Autorenew, null)
                         Text("Version ${update.manifest.version} available", style = MaterialTheme.typography.titleMediumEmphasized)
                     }
                     Text("Your settings and enabled state will be kept.", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium)
@@ -224,14 +239,17 @@ private fun PluginOverview(plugin: PluginManifest, config: PluginConfiguration, 
             FlowRow(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 plugin.buttons.forEach { button ->
-                    FilledTonalButton({ linkError = runCatching { uriHandler.openUri(button.url) }.isFailure }) {
+                    val buttonHeight = ButtonDefaults.MediumContainerHeight
+                    FilledTonalButton({ linkError = runCatching { uriHandler.openUri(button.url) }.isFailure },
+                        modifier = Modifier.heightIn(min = buttonHeight), shapes = ButtonDefaults.shapesFor(buttonHeight),
+                        contentPadding = ButtonDefaults.contentPaddingFor(buttonHeight)) {
                         Icon(when (button.icon) {
                             "donate" -> Icons.Rounded.Favorite
                             "source" -> Icons.Rounded.Code
                             else -> Icons.Rounded.OpenInNew
                         }, null, Modifier.size(ButtonDefaults.SmallIconSize))
                         Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-                        Text(button.label)
+                        Text(button.label, style = ButtonDefaults.textStyleFor(buttonHeight))
                     }
                 }
             }
@@ -266,7 +284,18 @@ private fun PluginSettingCard(plugin: PluginManifest, setting: PluginSetting, co
     val colors = MaterialTheme.colorScheme
     Surface(shape = MaterialTheme.shapes.medium, color = colors.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth().padding(20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(shape = MaterialTheme.shapes.small, color = colors.secondaryContainer,
+                    contentColor = colors.onSecondaryContainer) {
+                    Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                        Icon(when (setting) {
+                            is PluginSetting.Toggle -> if (setting.id == "cacheLyrics") Icons.Rounded.Download else Icons.Rounded.Check
+                            is PluginSetting.Range -> Icons.Rounded.GraphicEq
+                            is PluginSetting.Text -> Icons.Rounded.Code
+                            is PluginSetting.Choice -> Icons.Rounded.Settings
+                        }, null, Modifier.size(24.dp))
+                    }
+                }
                 Column(Modifier.weight(1f)) {
                     Text(setting.title, style = MaterialTheme.typography.titleMediumEmphasized)
                     if (setting.description.isNotBlank()) Text(setting.description, Modifier.padding(top = 4.dp),
@@ -283,8 +312,15 @@ private fun PluginSettingCard(plugin: PluginManifest, setting: PluginSetting, co
                     val slider = remember(setting) { SliderState(trackRange = setting.min.toFloat()..setting.max.toFloat(),
                         steps = (setting.max - setting.min) / setting.step - 1) }
                     slider.value = value
-                    Text("${value.roundToInt()} ${setting.unit}".trim(), Modifier.padding(top = 16.dp),
-                        style = MaterialTheme.typography.titleLargeEmphasized, color = colors.primary)
+                    Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Surface(shape = RoundedCornerShape(50), color = colors.secondaryContainer, contentColor = colors.onSecondaryContainer) {
+                            Text("${value.roundToInt()} ${setting.unit}".trim(), Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                style = MaterialTheme.typography.titleMediumEmphasized)
+                        }
+                        Spacer(Modifier.weight(1f))
+                        TextButton({ value = setting.default.toFloat(); model.pluginSetting(plugin.id, setting.id, setting.defaultValue) },
+                            enabled = enabled && value.roundToInt() != setting.default) { Text("Reset") }
+                    }
                     Slider(state = slider, enabled = enabled, onValueChange = { value = it },
                         onValueChangeFinished = { model.pluginSetting(plugin.id, setting.id, value.roundToInt().toString()) },
                         modifier = Modifier.semantics { contentDescription = setting.title })
