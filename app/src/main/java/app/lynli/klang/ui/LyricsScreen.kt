@@ -5,11 +5,9 @@ import android.os.SystemClock
 import android.view.accessibility.AccessibilityManager
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -17,6 +15,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
@@ -41,6 +40,8 @@ import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -51,10 +52,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.ResolvedTextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -64,7 +65,8 @@ import app.lynli.klang.R
 import app.lynli.klang.lyrics.LyricLine
 import app.lynli.klang.lyrics.LyricsDocument
 import app.lynli.klang.lyrics.LyricsState
-import app.lynli.klang.lyrics.charFillSteps
+import app.lynli.klang.lyrics.LyricsPlaybackClock
+import app.lynli.klang.lyrics.charFill
 import app.lynli.klang.lyrics.displayText
 import kotlin.math.abs
 import kotlinx.coroutines.delay
@@ -212,10 +214,16 @@ private fun LyricsBody(document: LyricsDocument, state: MusicState, model: Music
     val dragged by list.interactionSource.collectIsDraggedAsState()
     LaunchedEffect(dragged) { if (dragged) following = false }
     val position = remember(state.current?.id) { mutableLongStateOf(state.position) }
-    // Read Media3's real clock each frame: seeking, buffering and pauses never drift.
-    LaunchedEffect(model, state.current?.id, state.playing, state.position) {
-        position.longValue = model.playbackPosition()
-        if (state.playing) while (true) withFrameNanos { position.longValue = model.playbackPosition() }
+    val latestPlayback by rememberUpdatedState(state)
+    val clock = remember(state.current?.id) { LyricsPlaybackClock() }
+    // Keep one frame loop across the app's periodic state updates. Timeline discontinuities
+    // reset the cursor immediately; small controller corrections never rewind the word fill.
+    LaunchedEffect(model, state.current?.id) {
+        while (true) withFrameNanos { frame ->
+            val playback = latestPlayback
+            position.longValue = clock.update(model.playbackPosition(), frame,
+                playback.playing, playback.playbackDiscontinuity)
+        }
     }
     // Aurora semantics: a line becomes current the moment it starts and stays current until the
     // next one starts, so the highlight never blinks off in a gap between lines.
@@ -231,8 +239,15 @@ private fun LyricsBody(document: LyricsDocument, state: MusicState, model: Music
             if (!following || !document.synchronized) return@LaunchedEffect
             val item = list.layoutInfo.visibleItemsInfo.firstOrNull { it.index == focus }
             // Item offsets exclude the before-content padding where the focus line sits.
-            if (item != null) list.animateScrollBy(item.offset.toFloat(), tween(650, easing = FastOutSlowInEasing))
-            else list.animateScrollToItem(focus)
+            if (item != null) {
+                // Timed reading must settle without spring overshoot that appears to rewind.
+                if (motion) list.animateScrollBy(item.offset.toFloat(), spring(dampingRatio = 1f, stiffness = 800f))
+                else list.scrollBy(item.offset.toFloat())
+            } else {
+                // A seek should land on the requested vocal immediately, without traversing
+                // every intervening line while its words have already started.
+                list.scrollToItem(focus)
+            }
         }
         LazyColumn(state = list, modifier = Modifier.fillMaxSize().graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
             .drawWithContent {
@@ -267,24 +282,9 @@ private fun LyricRow(line: LyricLine, active: Boolean, distance: Int, position: 
     val colors = MaterialTheme.colorScheme
     val shown = remember(line) { line.displayText }
     val karaoke = active && line.words.isNotEmpty()
-    // Quarter-character steps: the wipe stays smooth, but the text re-lays out only when its look
-    // actually changes. Reading the clock here keeps playback out of recomposition.
-    val fill by remember(line, karaoke) { derivedStateOf(structuralEqualityPolicy()) {
-        if (karaoke) line.charFillSteps(position.value - offsetMs) else null
-    } }
-    val text = remember(shown, fill) {
-        val steps = fill
-        if (steps == null) AnnotatedString(shown) else buildAnnotatedString {
-            append(shown)
-            var i = 0
-            while (i < shown.length) {
-                var j = i + 1
-                while (j < shown.length && steps[j] == steps[i]) j++
-                addStyle(SpanStyle(color = colors.onSurface.copy(alpha = 0.42f + 0.58f * steps[i])), i, j)
-                i = j
-            }
-        }
-    }
+    var layout by remember(shown) { mutableStateOf<TextLayoutResult?>(null) }
+    val reveal = remember(line) { Path() }
+    val scheme = MaterialTheme.motionScheme
     // Aurora's emphasis: brightness carries the current line, the type size never changes.
     val opacity by animateFloatAsState(
         when {
@@ -292,23 +292,42 @@ private fun LyricRow(line: LyricLine, active: Boolean, distance: Int, position: 
             distance <= 1 -> 0.55f
             else -> 0.35f
         },
-        if (motion) tween(420) else snap(), label = "Lyric opacity")
+        if (motion && !active) scheme.fastEffectsSpec() else snap(), label = "Lyric opacity")
     // Depth of field: the next line stays crisp, every later line softens a little more.
     val soften by animateFloatAsState(
         if (!motion || distance <= 1) 0f else ((distance - 1) * 1.6f).coerceAtMost(7f),
-        if (motion) tween(450) else snap(), label = "Lyric softness")
-    Text(text, modifier = Modifier.fillMaxWidth().graphicsLayer {
+        if (motion && !active) scheme.fastEffectsSpec() else snap(), label = "Lyric softness")
+    Text(shown, modifier = Modifier.fillMaxWidth().graphicsLayer {
         alpha = opacity
         val radius = soften.dp.toPx()
         renderEffect = if (soften > 0.5f) BlurEffect(radius, radius, TileMode.Clamp) else null
         clip = renderEffect != null
         // Keep unblurred lines off an offscreen buffer.
         compositingStrategy = if (renderEffect == null) CompositingStrategy.ModulateAlpha else CompositingStrategy.Auto
-    }.clickable(role = Role.Button, onClickLabel = "Seek to this lyric", onClick = seek).padding(vertical = 8.dp),
+    }.clickable(role = Role.Button, onClickLabel = "Seek to this lyric", onClick = seek).padding(vertical = 8.dp)
+        .drawWithContent {
+            drawContent()
+            val measured = layout
+            if (karaoke && measured != null) {
+                // The clock invalidates drawing only. Glyph shaping and line wrapping remain
+                // cached, even on short words that finish within a handful of frames.
+                val fill = line.charFill(position.value - offsetMs)
+                reveal.reset()
+                fill.forEachIndexed { index, amount ->
+                    if (amount > 0f && !shown[index].isWhitespace()) {
+                        val bounds = measured.getBoundingBox(index)
+                        val rtl = measured.getBidiRunDirection(index) == ResolvedTextDirection.Rtl
+                        val rect = if (rtl) bounds.copy(left = bounds.right - bounds.width * amount)
+                            else bounds.copy(right = bounds.left + bounds.width * amount)
+                        reveal.addRect(rect)
+                    }
+                }
+                clipPath(reveal) { drawText(measured, color = colors.onSurface, alpha = 1f) }
+            }
+        },
+        onTextLayout = { layout = it },
         style = if (compact) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.headlineLarge,
-        // Full ink by default: line-only lyrics are carried by the row opacity alone, the way
-        // Aurora does it. Word-synced rows get their dim-to-lit look from the span colors above.
-        fontWeight = FontWeight.SemiBold, color = colors.onSurface)
+        fontWeight = FontWeight.SemiBold, color = colors.onSurface.copy(alpha = if (karaoke) 0.42f else 1f))
 }
 
 @Composable

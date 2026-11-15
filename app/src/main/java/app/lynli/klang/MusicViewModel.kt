@@ -53,6 +53,7 @@ data class MusicState(
     val current: Track? = null, val playing: Boolean = false, val connected: Boolean = false,
     val playWhenReady: Boolean = false, val hasPreviousTrack: Boolean = false, val hasNextTrack: Boolean = false,
     val position: Long = 0, val duration: Long = 0, val queue: List<Track> = emptyList(),
+    val playbackDiscontinuity: Long = 0,
     val playbackSource: String? = null, val queueIndex: Int = 0, val shuffle: Boolean = false, val repeat: Int = Player.REPEAT_MODE_OFF,
     val favorites: Set<String> = emptySet(), val message: String? = null,
     val playlists: List<SavedPlaylist> = emptyList(),
@@ -95,6 +96,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val future = MediaController.Builder(application,
         SessionToken(application, ComponentName(application, PlaybackService::class.java))).buildAsync()
     private val listener = object : Player.Listener {
+        override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+            mutableState.update { it.copy(playbackDiscontinuity = it.playbackDiscontinuity + 1) }
+            syncPlayer()
+        }
         override fun onEvents(player: Player, events: Player.Events) { syncPlayer() }
         override fun onPlayerError(error: PlaybackException) {
             android.util.Log.e("KlangPlayback", "Playback failed: ${error.errorCodeName}", error)
