@@ -52,18 +52,4 @@ printf 'sdk.dir=/path/to/Android/sdk\n' > local.properties
 
 The APK lands in `app/build/outputs/apk/debug/app-debug.apk`. A release build runs `./gradlew assembleRelease` and is signed with the key named in `keystore.properties`, or with the debug key when no keystore is configured.
 
-For optional analytics, copy [.env.example](.env.example) to `.env` at the repository root and set your PostHog project token. Builds without a token work normally and cannot send analytics. See the [analytics guide](docs/analytics.md) for consent, event definitions and daily or weekly reporting.
-
-## CI and releases
-
-**Checks** builds, lints and tests every pull request and every commit pushed to `main`. Runs from outside contributors require a maintainer with write access to click **Approve workflows to run** on the PR. The repository's **Settings → Actions → General → Fork pull request workflows** approval policy is set to **Require approval for all outside collaborators**; this is a GitHub setting, separate from the workflow files. Updated PRs cancel outdated checks, while each commit to `main` keeps its own run. Check results stay in the workflow logs.
-
-To publish a release, wait for Checks to pass, then run **Release** from `main` in the Actions tab and choose a version bump. Release requires a successful Checks run for the current `main` commit and stops if `main` changes during the build. It builds and verifies the signed APK and publishes it without repeating lint or unit tests. It also runs Checks against the release tag to cover the version commit pushed by GitHub's workflow token, which does not trigger CI automatically.
-
-Standard GitHub-hosted runners are free for this public repository. The workflows use `ubuntu-latest` and publish APKs, checksums and R8 mappings as GitHub Release attachments without duplicate Actions artifact uploads. The `lynlioss` organization has a $0 Actions budget with **Stop usage when budget limit is reached** enabled. Keep that blocking budget enabled; it also protects against paid Actions storage. Packages, Codespaces and Git LFS have separate $0 blocking budgets.
-
-Before switching to Blacksmith, arrange a provider-enforced cutoff for CI charges. Its [spending alerts](https://docs.blacksmith.sh/introduction/settings) only send email, and GitHub's budget does not control Blacksmith invoices. Blacksmith's [free allowance](https://docs.blacksmith.sh/blacksmith-runners/overview#faq) is 3,000 equivalent x64 2-vCPU minutes per month across the whole organization; larger runners consume it proportionally faster. The compatible `blacksmith-2vcpu-ubuntu-2404` runner has no size multiplier, but timeouts and PR approvals cannot enforce a monthly allowance. Keep these workflows on GitHub until the cutoff is confirmed.
-
-Blacksmith's [standard dependency cache](https://docs.blacksmith.sh/blacksmith-caching/dependencies-actions#pricing) has no additional charge. [Docker layer caching, sticky disks and static IPs](https://www.blacksmith.sh/pricing) are paid add-ons; these workflows use none of them. [Proof](https://docs.blacksmith.sh/proof/pricing) and [Codesmith](https://docs.blacksmith.sh/codesmith/pricing-and-faqs) have separate compute and model charges. Disable their automatic runs and enforce a separate zero-spend limit before using Blacksmith. Changing workflow runner labels does not control those account settings or other repositories' usage.
-
 Klang is released under the GNU GPL v3. The licenses for the bundled fonts and icons are in `licenses/`.
