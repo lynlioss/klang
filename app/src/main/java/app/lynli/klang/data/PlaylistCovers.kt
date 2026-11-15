@@ -6,7 +6,6 @@ import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.util.LruCache
-import androidx.palette.graphics.Palette
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
@@ -67,9 +66,7 @@ internal object PlaylistCovers {
         seeds.get(name)?.let { return it }
         val image = bitmap(context, name) ?: return null
         return withContext(Dispatchers.Default) {
-            val palette = Palette.from(image).maximumColorCount(12).resizeBitmapArea(4096).generate()
-            (palette.vibrantSwatch?.rgb ?: palette.darkVibrantSwatch?.rgb
-                ?: palette.mutedSwatch?.rgb ?: palette.dominantSwatch?.rgb)?.also { seeds.put(name, it) }
+            ArtworkColors.seed(image)?.also { seeds.put(name, it) }
         }
     }
 

@@ -21,7 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.palette.graphics.Palette
+import app.lynli.klang.data.ArtworkColors
 import app.lynli.klang.data.Track
 import app.lynli.klang.data.PlaylistCovers
 import kotlinx.coroutines.Dispatchers
@@ -107,10 +107,7 @@ internal object ArtworkStore {
         seeds.get(track.id)?.let { return it }
         val bitmap = bitmap(context, track) ?: return null
         return withContext(Dispatchers.Default) {
-            val palette = Palette.from(bitmap).maximumColorCount(12).resizeBitmapArea(4096).generate()
-            val value = palette.vibrantSwatch?.rgb ?: palette.darkVibrantSwatch?.rgb
-                ?: palette.mutedSwatch?.rgb ?: palette.dominantSwatch?.rgb
-            value?.also { seeds.put(track.id, it) }
+            ArtworkColors.seed(bitmap)?.also { seeds.put(track.id, it) }
         }
     }
 }

@@ -16,9 +16,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.lynli.klang.R
+import app.lynli.klang.data.ArtworkColors
 import app.lynli.klang.data.Track
 import app.lynli.klang.data.PlaylistCovers
 import com.materialkolor.PaletteStyle
+import com.materialkolor.dynamicColorScheme
 import com.materialkolor.rememberDynamicColorScheme
 
 // Brand expression is reserved for display text. Body, labels, and controls stay native.
@@ -102,8 +104,7 @@ internal fun PlaylistContentTheme(enabled: Boolean, coverFile: String?, track: T
     LaunchedEffect(coverFile, track?.id) {
         seed = PlaylistCovers.seed(context, coverFile) ?: track?.let { ArtworkStore.seed(context, it) }
     }
-    val target = rememberDynamicColorScheme(seedColor = Color(seed ?: 0xFF5075C8.toInt()),
-        isDark = LocalKlangDark.current, style = PaletteStyle.Vibrant)
+    val target = rememberArtworkColorScheme(seed)
     MaterialTheme(colorScheme = animatedScheme(target), content = content)
 }
 
@@ -122,9 +123,21 @@ internal fun CoverTheme(track: Track, content: @Composable () -> Unit) {
     val seedState = remember(track.id) { mutableStateOf(ArtworkStore.peekSeed(track)) }
     LaunchedEffect(track.id) { seedState.value = ArtworkStore.seed(context, track) }
     val seed = seedState.value
-    val target = rememberDynamicColorScheme(seedColor = Color(seed ?: 0xFF5075C8.toInt()),
-        isDark = LocalKlangDark.current, style = PaletteStyle.Vibrant)
+    val target = rememberArtworkColorScheme(seed)
     MaterialTheme(colorScheme = animatedScheme(target), content = content)
+}
+
+/** Content palettes preserve artwork hue/chroma; Vibrant rotates tonal accents and colors grays. */
+internal fun artworkColorScheme(seed: Int?, dark: Boolean): ColorScheme {
+    val source = seed ?: 0xFF5075C8.toInt()
+    return dynamicColorScheme(seedColor = Color(source), isDark = dark,
+        style = if (ArtworkColors.hasColor(source)) PaletteStyle.Content else PaletteStyle.Monochrome)
+}
+
+@Composable
+private fun rememberArtworkColorScheme(seed: Int?): ColorScheme {
+    val dark = LocalKlangDark.current
+    return remember(seed, dark) { artworkColorScheme(seed, dark) }
 }
 
 @Composable
