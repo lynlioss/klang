@@ -20,6 +20,7 @@ import android.media.RouteDiscoveryPreference
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.*
@@ -30,6 +31,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Headphones
@@ -239,14 +246,18 @@ private fun OutputVolumeSlider(audioManager: AudioManager, controller: MediaRout
     var dragging by remember(controller.id, outputIds) { mutableStateOf(false) }
     LaunchedEffect(revision, controller.id, outputIds) { if (!dragging) volume = readVolume().toFloat() }
     val colors = MaterialTheme.colorScheme
+    val sliderColors = SliderDefaults.colors()
+    val sliderEnabled = enabled && adjustable && maximum > minimum
+    val range = minimum.toFloat()..maximum.coerceAtLeast(minimum + 1).toFloat()
     Column(Modifier.fillMaxWidth().padding(top = 16.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Volume", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-            Text(if (adjustable) "${volume.roundToInt()} / $maximum" else "Fixed volume",
-                style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant)
+            if (!adjustable) Text("Fixed volume", style = MaterialTheme.typography.labelLarge,
+                color = colors.onSurfaceVariant)
         }
-        Slider(value = volume.coerceIn(minimum.toFloat(), maximum.coerceAtLeast(minimum + 1).toFloat()),
-                onValueChange = { value ->
+        val sliderState = remember(range) { SliderState(volume.coerceIn(range), 0, range) }
+        sliderState.value = volume.coerceIn(range)
+        Slider(state = sliderState, onValueChange = { value ->
                     dragging = true
                     volume = value
                     runCatching {
@@ -257,8 +268,46 @@ private fun OutputVolumeSlider(audioManager: AudioManager, controller: MediaRout
                         }
                     }.onFailure { onError("Couldn't change the volume.") }
                 }, onValueChangeFinished = { dragging = false; volume = readVolume().toFloat() },
-                enabled = enabled && adjustable && maximum > minimum,
-                valueRange = minimum.toFloat()..maximum.coerceAtLeast(minimum + 1).toFloat(),
-                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Media volume" })
+                enabled = sliderEnabled, colors = sliderColors,
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Media volume" },
+                track = { state -> ExpressiveSliderTrack(state, sliderColors, sliderEnabled) })
     }
 }
+
+/** Material 3 Expressive "medium" slider geometry: thick rounded track, slim 4x44dp handle. */
+@Composable
+private fun ExpressiveSliderTrack(state: SliderState, colors: SliderColors, enabled: Boolean,
+    modifier: Modifier = Modifier) {
+    val inactiveColor = if (enabled) colors.inactiveTrackColor else colors.disabledInactiveTrackColor
+    val activeColor = if (enabled) colors.activeTrackColor else colors.disabledActiveTrackColor
+    Canvas(modifier.fillMaxWidth().height(VolumeTrackHeight)) {
+        val outer = VolumeTrackCorner.toPx()
+        val inside = 2.dp.toPx()
+        val boundary = size.width * state.coercedValueAsFraction
+        val handleEdge = 2.dp.toPx() + 6.dp.toPx()
+        val activeEnd = (boundary - handleEdge).coerceAtLeast(0f)
+        val inactiveStart = (boundary + handleEdge).coerceAtMost(size.width)
+        fun segment(start: Float, end: Float, color: Color, startRadius: Float, endRadius: Float) {
+            val width = end - start
+            if (width <= 0f) return
+            val limit = minOf(size.height / 2f, width / 2f)
+            val startCorner = CornerRadius(startRadius.coerceAtMost(limit))
+            val endCorner = CornerRadius(endRadius.coerceAtMost(limit))
+            val path = Path().apply {
+                addRoundRect(RoundRect(Rect(start, 0f, end, size.height),
+                    topLeft = startCorner, bottomLeft = startCorner,
+                    topRight = endCorner, bottomRight = endCorner))
+            }
+            drawPath(path, color)
+        }
+        segment(0f, activeEnd, activeColor, outer, inside)
+        if (inactiveStart < size.width) {
+            segment(inactiveStart, size.width, inactiveColor, inside, outer)
+            drawCircle(activeColor, radius = 2.dp.toPx(),
+                center = Offset(size.width - outer, size.height / 2f))
+        }
+    }
+}
+
+private val VolumeTrackHeight = 40.dp
+private val VolumeTrackCorner = 12.dp
