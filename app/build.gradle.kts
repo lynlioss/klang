@@ -39,8 +39,8 @@ android {
         targetSdk = 36
         // Single source of truth for the release: scripts/bump-version.py edits
         // these two lines, and the UI reads them through BuildConfig.
-        versionCode = 23
-        versionName = "1.0.0"
+        versionCode = 24
+        versionName = "1.0.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {
