@@ -61,12 +61,10 @@ An APK cannot report a download before it runs. Use GitHub release asset statist
 gh api --paginate repos/lynlioss/klang/releases --jq '.[] | .tag_name as $release | .assets[] | select(.name == "klang.apk") | {release: $release, downloads: .download_count}'
 ```
 
-The **Download analytics** workflow runs daily at approximately 08:00 UTC after it is merged to the default branch. It sends one aggregate `github_downloads_snapshot` event to PostHog from GitHub Actions, with `total_downloads` and `apk_count`. No phone identity or data is involved. Use the same project token secret. Run it manually from the Actions tab to take an initial snapshot.
-
-Create a Trends view of `github_downloads_snapshot`, using the maximum of the `total_downloads` property for each day. Compare consecutive daily snapshots for new downloads; compare snapshots seven days apart for weekly downloads. The first snapshot is a baseline, so history before it cannot be reconstructed. Counters can fall when a release asset is removed. These are download requests, not unique users or verified installs.
+Download totals stay on GitHub; no workflow copies them to PostHog. These counters measure download requests, not unique users or verified installs.
 
 ## Validation
 
-The Checks workflow builds, lints and runs the JVM suite on GitHub, including consent transitions, persistence failures, completed setup before consent, completion deduplication, queued requests after revocation, rejection before DNS, redirect rejection, payload filtering and missing configuration. It also checks the server-side download aggregation. Tests use a local mock server and never send events to PostHog. Android builds and tests run in GitHub CI.
+The Checks workflow builds, lints and runs the JVM suite on GitHub, including consent transitions, persistence failures, completed setup before consent, completion deduplication, queued requests after revocation, rejection before DNS, redirect rejection, payload filtering and missing configuration. Tests use a local mock server and never send events to PostHog. Android builds and tests run in GitHub CI.
 
 After CI passes, verify on a test device: finishing music setup shows the dedicated page with bottom Yes/No actions, and setup sends no PostHog traffic. No continues without telemetry; Yes records completion once after consent. Restarting before choosing resumes the analytics page. Turning sharing off cancels and blocks requests; relaunch remains off; turning it on again uses a new anonymous identifier without replaying old queued events or setup history. Confirm the Android version breakdown in PostHog with actual consenting traffic. No Android build or device check was run on the phone for this change.

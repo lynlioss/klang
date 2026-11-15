@@ -1,6 +1,6 @@
 name: Release
 
-# Manual, one-click release. Pick a bump and the workflow bumps the version,
+# Manual release after Checks passes. Pick a bump and the workflow bumps the version,
 # builds a signed APK, commits the bump to main, tags it and publishes the
 # release with klang.apk attached.
 on:
@@ -19,6 +19,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: release
@@ -26,11 +27,47 @@ concurrency:
 
 jobs:
   release:
+    # Free for this public repo. Blacksmith spending alerts do not cap charges.
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
+      - name: Require passing Checks for main
+        uses: actions/github-script@v7
+        with:
+          script: |
+            if (context.ref !== 'refs/heads/main') {
+              core.setFailed('Run Release from main.');
+              return;
+            }
+            const { data: main } = await github.rest.repos.getBranch({
+              ...context.repo,
+              branch: 'main',
+            });
+            if (main.commit.sha !== context.sha) {
+              core.setFailed('main has advanced. Wait for its Checks to pass, then run Release again.');
+              return;
+            }
+            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              ...context.repo,
+              workflow_id: 'checks.yml',
+              head_sha: context.sha,
+              per_page: 100,
+            });
+            const check = runs.find(run => run.head_sha === context.sha && (
+              (run.event === 'push' && run.head_branch === 'main') ||
+              run.event === 'workflow_dispatch'
+            ));
+            if (!check || check.status !== 'completed' || check.conclusion !== 'success') {
+              core.setFailed(`Checks must pass for main at ${context.sha} before releasing. ` +
+                'Wait for CI, or run Checks manually for this commit, then retry Release.');
+              return;
+            }
+            core.info(`Using passing Checks for ${context.sha}: ${check.html_url}`);
+
       - uses: actions/checkout@v4
         with:
-          ref: main
+          # Build the main commit whose Checks result was verified above.
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Check signing secrets
@@ -84,7 +121,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "code=$code" >> "$GITHUB_OUTPUT"
 
-      - name: Build, lint and test
+      - name: Build signed release APK
         env:
           KLANG_REQUIRE_RELEASE_SIGNING: 'true'
           KLANG_KEYSTORE_PASSWORD: ${{ secrets.KLANG_KEYSTORE_PASSWORD }}
@@ -92,9 +129,7 @@ jobs:
           KLANG_KEY_PASSWORD: ${{ secrets.KLANG_KEY_PASSWORD }}
           POSTHOG_PROJECT_TOKEN: ${{ secrets.POSTHOG_PROJECT_TOKEN }}
           POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
-        run: |
-          python3 scripts/test-import-packaging.py
-          ./gradlew assembleRelease lintDebug testDebugUnitTest --no-daemon
+        run: ./gradlew assembleRelease --no-daemon
 
       - name: Verify APK and rename
         env:
@@ -117,7 +152,13 @@ jobs:
       - name: Commit version bump
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          SOURCE_SHA: ${{ github.sha }}
         run: |
+          main_sha=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ "$main_sha" != "$SOURCE_SHA" ]; then
+            echo "::error::main changed during the build. Wait for Checks and run Release again."
+            exit 1
+          fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add app/build.gradle.kts
@@ -130,14 +171,19 @@ jobs:
           git tag -a "v$VERSION" -m "Klang $VERSION"
           git push origin "v$VERSION"
 
-      - uses: actions/upload-artifact@v4
+      - name: Run Checks for the release commit
+        # GITHUB_TOKEN pushes do not trigger push workflows. Dispatch using the
+        # immutable tag so Checks tests this commit even if main advances.
+        uses: actions/github-script@v7
+        env:
+          RELEASE_TAG: v${{ steps.version.outputs.version }}
         with:
-          name: klang-${{ steps.version.outputs.version }}
-          path: |
-            klang.apk
-            klang.apk.sha256
-            app/build/outputs/mapping/release/mapping.txt
-          if-no-files-found: error
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              ...context.repo,
+              workflow_id: 'checks.yml',
+              ref: process.env.RELEASE_TAG,
+            });
 
       - uses: softprops/action-gh-release@v2
         with:
@@ -146,6 +192,7 @@ jobs:
           files: |
             klang.apk
             klang.apk.sha256
+            app/build/outputs/mapping/release/mapping.txt
           fail_on_unmatched_files: true
           generate_release_notes: true
           body: |
