@@ -18,7 +18,7 @@ concurrency:
 jobs:
   android:
     # Free for this public repo. Blacksmith spending alerts do not cap charges.
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
