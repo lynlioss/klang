@@ -2,6 +2,7 @@ package app.lynli.klang.plugins
 
 import android.content.Context
 import android.util.AtomicFile
+import android.util.Log
 import app.lynli.klang.lyrics.DeclarativeLyricsProvider
 import app.lynli.klang.lyrics.LrclibProvider
 import app.lynli.klang.lyrics.LyricsProvider
@@ -12,17 +13,24 @@ import java.io.File
 /** The bundled plugin is a first-install default. Uninstalling it persists across app updates. */
 class PluginRegistry(context: Context) {
     private val file = AtomicFile(File(context.filesDir, "plugins/installed.json").also { it.parentFile?.mkdirs() })
-    private val bundled = context.assets.list("plugins").orEmpty().filter { it.endsWith(".json") }.sorted().map { name ->
-        context.assets.open("plugins/$name").bufferedReader().use { it.readText() }
-    }
+    private val loadErrors = mutableListOf<String>()
+    val loadError: String? get() = loadErrors.takeIf { it.isNotEmpty() }?.joinToString("\n")
     private var removed = emptySet<String>()
     @Volatile private var installed = emptyList<InstalledPlugin>()
     private var providerConfig: PluginConfiguration? = null
     private var providerEntries = emptyList<InstalledPlugin>()
     private var providers = emptyList<LyricsProvider>()
     init {
-        val saved = runCatching { JSONObject(file.openRead().bufferedReader().use { it.readText() }) }.getOrNull()
-        removed = saved?.optJSONArray("removed")?.let { a -> (0 until a.length()).map(a::getString).toSet() }.orEmpty()
+        // A plugin is optional. Report malformed manifests without preventing playback startup.
+        val bundled = context.assets.list("plugins").orEmpty().filter { it.endsWith(".json") }.sorted().mapNotNull { name ->
+            runCatching {
+                val source = context.assets.open("plugins/$name").bufferedReader().use { it.readText() }
+                source to PluginManifest.parse(source)
+            }.onFailure { recordLoadError(name, it) }.getOrNull()
+        }
+        val saved = runCatching { JSONObject(file.openRead().bufferedReader().use { it.readText() }) }
+            .onFailure { if (file.baseFile.exists() || File("${file.baseFile.path}.bak").exists()) recordLoadError("Saved plugins", it) }.getOrNull()
+        removed = saved?.optJSONArray("removed")?.let { a -> (0 until a.length()).mapNotNull { a.opt(it) as? String }.toSet() }.orEmpty()
         val external = saved?.optJSONArray("installed")?.let { a -> (0 until a.length()).mapNotNull { index ->
             runCatching {
                 val entry = a.getJSONObject(index)
@@ -31,14 +39,17 @@ class PluginRegistry(context: Context) {
                 val repository = GitHubPluginRepo.parse(entry.getString("repository"))
                 require(manifest.lyrics != null && manifest.repository == repository.url)
                 InstalledPlugin(manifest, repository, source, false)
-            }.getOrNull()
+            }.onFailure { recordLoadError("Installed plugin ${index + 1}", it) }.getOrNull()
         } }.orEmpty().distinctBy { it.manifest.id }
-        installed = external + bundled.mapNotNull { source ->
-            val manifest = PluginManifest.parse(source)
+        installed = external + bundled.mapNotNull { (source, manifest) ->
             if (manifest.id in removed || external.any { it.manifest.id == manifest.id }) null
             else InstalledPlugin(manifest, manifest.repository?.let(GitHubPluginRepo::parse), source, true)
         }
-        require(installed.distinctBy { it.manifest.id }.size == installed.size)
+        installed = installed.distinctBy { it.manifest.id }
+    }
+    private fun recordLoadError(name: String, error: Throwable) {
+        Log.e("KlangPlugins", "Couldn't load $name", error)
+        loadErrors += "Couldn't load $name. ${error.message ?: "Invalid plugin data."}"
     }
     val entries: List<InstalledPlugin> get() = installed
     val manifests: List<PluginManifest> get() = installed.map { it.manifest }

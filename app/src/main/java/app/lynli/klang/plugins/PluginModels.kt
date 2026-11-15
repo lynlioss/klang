@@ -114,12 +114,10 @@ data class PluginManifest(
                                 .also { require(it in 0..10_000) }), condition)
                 }
                 val settingIds = settings.map { it.id }.toSet()
-                val placeholders = Regex("\\{([^{}]+)}")
                 endpoints.forEach { endpoint ->
                     (endpoint.query.values + endpoint.headers.values).forEach { template ->
                         require(template.length <= 4096)
-                        placeholders.findAll(template).forEach { match ->
-                            val token = match.groupValues[1]
+                        PluginTemplates.tokens(template).forEach { token ->
                             require(token in setOf("title", "artist", "album", "durationSeconds", "durationMs") ||
                                 token.startsWith("settings.") && token.removePrefix("settings.") in settingIds) { "Unknown request placeholder: $token" }
                         }

@@ -5,6 +5,7 @@ import app.lynli.klang.plugins.LyricsEndpoint
 import app.lynli.klang.plugins.LyricsResponseMapping
 import app.lynli.klang.plugins.PluginConfiguration
 import app.lynli.klang.plugins.PluginManifest
+import app.lynli.klang.plugins.PluginTemplates
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -58,8 +59,8 @@ class DeclarativeLyricsProvider(private val manifest: PluginManifest, private va
         }
         best
     }
-    private fun render(template: String, query: LyricsQuery): String = Regex("\\{([^{}]+)}").replace(template) { match ->
-        when (val key = match.groupValues[1]) {
+    private fun render(template: String, query: LyricsQuery): String = PluginTemplates.render(template) { key ->
+        when (key) {
             "title" -> query.title
             "artist" -> query.artist
             "album" -> query.album.takeUnless { it == "Unknown album" }.orEmpty()

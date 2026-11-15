@@ -80,7 +80,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val pluginRegistry = PluginRegistry(application)
     private val pluginStore = PluginStore(application) { pluginRegistry.manifests }
     private val pluginDownload = PluginDownload()
-    private val mutablePluginCatalog = MutableStateFlow(PluginCatalog(installed = pluginRegistry.entries))
+    private val mutablePluginCatalog = MutableStateFlow(PluginCatalog(installed = pluginRegistry.entries, error = pluginRegistry.loadError))
     val pluginCatalog = mutablePluginCatalog.asStateFlow()
     val pluginManifests get() = mutablePluginCatalog.value.installed.map { it.manifest }
     private val mutablePlugins = MutableStateFlow(pluginStore.read())
@@ -135,7 +135,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             }.onFailure { message("Playback connection failed. Reopen Klang to try again.") }
         }, ContextCompat.getMainExecutor(application))
         refresh()
-        checkPluginUpdates()
+        checkPluginUpdates(clearError = false)
         viewModelScope.launch {
             try {
                 // A previous update's APK is no longer needed once this version runs.
@@ -294,9 +294,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             finally { mutablePluginCatalog.update { it.copy(busyId = null) } }
         }
     }
-    fun checkPluginUpdates() {
+    fun checkPluginUpdates(clearError: Boolean = true) {
         if (mutablePluginCatalog.value.checking) return
-        mutablePluginCatalog.update { it.copy(checking = true, error = null) }
+        mutablePluginCatalog.update { it.copy(checking = true, error = if (clearError) null else it.error) }
         viewModelScope.launch {
             var failures = 0
             try {

@@ -86,7 +86,7 @@ private fun PluginList(catalog: PluginCatalog, config: PluginConfiguration, mode
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 UtilityIconButton(back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to settings") }
                 Spacer(Modifier.weight(1f))
-                IconButton(model::checkPluginUpdates, enabled = !catalog.checking && catalog.busyId == null) {
+                IconButton({ model.checkPluginUpdates() }, enabled = !catalog.checking && catalog.busyId == null) {
                     if (catalog.checking) LoadingIndicator(Modifier.size(24.dp))
                     else Icon(Icons.Rounded.Refresh, "Check plugin updates")
                 }
