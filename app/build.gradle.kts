@@ -42,8 +42,8 @@ android {
         ndk { abiFilters += providers.gradleProperty("klang.abis").orElse("arm64-v8a").get().split(',') }
         // Single source of truth for the release: scripts/bump-version.py edits
         // these two lines, and the UI reads them through BuildConfig.
-        versionCode = 30
-        versionName = "1.0.7"
+        versionCode = 31
+        versionName = "1.0.8"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {
