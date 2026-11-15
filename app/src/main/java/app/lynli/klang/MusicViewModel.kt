@@ -46,6 +46,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -75,6 +76,7 @@ data class MusicState(
 
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = MusicRepository(application)
+    internal val musicImports = app.lynli.klang.importing.ImportController(application, viewModelScope)
     private val prefs = application.getSharedPreferences("klang", 0)
     private val playlistStore = PlaylistStore(application)
     private val pluginRegistry = PluginRegistry(application)
@@ -116,6 +118,19 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     init {
+        viewModelScope.launch {
+            var completedIds = emptySet<String>()
+            var importPlaylistIds = emptySet<String>()
+            musicImports.store.batches.collect { batches ->
+                val ids = batches.flatMap { it.entries }.mapNotNull { it.uri }.toSet()
+                val playlistIds = batches.mapNotNull { it.playlistId }.toSet()
+                if (ids != completedIds || playlistIds != importPlaylistIds) {
+                    completedIds = ids; importPlaylistIds = playlistIds
+                    mutableState.update { it.copy(playlists = playlistStore.read()) }
+                    refresh()
+                }
+            }
+        }
         viewModelScope.launch {
             combine(mutableState.map { state -> state.current?.let { track ->
                 LyricsQuery(track.title, track.artist, track.album, state.duration.takeIf { it > 0 } ?: track.durationMs)
@@ -346,7 +361,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun createPlaylist(name: String): String? {
         if (name.trim().isEmpty()) return null
         val playlist = playlistStore.create(name)
-        savePlaylists(mutableState.value.playlists + playlist)
+        updatePlaylists { it + playlist }
         return playlist.id
     }
     fun renamePlaylist(id: String, name: String) {
@@ -354,7 +369,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun deletePlaylist(id: String) {
         val cover = mutableState.value.playlists.find { it.id == id }?.coverFile
-        savePlaylists(mutableState.value.playlists.filterNot { it.id == id })
+        updatePlaylists { items -> items.filterNot { it.id == id } }
         viewModelScope.launch { PlaylistCovers.delete(getApplication(), cover) }
     }
     fun setPlaylistCover(id: String, uri: Uri) {
@@ -393,10 +408,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     private fun editPlaylist(id: String, edit: (SavedPlaylist) -> SavedPlaylist) {
-        savePlaylists(mutableState.value.playlists.map { if (it.id == id) edit(it) else it })
+        updatePlaylists { items -> items.map { if (it.id == id) edit(it) else it } }
     }
-    private fun savePlaylists(playlists: List<SavedPlaylist>) {
-        playlistStore.write(playlists)
+    private fun updatePlaylists(edit: (List<SavedPlaylist>) -> List<SavedPlaylist>) {
+        val playlists = playlistStore.update(edit)
         mutableState.update { it.copy(playlists = playlists) }
     }
     fun theme(value: String) { prefs.edit().putString("theme", value).apply(); mutableState.update { it.copy(theme = value) } }

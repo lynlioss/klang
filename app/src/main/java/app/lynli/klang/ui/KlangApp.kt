@@ -71,8 +71,19 @@ private val SlowSpatial = spring<Float>(dampingRatio = 0.8f, stiffness = 200f)
 private val Effects = spring<Float>(dampingRatio = 1f, stiffness = 800f)
 
 @Composable
-fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit, onImport: () -> Unit) {
+fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit, onImport: () -> Unit,
+    importRequest: Int = 0, incomingMusicLink: String? = null) {
     var destination by rememberSaveable { mutableIntStateOf(0) }
+    var addingMusic by rememberSaveable { mutableStateOf(false) }
+    var creatingImportPlaylist by rememberSaveable { mutableStateOf(false) }
+    val addMusic = { addingMusic = true }
+    LaunchedEffect(importRequest) {
+        if (importRequest > 0) {
+            incomingMusicLink?.let { model.musicImports.resolve(it) }
+            addingMusic = true
+        }
+    }
+
     var settings by rememberSaveable { mutableStateOf(false) }
     var plugins by rememberSaveable { mutableStateOf(false) }
     var settingsEq by rememberSaveable { mutableStateOf(false) }
@@ -120,6 +131,8 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
                     enter = expandVertically(spring(0.8f, 380f)) + fadeIn(Effects),
                     exit = shrinkVertically(spring(0.8f, 380f)) + fadeOut(Effects),
                 ) { UpdateBanner(state, model) }
+                MusicImportStatus(model.musicImports, addMusic,
+                    Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
                 Row(Modifier.weight(1f).fillMaxWidth()) {
                     if (wide) NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                         Spacer(Modifier.height(24.dp))
@@ -131,10 +144,10 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
                         Crossfade(destination, animationSpec = Effects, label = "Destination") { page ->
                             holder.SaveableStateProvider(page) {
                                 when (page) {
-                                    0 -> HomeScreen(state, model, collections, { settings = true }, onPermission, onImport,
+                                    0 -> HomeScreen(state, model, collections, { settings = true }, onPermission, addMusic,
                                         { destination = 2 }, { collectionId = it.id }, bottomSpace)
-                                    1 -> SearchScreen(state, model, onImport, bottomSpace)
-                                    else -> LibraryScreen(state, model, { settings = true }, onPermission, onImport,
+                                    1 -> SearchScreen(state, model, addMusic, bottomSpace)
+                                    else -> LibraryScreen(state, model, { settings = true }, onPermission, addMusic,
                                         { collectionId = it.id }, bottomSpace)
                                 }
                             }
@@ -194,6 +207,15 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
                     PlayerContent(state, model, { expanded = false },
                         onGoToArtist = { openTrackCollection(it, artist = true) },
                         onGoToAlbum = { openTrackCollection(it, artist = false) })
+                }
+            }
+            if (addingMusic) MusicImportSheet(model.musicImports, onImport,
+                dismiss = { addingMusic = false }, createPlaylist = { creatingImportPlaylist = true },
+                initialLink = incomingMusicLink)
+            if (creatingImportPlaylist) PlaylistCreateDialog({ creatingImportPlaylist = false }) { name, cover ->
+                model.createPlaylist(name)?.let { id ->
+                    cover?.let { model.setPlaylistCover(id, it) }
+                    creatingImportPlaylist = false; destination = 2; collectionId = "playlist:$id"
                 }
             }
             val snackbarBottom = if (settings || expanded || plugins || settingsEq || hiddenFiles || collectionId != null || wide) 16.dp
@@ -317,7 +339,6 @@ private fun SearchScreen(state: MusicState, model: MusicViewModel, import: () ->
 @Composable
 private fun LibraryScreen(state: MusicState, model: MusicViewModel, settings: () -> Unit, permission: () -> Unit, import: () -> Unit, openCollection: (MusicCollection) -> Unit, bottom: Dp) {
     var filter by rememberSaveable { mutableIntStateOf(0) }
-    var creatingPlaylist by rememberSaveable { mutableStateOf(false) }
     var sort by rememberSaveable { mutableIntStateOf(0) }
     var sortMenu by remember { mutableStateOf(false) }
     val tracks = remember(state.tracks, state.favorites, filter, sort) {
@@ -331,8 +352,7 @@ private fun LibraryScreen(state: MusicState, model: MusicViewModel, settings: ()
             Row(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(if (filter == 1) "${albumCollections(tracks).size} albums" else if (filter == 2) "${state.playlists.size + 2} playlists" else "${tracks.size} songs",
                     Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (filter == 2) FilledTonalIconButton({ creatingPlaylist = true }) { Icon(Icons.Rounded.Add, "Create playlist") }
-                else IconButton(import, enabled = !state.busy) { Icon(Icons.Rounded.Add, "Add music") }
+                FilledTonalIconButton(import) { Icon(Icons.Rounded.Add, "Add music or import playlist") }
                 IconButton(model::refresh) { Icon(Icons.Rounded.Refresh, "Refresh library") }
                 Box {
                     IconButton({ sortMenu = true }) { Icon(Icons.AutoMirrored.Rounded.Sort, "Sort library") }
@@ -376,14 +396,6 @@ private fun LibraryScreen(state: MusicState, model: MusicViewModel, settings: ()
             EmptyState("No albums", "Files with album metadata appear here.")
         }
     }
-    if (creatingPlaylist) PlaylistCreateDialog({ creatingPlaylist = false }) { name, cover ->
-        model.createPlaylist(name)?.let { id ->
-            cover?.let { model.setPlaylistCover(id, it) }
-            creatingPlaylist = false
-            openCollection(MusicCollection("playlist:$id", name.trim(), "", emptyList(), editableId = id))
-        }
-    }
-
 }
 
 @Composable

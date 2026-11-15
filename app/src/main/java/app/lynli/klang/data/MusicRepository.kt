@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import java.io.File
 import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -137,8 +138,38 @@ class MusicRepository(private val context: Context) {
         count
     }
 
+    /** Publishes a completely tagged file atomically; partial downloads never enter the library. */
+    suspend fun importDownload(file: File): Track = withContext(Dispatchers.IO) {
+        val retriever = MediaMetadataRetriever()
+        val track = try {
+            retriever.setDataSource(file.absolutePath)
+            val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0
+            require(duration > 0) { "The downloaded file isn't playable audio." }
+            val title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
+            val artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
+            require(!title.isNullOrBlank() && !artist.isNullOrBlank()) { "The downloaded file is missing its music tags." }
+            require(retriever.embeddedPicture?.isNotEmpty() == true) { "The downloaded file is missing embedded artwork. Retry the import." }
+            Track(Uri.fromFile(file), title, artist,
+                usable(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM), "Unknown album"), duration)
+        } finally { retriever.release() }
+        val mime = when (file.extension.lowercase()) {
+            "opus", "ogg" -> "audio/ogg"
+            "flac" -> "audio/flac"
+            "mp3" -> "audio/mpeg"
+            "m4a" -> "audio/mp4"
+            else -> error("Unsupported downloaded audio format: ${file.extension}")
+        }
+        val name = "${track.artist} - ${track.title}".map { char ->
+            if (char in "/\\:*?\"<>|" || char.isISOControl()) '_' else char
+        }.joinToString("").take(160) + ".${file.extension}"
+        val uri = writeMusic(name, track.title, track.artist, track.album, track.durationMs, mime) { output ->
+            file.inputStream().use { it.copyTo(output) }
+        }
+        track.copy(uri = uri, added = System.currentTimeMillis() / 1000)
+    }
+
     private fun writeMusic(name: String, title: String, artist: String, album: String, duration: Long,
-        mime: String = "audio/mpeg", copy: (java.io.OutputStream) -> Unit) {
+        mime: String = "audio/mpeg", copy: (java.io.OutputStream) -> Unit): Uri {
         val values = ContentValues().apply {
             put(MediaStore.Audio.Media.DISPLAY_NAME, name)
             put(MediaStore.Audio.Media.MIME_TYPE, mime)
@@ -152,6 +183,7 @@ class MusicRepository(private val context: Context) {
             requireNotNull(resolver.openOutputStream(dest)).use(copy)
             resolver.update(dest, ContentValues().apply { put(MediaStore.Audio.Media.IS_PENDING, 0) }, null, null)
         } catch (error: Exception) { resolver.delete(dest, null, null); throw error }
+        return dest
     }
 }
 

@@ -54,7 +54,13 @@ internal object PlaylistCodec {
 
 class PlaylistStore(context: Context) {
     private val prefs = context.getSharedPreferences("klang_playlists", Context.MODE_PRIVATE)
-    fun read(): List<SavedPlaylist> = PlaylistCodec.decode(prefs.getString("items", "[]") ?: "[]")
-    fun write(playlists: List<SavedPlaylist>) = prefs.edit().putString("items", PlaylistCodec.encode(playlists)).apply()
+    fun read(): List<SavedPlaylist> = synchronized(lock) { PlaylistCodec.decode(prefs.getString("items", "[]") ?: "[]") }
+    fun write(playlists: List<SavedPlaylist>) = synchronized(lock) {
+        prefs.edit().putString("items", PlaylistCodec.encode(playlists)).apply()
+    }
+    fun update(edit: (List<SavedPlaylist>) -> List<SavedPlaylist>): List<SavedPlaylist> = synchronized(lock) {
+        edit(read()).also { write(it) }
+    }
+    private companion object { val lock = Any() }
     fun create(name: String) = SavedPlaylist(UUID.randomUUID().toString(), name.trim())
 }

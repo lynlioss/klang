@@ -22,8 +22,30 @@ import app.lynli.klang.ui.KlangTheme
 import app.lynli.klang.ui.OnboardingScreen
 
 class MainActivity : ComponentActivity() {
+    private var importRequest by mutableIntStateOf(0)
+    private var incomingMusicLink by mutableStateOf<String?>(null)
+
+    private fun receiveImport(intent: Intent?) {
+        val shared = if (intent?.action == Intent.ACTION_SEND) intent.getStringExtra(Intent.EXTRA_TEXT) else null
+        val link = shared?.let { text ->
+            Regex("https?://[^\\s]+|spotify:(?:track|playlist):[A-Za-z0-9]+")
+                .find(text)?.value?.let { runCatching { app.lynli.klang.importing.ImportLink.parse(it).url }.getOrNull() }
+        }
+        if (link != null || intent?.getBooleanExtra("showMusicImports", false) == true) {
+            incomingMusicLink = link
+            importRequest++
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        receiveImport(intent)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        receiveImport(intent)
         enableEdgeToEdge()
         setContent {
             val model: MusicViewModel = viewModel()
@@ -55,7 +77,8 @@ class MainActivity : ComponentActivity() {
                 } }
                 val importFiles = { importer.launch(arrayOf("audio/*")) }
                 if (!state.onboardingComplete) OnboardingScreen(state, musicAccess, notificationAccess, importFiles, model::completeOnboarding)
-                else KlangApp(state, model, onPermission = musicAccess, onImport = importFiles)
+                else KlangApp(state, model, onPermission = musicAccess, onImport = importFiles,
+                    importRequest = importRequest, incomingMusicLink = incomingMusicLink)
             }
         }
     }

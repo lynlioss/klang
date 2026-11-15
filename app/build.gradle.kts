@@ -68,6 +68,8 @@ android {
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
         jniLibs.keepDebugSymbols += "**/*.so"
+        // yt-dlp's Python/QuickJS and FFmpeg launch from Android's native library directory.
+        jniLibs.useLegacyPackaging = true
     }
 }
 dependencies {
@@ -82,6 +84,9 @@ dependencies {
     implementation("androidx.palette:palette-ktx:1.0.0")
     implementation("com.materialkolor:material-kolor:4.1.1")
     implementation("org.yaml:snakeyaml:2.6")
+    implementation("androidx.work:work-runtime-ktx:2.11.0")
+    implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
+    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")
 }

@@ -20,6 +20,7 @@ A lightweight music player for Android, built with Material 3 Expressive.
 ## Features
 
 - Play local music with artwork and track details read from your files.
+- Import public Spotify and YouTube Music songs and playlists, with background progress, embedded artwork and original audio quality.
 - Create and manage playlists, and arrange the songs in any order.
 - Adjust the sound with a 10-band EQ, custom presets and separate speaker and Bluetooth settings.
 - Connect to other services through plugins.
@@ -32,6 +33,8 @@ A lightweight music player for Android, built with Material 3 Expressive.
 ## Get it
 
 Grab the latest build from the [releases page](https://github.com/lynlioss/klang/releases/latest).
+
+Read the [music import guide](docs/music-imports.md) for source support and quality details.
 
 To create a lyric provider, read the [plugin guide](docs/plugins.md). Plugins install from GitHub releases and can define their own settings and links.
 
