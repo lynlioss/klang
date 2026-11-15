@@ -28,7 +28,7 @@ sealed interface PluginSetting {
     data class Option(val value: String, val label: String)
 }
 
-/** API 1 runs bounded HTTPS requests and declarative response mappings, without executable code. */
+/** API 1 lyrics providers use bounded HTTPS requests and declarative response mappings. */
 data class LyricsEndpoint(val url: String, val query: Map<String, String>, val headers: Map<String, String>,
     val response: LyricsResponseMapping, val condition: String = "always")
 data class LyricsResponseMapping(val format: String, val records: String = "", val plain: String = "plainLyrics",
@@ -51,10 +51,9 @@ data class PluginManifest(
             require(source.length <= 262_144) { "Plugin manifest is too large" }
             val json = JSONObject(source)
             val api = json.optInt("apiVersion", 1)
-            require(api in 1..2) { "This plugin needs a different Klang plugin API" }
+            require(api == API_VERSION) { "This plugin needs a different Klang plugin API" }
             val typeKey = json.getString("type")
-            val supportedType = when (api) { 1 -> typeKey == "lyrics"; 2 -> typeKey == "musicImport"; else -> false }
-            require(supportedType) { "Unsupported plugin API and type" }
+            require(typeKey in setOf("lyrics", "musicImport")) { "Unsupported plugin type" }
             val id = json.getString("id")
             require(id.matches(Regex("[a-z][a-z0-9._-]{0,79}"))) { "Invalid plugin ID" }
             val version = json.getString("version")
@@ -146,7 +145,7 @@ data class PluginManifest(
                     require(it.schemes.all { scheme -> scheme.matches(Regex("[a-z][a-z0-9+.-]*")) })
                 }
             }
-            require(api != 2 || importer != null) { "Download plugins must define a service" }
+            require(typeKey != "musicImport" || importer != null) { "Download plugins must define a service" }
             return PluginManifest(id, json.getString("name").also { require(it.isNotBlank() && it.length <= 100) }, version,
                 PluginType.entries.first { it.key == json.getString("type") }, json.getString("author"),
                 json.getString("summary"), json.getString("description"), json.optString("privacy"),

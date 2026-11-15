@@ -18,7 +18,7 @@ import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 
-/** App-owned queue: check the device, invoke any API 2 provider, then publish a tagged file atomically. */
+/** App-owned queue: check the device, invoke any API 1 provider, then publish a tagged file atomically. */
 class MusicImportWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     private val store = ImportStore.get(context)
     private val repository = MusicRepository(context)

@@ -75,7 +75,7 @@ class PluginRegistry(private val context: Context) {
                 .openRawResource(resource).bufferedReader().use { it.readText() }
             val manifest = PluginManifest.parse(source)
             val spec = requireNotNull(manifest.musicImport)
-            require(manifest.apiVersion == 2 && manifest.type == PluginType.IMPORT && manifest.repository != null)
+            require(manifest.apiVersion == PluginManifest.API_VERSION && manifest.type == PluginType.IMPORT && manifest.repository != null)
             require(spec.packageName == service.packageName && spec.service == service.name)
             InstalledPlugin(manifest, manifest.repository?.let(GitHubPluginRepo::parse), source, false)
         }.getOrNull() }.filter { it.manifest.id !in removed }
@@ -121,7 +121,7 @@ class PluginRegistry(private val context: Context) {
     }
 }
 
-const val MUSIC_IMPORT_ACTION = "io.github.lynlioss.klang.MUSIC_IMPORT_V2"
+const val MUSIC_IMPORT_ACTION = "io.github.lynlioss.klang.MUSIC_IMPORT_V1"
 
 data class InstalledPlugin(val manifest: PluginManifest, val repository: GitHubPluginRepo?, val source: String, val bundled: Boolean)
 data class PluginCandidate(val manifest: PluginManifest, val repository: GitHubPluginRepo, val source: String, val releaseUrl: String,

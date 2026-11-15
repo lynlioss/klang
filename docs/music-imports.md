@@ -26,7 +26,7 @@ Duplicates stay blocked and show Download anyway / Skip. Without broad music
 access Android exposes only app-owned audio, so detecting every device duplicate
 requires Music & audio permission. Unknown metadata does not claim a duplicate.
 
-See [plugins.md](plugins.md) for API 2, and the plugin's
+See [plugins.md](plugins.md) for API 1, and the plugin's
 [research notes](https://github.com/lynlioss/music-import-klang/blob/main/RESEARCH.md)
 for source quality and Spotify matching evidence.
 
