@@ -22,7 +22,7 @@ val releaseSigningStore = signingSetting("storeFile", "KLANG_KEYSTORE_FILE")
 if (releaseSigningStore == null && System.getenv("KLANG_REQUIRE_RELEASE_SIGNING").toBoolean()) {
     throw GradleException(
         "Release signing is required but no keystore was configured. " +
-            "Set KLANG_KEYSTORE_FILE or create keystore.properties. See docs/RELEASING.md.",
+            "Set KLANG_KEYSTORE_FILE or create keystore.properties.",
     )
 }
 

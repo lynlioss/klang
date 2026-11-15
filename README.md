@@ -1,60 +1,49 @@
+![Klang mockup: lyrics, home and now playing](assets/banner.png)
+
 # Klang
 
-A native Android music player by **Lynli**, written in Kotlin with Jetpack Compose, Material 3 Expressive, and Media3. Android 16 or newer.
+<div align="center">
 
-## Try it
+[![Stars](https://shieldcn.dev/github/stars/lynlioss/klang.svg)](https://github.com/lynlioss/klang/stargazers)
+[![License](https://shieldcn.dev/github/license/lynlioss/klang.svg)](https://github.com/lynlioss/klang/blob/main/LICENSE)
+[![Version](https://shieldcn.dev/github/release/lynlioss/klang.svg)](https://github.com/lynlioss/klang/releases/latest)
+[![Downloads](https://shieldcn.dev/github/downloads/lynlioss/klang.svg)](https://github.com/lynlioss/klang/releases)
 
-Install `klang.apk` from the [latest release](https://github.com/lynlioss/klang/releases/latest). To test a local build without publishing, copy the APK into `artifacts/` and run `python3 scripts/serve-apk.py`; the server always serves the highest version there. A simple first-launch screen lets you allow access to local music and optional playback notifications, or choose individual audio files. Klang includes no bundled songs and does not install any music automatically.
+</div>
 
-Allow **Music & audio** access during onboarding to scan your device. You can also use **Add music** to choose audio documents; Klang copies them to Music/Klang, preserving their embedded tags and artwork. Music access can be changed later in Settings. The app does not ask for all-files access.
+A lightweight music player for Android, built with Material 3 Expressive.
 
-## In this version
+*Klang* is the German word for "sound" or "tone". It covers the note itself and the way it carries across a room.
 
-- Home with a compact My Mix collage, stretched display typography, albums and recently added music.
-- My Mix automatically includes all local songs, with a larger dedicated playlist page.
-- Saved playlists: create, rename, add/remove songs, reorder and delete in Library → Playlists. Songs can be added from their options menu.
-- Expressive album and playlist pages, a morphing play button, a squiggly animated seek bar, and full-page settings.
-- Functional LRCLIB lyrics plugin with a persistent toggle, manifest-defined overview, links and settings. The plugin API is manifest-defined, so further providers can ship without distributing executable code.
-- Local library, title/artist/album search, albums, sorting and persistent favorites.
-- MP3, M4A and other audio formats supported by Android/Media3.
-- Embedded artwork and metadata, with immediate memory-cache reuse and persistent, bounded disk thumbnails.
-- Animated playing indicators and spring feedback on favorite buttons.
-- A fixed Now playing layout with artwork gradient, large rounded transport buttons, a squiggly seek bar and icon actions for playlists/lyrics/Android output/EQ, plus an options menu for queue, properties, go to artist/album and the sleep timer. Enable LRCLIB in Settings → Plugins for synchronized lyrics, soft left-to-right word filling, bloom, tiny completion springs, line-tap seeking and offline caching. Songs with supplied word timestamps use word sync; other timed songs use line sync. Lyrics controls hide after three seconds of inactivity and return on touch. EQ is also accessible through Settings.
-- Ten-band service-owned EQ with built-in/custom presets, per-song and Bluetooth-route assignments, smooth changes, automatic headroom, and output trim.
-- Background/lock-screen playback, notification controls, audio focus and headphone-unplug pause.
-- Seeking, previous/next, shuffle, repeat, queue, play-next and queue removal.
-- Collection play buttons pause/resume only for the album or playlist that started the queue, preserving position. Shared songs do not activate other collections; playing those starts their own queue.
-- Active album/playlist rows show the animated playing waveform. Playback and favorite controls stay in the mini player and song menu.
-- Swipe the mini player left for the next song or right for the previous song. Swipes follow the queue's shuffle/repeat order and preserve whether playback is paused. Swipe a paused mini player down to dismiss playback and clear the queue; playing another song brings it back.
-- Queue/position restoration after reopening; playback resumes paused.
-- System theme by default, with light/dark overrides. Cover colors default on and apply only to Now playing and album pages. Home, Search, Library and Settings stay neutral; wallpaper colors remain optional. The mini player always follows the current cover.
-- Song properties from a long-press: a cover-themed Material sheet with a native drag handle, compact song header, segmented metadata rows, file location and playlist membership. Close and Done remain visible while details scroll; Hide from app is reversible in Settings → Library.
-- A minimal GitHub footer in Settings opens the lynlioss/klang repository.
-- In-app updates: on launch Klang asks GitHub for the latest release and, when it is newer, shows a thin banner above the content with a Download button. The button fills left to right as the APK downloads, then opens the system installer. Dismissing the banner leaves an Update button under Settings → About; a relaunch shows the banner again. The cached APK is deleted when the updated version first runs, so updates never accumulate. Klang only installs its own signed updates.
-- Radial sleep timer in the Now playing options menu; drag the ring for any length, with quick presets and a live countdown. Cancelled if the app process closes.
-- Adaptive navigation and a supporting player pane for wide windows.
+> Beta. Klang is unstable and in active development, so some features are not ready yet and things move around between releases.
 
-Additional providers/plugins are planned; LRCLIB is the first bundled provider. See [plugin API](docs/PLUGINS.md), [roadmap](docs/ROADMAP.md) and [design notes](docs/DESIGN.md).
+## Features
 
-## Build on this Ubuntu ARM64 phone
+- Play local music with artwork and track details read from your files.
+- Create and manage playlists, and arrange the songs in any order.
+- Adjust the sound with a 10-band EQ, custom presets and separate speaker and Bluetooth settings.
+- Connect to other services through plugins.
+- Follow synced lyrics, with word-by-word highlighting when available.
+- Browse your library and control playback through a Material 3 Expressive interface.
+- Klang is privacy friendly, with no hidden analytics.
 
-The installed toolchain is Java 17, Gradle 9.9.1, Android SDK platform 37.2/build-tools 37, and a static ARM64 aapt2 from lzhiyong/android-sdk-tools 35.0.2. Google supplies x86 Linux native build tools, so use the phone build helper:
+![Klang mockup: the equalizer and the song properties sheet](assets/banner2.png)
+
+## Get it
+
+Grab the latest build from the [releases page](https://github.com/lynlioss/klang/releases/latest).
+
+## Build it yourself
+
+You need JDK 17 and the Android SDK with platform 37.2 and build tools 37.
 
 ```sh
-./scripts/build-phone.sh assembleRelease
-./scripts/build-phone.sh lintDebug testDebugUnitTest
+git clone https://github.com/lynlioss/klang.git
+cd klang
+printf 'sdk.dir=/path/to/Android/sdk\n' > local.properties
+./gradlew assembleDebug
 ```
 
-The helper sets Java 17 and overrides aapt2 only on aarch64. On the phone it also sets `android.enableResourceOptimizations=false`: the ARM64 aapt2 build cannot perform AGP 9’s optional resource optimization. Resource shrinking alone does not disable that task. The helper verifies manifest/resources, ZIP integrity, the LRCLIB manifest, alignment and APK signatures after assembly. It does not modify Google's SDK binaries. The SDK and ARM64 tools live in the git-ignored `.android-tools/` folder, which `scripts/setup-phone.sh` creates; they are never committed. Resource packaging uses `.android-tools/arm64/build-tools/aapt2`; D8 and APK signing run in the JVM. Gradle has two workers, a 1.5GB heap and in-process Kotlin compilation to suit the phone. `JAVA_HOME` is not set globally; other projects can keep their own Java version.
+The APK lands in `app/build/outputs/apk/debug/app-debug.apk`. A release build runs `./gradlew assembleRelease` and is signed with the key named in `keystore.properties`, or with the debug key when no keystore is configured.
 
-The generated APK is `app/build/outputs/apk/release/app-release.apk`. The debug signing key is local at `~/.android/debug.keystore` and is excluded from Git. Keep it to install later debug builds over this one. Public releases use a separate, permanent keystore and a tag-driven GitHub workflow; see [releasing notes](docs/RELEASING.md).
-
-For another machine, install JDK 17 and Android SDK 37.2 with build-tools 37, put its SDK path in `local.properties`, then run `./gradlew assembleDebug`. A GitHub Actions build is included. The wrapper distribution has SHA-256 verification.
-
-`./scripts/setup-phone.sh` documents and reproduces the ARM64 prerequisites.
-
-## Validation
-
-See [validation notes](docs/VALIDATION.md) for the first APK's checks and the remaining on-device trial. There is no emulator/device automatically attached to this proot environment.
-
-Compile SDK: 37.2 (latest available platform). Minimum/target Android: Android 16, API 36. Android Gradle Plugin 9.5.1 uses built-in Kotlin 2.2.10. Compose Material 3 1.5.0-rc01 exposes the Expressive APIs.
+Klang is released under the GNU GPL v3. The licenses for the bundled fonts and icons are in `licenses/`.

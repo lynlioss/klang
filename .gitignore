@@ -12,3 +12,6 @@ artifacts/
 *.log
 .DS_Store
 __pycache__/
+# Local agent skill installs
+.agents/
+skills-lock.json

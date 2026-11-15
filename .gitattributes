@@ -3,5 +3,6 @@
 *.m4a binary
 *.mp3 binary
 *.jpg binary
+*.png binary
 *.ttf binary
 *.jar binary
