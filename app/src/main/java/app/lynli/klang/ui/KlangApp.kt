@@ -209,6 +209,7 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
                         onGoToAlbum = { openTrackCollection(it, artist = false) })
                 }
             }
+            AudioDeletionDialog(state, model)
             if (downloadingMusic) DownloadProgressSheet(model.musicImports) { downloadingMusic = false }
             if (addingMusic) MusicImportSheet(model.musicImports, onImport,
                 dismiss = { addingMusic = false }, createPlaylist = { creatingImportPlaylist = true },

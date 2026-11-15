@@ -292,7 +292,7 @@ internal fun CollectionScreen(collection: MusicCollection, state: MusicState, mo
                                 player, lifted)
                         }
                         else TrackRow(track, state, model, {
-                            if (state.current?.id == track.id) player()
+                            if (state.current?.id == track.id && state.isPlayingFrom(collection.id)) player()
                             else model.play(collection.tracks, collection.tracks.indexOf(track), sourceId = collection.id)
                         }, Modifier.animateItem())
                     }

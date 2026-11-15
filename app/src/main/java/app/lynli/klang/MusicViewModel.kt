@@ -21,11 +21,14 @@ import app.lynli.klang.data.TrackDetails
 import app.lynli.klang.data.PlaylistStore
 import app.lynli.klang.data.SavedPlaylist
 import app.lynli.klang.data.PlaylistCovers
+import app.lynli.klang.data.audioFileIds
 import app.lynli.klang.playback.PlaybackService
 import app.lynli.klang.playback.PLAYBACK_SOURCE_KEY
 import app.lynli.klang.playback.canResumeCollection
+import app.lynli.klang.playback.collectionPlaybackStart
 import app.lynli.klang.playback.dismissPausedPlayback
 import app.lynli.klang.playback.playbackSourceOrNull
+import app.lynli.klang.playback.removeDeletedAudio
 import app.lynli.klang.playback.skipPlaybackTrack
 import app.lynli.klang.playback.withPlaybackSource
 import app.lynli.klang.plugins.PluginRegistry
@@ -74,6 +77,9 @@ data class MusicState(
     fun isPlayingFrom(sourceId: String): Boolean = canResumeCollection(playbackSource, sourceId, current != null)
 }
 
+internal data class AudioDeletionState(val track: Track, val deleting: Boolean = false,
+    val confirmation: android.app.PendingIntent? = null)
+
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = MusicRepository(application)
     private val prefs = application.getSharedPreferences("klang", 0)
@@ -104,6 +110,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         dynamicColor = prefs.getBoolean("dynamicColor", false), theme = prefs.getString("theme", "system")!!,
         hiddenIds = prefs.getStringSet("hiddenTracks", emptySet()).orEmpty().toSet()))
     val state = mutableState.asStateFlow()
+    private val mutableAudioDeletion = MutableStateFlow<AudioDeletionState?>(null)
+    internal val audioDeletion = mutableAudioDeletion.asStateFlow()
+    private val deletedAudioIds = mutableSetOf<String>()
     private var controller: MediaController? = null
     private var refreshJob: Job? = null
     private var sleepJob: Job? = null
@@ -149,7 +158,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
         future.addListener({
             runCatching { future.get() }.onSuccess {
-                controller = it; it.addListener(listener); syncPlayer()
+                controller = it; it.addListener(listener)
+                deletedAudioIds.forEach { id -> it.removeDeletedAudio(id) }
+                syncPlayer()
             }.onFailure { message("Playback connection failed. Reopen Klang to try again.") }
         }, ContextCompat.getMainExecutor(application))
         refresh()
@@ -218,6 +229,57 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         refresh()
     }
     suspend fun details(track: Track): TrackDetails = repository.details(track)
+    internal fun requestAudioDeletion(track: Track) {
+        if (mutableAudioDeletion.value == null) mutableAudioDeletion.value = AudioDeletionState(track)
+    }
+    internal fun cancelAudioDeletion() { mutableAudioDeletion.value = null }
+    internal fun confirmAudioDeletion() {
+        val request = mutableAudioDeletion.value?.takeUnless { it.deleting } ?: return
+        mutableAudioDeletion.value = request.copy(deleting = true)
+        viewModelScope.launch {
+            try {
+                val confirmation = repository.deleteAudio(request.track)
+                if (confirmation == null) audioDeleted(request.track.id)
+                else mutableAudioDeletion.value = request.copy(deleting = true, confirmation = confirmation)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                audioDeletionFailed(error)
+            }
+        }
+    }
+    internal fun audioDeletionResult(trackId: String, deleted: Boolean) {
+        if (deleted) audioDeleted(trackId)
+        else {
+            if (mutableAudioDeletion.value?.track?.id == trackId) mutableAudioDeletion.value = null
+            message("Audio file kept")
+        }
+    }
+    internal fun audioDeletionFailed(error: Exception) {
+        mutableAudioDeletion.value = null
+        android.util.Log.e("KlangLibrary", "Audio deletion failed", error)
+        message("Couldn't delete the audio file. Try again.")
+    }
+    /** Called only after MediaStore deleted the file or the system returned deletion success. */
+    private fun audioDeleted(id: String) {
+        val ids = audioFileIds(id)
+        deletedAudioIds += ids
+        refreshJob?.cancel()
+        musicImports.store.forgetAudioFile(id)
+        val favorites = mutableState.value.favorites - ids
+        val hidden = mutableState.value.hiddenIds - ids
+        prefs.edit().putStringSet("favorites", favorites).putStringSet("hiddenTracks", hidden).apply()
+        val playlists = playlistStore.update { items -> items.map { it.copy(trackIds = it.trackIds.filterNot { trackId -> trackId in ids }) } }
+        controller?.removeDeletedAudio(id)
+        mutableAudioDeletion.value = null
+        mutableState.update { state -> state.copy(
+            tracks = state.tracks.filterNot { it.id in ids }, hiddenTracks = state.hiddenTracks.filterNot { it.id in ids },
+            favorites = favorites, hiddenIds = hidden, playlists = playlists,
+            current = state.current?.takeUnless { it.id in ids }, queue = state.queue.filterNot { it.id in ids }) }
+        if (mutableState.value.queue.isEmpty()) sleep(0)
+        syncPlayer()
+        refresh()
+        message("Audio file deleted")
+    }
     private fun hasNotificationPermission() = ContextCompat.checkSelfPermission(getApplication(),
         Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
     fun completePluginRecommendations() {
@@ -246,22 +308,25 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             mutableState.update { it.copy(busy = false) }; refresh()
         }
     }
-    fun play(tracks: List<Track>, index: Int = 0, shuffled: Boolean = false, sourceId: String? = null) {
+    fun play(tracks: List<Track>, index: Int? = null, shuffled: Boolean = false, sourceId: String? = null) {
         if (tracks.isEmpty()) return
         val player = controller ?: return message("Connecting to playback…")
         player.setPlaylistMetadata(MediaMetadata.Builder().setExtras(Bundle().apply {
             sourceId?.let { putString(PLAYBACK_SOURCE_KEY, it) }
         }).build())
-        player.setMediaItems(tracks.map { it.mediaItem().withPlaybackSource(sourceId) },
-            index.coerceIn(tracks.indices), 0)
-        player.shuffleModeEnabled = shuffled
+        val start = collectionPlaybackStart(tracks.size, index, sourceId, shuffled)
+        player.setMediaItems(tracks.map { it.mediaItem().withPlaybackSource(sourceId) }, start.index, 0)
+        player.shuffleModeEnabled = start.shuffle
         player.prepare(); player.play(); syncPlayer()
     }
     /** Resume/pause a matching collection without replacing the queue or resetting the position. */
     fun playOrToggle(tracks: List<Track>, sourceId: String) {
         val player = controller
         if (canResumeCollection(player?.playbackSourceOrNull(),
-                sourceId, player?.currentMediaItem != null)) togglePlay()
+                sourceId, player?.currentMediaItem != null)) {
+            if (sourceId == "mix" && player?.isPlaying == false) player.shuffleModeEnabled = true
+            togglePlay()
+        }
         else play(tracks, sourceId = sourceId)
     }
     fun togglePlay() {
@@ -489,10 +554,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 if (previous.playlists.any { it.id == id }) editPlaylist(id) { it.copy(lastPlayedAt = System.currentTimeMillis()) }
             }
         }
-        mutableState.update { it.copy(connected = true, playbackSource = player.playbackSourceOrNull(), current = player.currentMediaItem?.let(::track),
+        mutableState.update { it.copy(connected = true, playbackSource = player.playbackSourceOrNull(),
+            current = player.currentMediaItem?.takeUnless { item -> item.mediaId in deletedAudioIds }?.let(::track),
             playWhenReady = player.playWhenReady, hasPreviousTrack = player.hasPreviousMediaItem(), hasNextTrack = player.hasNextMediaItem(),
             queueIndex = player.currentMediaItemIndex, playing = player.isPlaying, position = player.currentPosition.coerceAtLeast(0),
-            duration = player.duration.coerceAtLeast(0), queue = (0 until player.mediaItemCount).map { i -> track(player.getMediaItemAt(i)) },
+            duration = player.duration.coerceAtLeast(0), queue = (0 until player.mediaItemCount).map { i -> player.getMediaItemAt(i) }
+                .filterNot { item -> item.mediaId in deletedAudioIds }.map(::track),
             shuffle = player.shuffleModeEnabled, repeat = player.repeatMode) }
     }
     private fun message(text: String) { mutableState.update { it.copy(message = text) } }

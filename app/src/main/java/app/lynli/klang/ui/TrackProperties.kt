@@ -58,7 +58,7 @@ internal fun TrackPropertiesSheet(track: Track, state: MusicState, model: MusicV
     var closing by remember(track.id) { mutableStateOf(false) }
     val latestDismiss by rememberUpdatedState(dismiss)
     val latestHide by rememberUpdatedState(hide)
-    fun close(hideSong: Boolean = false) {
+    fun close(hideSong: Boolean = false, deleteSong: Boolean = false) {
         if (closing) return
         closing = true
         scope.launch {
@@ -68,7 +68,10 @@ internal fun TrackPropertiesSheet(track: Track, state: MusicState, model: MusicV
                     if (hideSong) {
                         val action = latestHide
                         if (action != null) action() else { model.hide(track); latestDismiss() }
-                    } else latestDismiss()
+                    } else {
+                        latestDismiss()
+                        if (deleteSong) model.requestAudioDeletion(track)
+                    }
                 }
             } finally { closing = false }
         }
@@ -129,6 +132,14 @@ internal fun TrackPropertiesSheet(track: Track, state: MusicState, model: MusicV
                         horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
                         verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         val buttonHeight = ButtonDefaults.MediumContainerHeight
+                        TextButton(onClick = { close(deleteSong = true) }, enabled = !closing,
+                            modifier = Modifier.heightIn(min = buttonHeight),
+                            shapes = ButtonDefaults.shapesFor(buttonHeight),
+                            colors = ButtonDefaults.textButtonColors(contentColor = colors.error)) {
+                            Icon(Icons.Rounded.Delete, null, Modifier.size(ButtonDefaults.SmallIconSize))
+                            Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                            Text("Delete audio file")
+                        }
                         TextButton(onClick = { close(hideSong = true) }, enabled = !closing,
                             modifier = Modifier.heightIn(min = buttonHeight),
                             shapes = ButtonDefaults.shapesFor(buttonHeight)) {

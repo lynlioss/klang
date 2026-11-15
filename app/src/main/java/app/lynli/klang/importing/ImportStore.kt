@@ -9,6 +9,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import app.lynli.klang.data.PlaylistStore
+import app.lynli.klang.data.audioFileIds
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
@@ -131,6 +132,14 @@ internal class ImportStore private constructor(context: Context) {
         updateEntry(batchId, index) { if (it.phase == ImportPhase.FAILED)
             it.copy(phase = ImportPhase.QUEUED, progress = 0f, error = null) else it }
         schedule()
+    }
+
+    /** A later completion in the same batch must not add a deliberately deleted file back to a playlist. */
+    @Synchronized fun forgetAudioFile(uri: String) {
+        val ids = audioFileIds(uri)
+        publish(mutable.value.map { batch -> batch.copy(entries = batch.entries.map { entry ->
+            if (entry.uri in ids) entry.copy(uri = null, phase = ImportPhase.CANCELLED) else entry
+        }) }, true)
     }
 
     @Synchronized

@@ -13,6 +13,7 @@ import java.lang.reflect.Proxy
 class PlaybackControlsTest {
     private class Playback {
         var current: MediaItem? = MediaItem.Builder().setMediaId("current").build()
+        val items = mutableListOf(current!!)
         var playing = false
         var playWhenReady = false
         var hasPrevious = true
@@ -25,10 +26,18 @@ class PlaybackControlsTest {
                 "isPlaying" -> playing
                 "getPlayWhenReady" -> playWhenReady
                 "getCurrentPosition" -> 80_000L
+                "getMediaItemCount" -> items.size
+                "getMediaItemAt" -> items[args!![0] as Int]
                 "hasPreviousMediaItem" -> hasPrevious
                 "hasNextMediaItem" -> hasNext
                 "seekToPreviousMediaItem", "seekToNextMediaItem", "stop" -> { commands += method.name; null }
-                "clearMediaItems" -> { commands += method.name; current = null; null }
+                "clearMediaItems" -> { commands += method.name; items.clear(); current = null; null }
+                "removeMediaItem" -> {
+                    val index = args!![0] as Int
+                    commands += "remove:$index"
+                    items.removeAt(index)
+                    null
+                }
                 "setPlaylistMetadata" -> { commands += method.name; metadata = args!![0] as MediaMetadata; null }
                 else -> error("Unexpected playback command: ${method.name}")
             }
@@ -80,6 +89,34 @@ class PlaybackControlsTest {
         assertFalse(playback.player.dismissPausedPlayback("old"))
         playback.current = null
         assertFalse(playback.player.dismissPausedPlayback("current"))
+        assertTrue(playback.commands.isEmpty())
+    }
+
+    @Test fun deletingAudioRemovesEveryQueuedCopyWithoutStoppingOtherSongs() {
+        val playback = Playback().apply {
+            playing = true; playWhenReady = true
+            items.clear()
+            items += listOf("current", "deleted", "next", "deleted").map { MediaItem.Builder().setMediaId(it).build() }
+        }
+        assertTrue(playback.player.removeDeletedAudio("deleted"))
+        assertEquals(listOf("remove:3", "remove:1"), playback.commands)
+        assertEquals(listOf("current", "next"), playback.items.map { it.mediaId })
+        assertTrue(playback.playing)
+        assertTrue(playback.playWhenReady)
+    }
+
+    @Test fun deletingTheLastAudioClearsPlaybackAndItsSavedCollection() {
+        val playback = Playback()
+        assertTrue(playback.player.removeDeletedAudio("current"))
+        assertEquals(listOf("stop", "clearMediaItems", "setPlaylistMetadata"), playback.commands)
+        assertTrue(playback.items.isEmpty())
+        assertNull(playback.current)
+        assertEquals(MediaMetadata.EMPTY, playback.metadata)
+    }
+
+    @Test fun deletingAudioOutsideTheQueueLeavesPlaybackAlone() {
+        val playback = Playback()
+        assertFalse(playback.player.removeDeletedAudio("other"))
         assertTrue(playback.commands.isEmpty())
     }
 }

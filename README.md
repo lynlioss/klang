@@ -20,6 +20,7 @@ A lightweight music player for Android, built with Material 3 Expressive.
 ## Features
 
 - Play local music with artwork and track details read from your files.
+- My Mix shuffles your whole library automatically. Delete audio files from Properties with confirmation.
 - Import public Spotify and YouTube Music songs and playlists, with background progress, embedded artwork and original audio quality.
 - Create and manage playlists, and arrange the songs in any order.
 - Adjust the sound with a 10-band EQ, custom presets and separate speaker and Bluetooth settings.

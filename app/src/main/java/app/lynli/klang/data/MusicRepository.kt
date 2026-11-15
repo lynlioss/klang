@@ -60,6 +60,24 @@ class MusicRepository(private val context: Context) {
         result
     }
 
+    /** App-owned files delete directly. Other owners require Android's per-file consent. */
+    suspend fun deleteAudio(track: Track): android.app.PendingIntent? = withContext(Dispatchers.IO) {
+        require(track.uri.scheme == "content" && track.uri.authority == MediaStore.AUTHORITY) {
+            "This audio file isn't in the device media library."
+        }
+        try {
+            if (resolver.delete(track.uri, null, null) == 0) {
+                val exists = requireNotNull(resolver.query(track.uri, arrayOf(MediaStore.Audio.Media._ID), null, null, null)) {
+                    "Couldn't check the audio file."
+                }.use { it.moveToFirst() }
+                check(!exists) { "The audio file couldn't be deleted." }
+            }
+            null
+        } catch (_: SecurityException) {
+            MediaStore.createDeleteRequest(resolver, listOf(track.uri))
+        }
+    }
+
     /** Reads technical metadata for the properties sheet. Missing values stay null. */
     suspend fun details(track: Track): TrackDetails = withContext(Dispatchers.IO) {
         var displayName: String? = null
