@@ -2,6 +2,8 @@
 package app.lynli.klang.playback
 
 import android.content.Context
+import android.media.AudioManager
+import android.media.AudioRouting
 import android.media.MediaRouter2
 import android.media.MediaRoute2Info
 import android.media.RouteDiscoveryPreference
@@ -10,6 +12,11 @@ import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.ForwardingAudioSink
 import androidx.media3.exoplayer.audio.AudioOffloadSupport
+import androidx.media3.exoplayer.audio.AudioOutput
+import androidx.media3.exoplayer.audio.AudioOutputProvider
+import androidx.media3.exoplayer.audio.AudioTrackAudioOutputProvider
+import androidx.media3.exoplayer.audio.ForwardingAudioOutput
+import androidx.media3.exoplayer.audio.ForwardingAudioOutputProvider
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.TrackSelectionParameters
@@ -37,6 +44,9 @@ import org.json.JSONObject
 class PlaybackService : MediaSessionService() {
     private lateinit var eq: EqStore
     private lateinit var router: MediaRouter2
+    private lateinit var audioManager: AudioManager
+    private var audioTrack: android.media.AudioTrack? = null
+    private var destroyed = false
     private val routeCallback = object : MediaRouter2.ControllerCallback() {
         override fun onControllerUpdated(controller: MediaRouter2.RoutingController) { updateEqRoute() }
     }
@@ -53,11 +63,44 @@ class PlaybackService : MediaSessionService() {
         super.onCreate()
         eq = EqStore.get(this)
         router = MediaRouter2.getInstance(this)
+        audioManager = getSystemService(AudioManager::class.java)
         val processor = EqAudioProcessor(eq)
         val renderers = object : DefaultRenderersFactory(this) {
             override fun buildAudioSink(context: Context, enableFloatOutput: Boolean,
                 enableAudioOutputPlaybackParameters: Boolean): AudioSink {
-                val sink = DefaultAudioSink.Builder(context).setAudioProcessors(arrayOf(processor))
+                val provider = AudioTrackAudioOutputProvider.Builder(context).build()
+                val outputProvider = object : ForwardingAudioOutputProvider(provider) {
+                    override fun getAudioOutput(config: AudioOutputProvider.OutputConfig): AudioOutput {
+                        val output = provider.getAudioOutput(config)
+                        val track = output.audioTrack
+                        fun updateRouting() {
+                            if (destroyed || audioTrack !== track) return
+                            val devices = track.routedDevices.map { it.outputDevice() }
+                            PlaybackOutput.update(devices)
+                            updateEqRoute()
+                        }
+                        val routingListener = AudioRouting.OnRoutingChangedListener { updateRouting() }
+                        track.addOnRoutingChangedListener(routingListener, handler)
+                        handler.post { if (!destroyed) { audioTrack = track; updateRouting() } }
+                        return object : ForwardingAudioOutput(output) {
+                            override fun play() { super.play(); handler.post { updateRouting() } }
+                            override fun pause() { super.pause(); handler.post { updateRouting() } }
+                            override fun stop() { super.stop(); handler.post { updateRouting() } }
+                            override fun release() {
+                                track.removeOnRoutingChangedListener(routingListener)
+                                handler.post {
+                                    if (!destroyed && audioTrack === track) {
+                                        audioTrack = null
+                                        PlaybackOutput.update(emptyList())
+                                        updateEqRoute()
+                                    }
+                                }
+                                super.release()
+                            }
+                        }
+                    }
+                }
+                val sink = DefaultAudioSink.Builder(context).setAudioOutputProvider(outputProvider).setAudioProcessors(arrayOf(processor))
                     .setEnableFloatOutput(false).build()
                 return object : ForwardingAudioSink(sink) {
                     // Decode compressed audio even on HDMI/USB devices supporting passthrough.
@@ -93,11 +136,17 @@ class PlaybackService : MediaSessionService() {
         handler.postDelayed(save, 5000)
     }
     private fun updateEqRoute() {
-        val route = router.systemController.selectedRoutes.firstOrNull()
-        val bluetooth = route?.type in setOf(MediaRoute2Info.TYPE_BLUETOOTH_A2DP,
-            MediaRoute2Info.TYPE_BLE_HEADSET, MediaRoute2Info.TYPE_HEARING_AID)
+        val controller = router.systemController
+        val routes = (controller.selectedRoutes + controller.transferableRoutes + router.routes).distinctBy { it.id }
+        val devices = currentAudioOutputs(audioManager, PlaybackOutput.devices.value)
+        val selection = outputSelection(routes.map { it.outputRoute() }, controller.selectedRoutes.map { it.id }.toSet(), devices)
+        val route = routes.firstOrNull { it.id in selection.routeIds }
+        val device = devices.firstOrNull()
+        val bluetooth = device?.let { isBluetoothOutput(it.type) } ?: (route?.type in setOf(MediaRoute2Info.TYPE_BLUETOOTH_A2DP,
+            MediaRoute2Info.TYPE_BLE_HEADSET, MediaRoute2Info.TYPE_HEARING_AID))
         eq.runtime(EqRuntime(player.currentMediaItem?.mediaId,
-            if (bluetooth) route?.id else null, route?.name?.toString() ?: "This phone"))
+            if (bluetooth) route?.id ?: device?.let { "audio:${it.type}:${it.address.ifBlank { it.name }}" } else null,
+            route?.name?.toString() ?: device?.name ?: "This phone"))
     }
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = session
     private fun saveQueue() {
@@ -133,10 +182,13 @@ class PlaybackService : MediaSessionService() {
         }
     }
     override fun onDestroy() {
+        destroyed = true
         handler.removeCallbacks(save)
         router.unregisterControllerCallback(routeCallback)
         router.unregisterRouteCallback(discoveryCallback)
         saveQueue(); session?.release(); player.release()
+        audioTrack = null
+        PlaybackOutput.update(emptyList())
         super.onDestroy()
     }
 }

@@ -34,7 +34,11 @@ internal object ArtworkColors {
             .map { it or 0xFF000000.toInt() }.toIntArray()
         if (opaque.isEmpty()) return null
 
-        val colors = QuantizerCelebi.quantize(opaque, MAX_COLORS)
+        // Quantization can merge an accent into a flat background even with spare clusters.
+        // Keep exact populations when the image already fits within the color budget.
+        val populations = opaque.toList().groupingBy { it }.eachCount()
+        val colors = if (populations.size <= MAX_COLORS) populations
+            else QuantizerCelebi.quantize(opaque, MAX_COLORS)
         val dominant = colors.maxByOrNull { it.value }?.key ?: return null
         // Near-gray pixels must not outvote an accent or turn compression tint into a hue.
         val chromatic = colors.filterKeys(::hasColor)

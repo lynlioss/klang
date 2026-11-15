@@ -8,9 +8,17 @@ import androidx.core.content.ContextCompat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.media.MediaRouter2
 import android.media.MediaRoute2Info
 import android.media.RouteDiscoveryPreference
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -29,11 +37,17 @@ import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Speaker
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.lynli.klang.data.Track
+import app.lynli.klang.playback.PlaybackOutput
+import app.lynli.klang.playback.currentAudioOutputs
+import app.lynli.klang.playback.outputRoute
+import app.lynli.klang.playback.outputSelection
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 /** App-owned output picker inherits the same cover theme as the now-playing controls. */
@@ -41,6 +55,8 @@ import kotlinx.coroutines.launch
 internal fun OutputDevicesDialog(track: Track, dismiss: () -> Unit) {
     val context = LocalContext.current
     val router = remember { MediaRouter2.getInstance(context) }
+    val audioManager = remember { context.getSystemService(AudioManager::class.java) }
+    val observedDevices by PlaybackOutput.devices.collectAsState()
     var granted by remember { mutableStateOf(listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN).all {
         ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
     }) }
@@ -76,11 +92,36 @@ internal fun OutputDevicesDialog(track: Track, dismiss: () -> Unit) {
             router.unregisterTransferCallback(transferCallback)
         }
     }
-    val routes = remember(revision, granted) {
-        val controller = router.systemController
-        (controller.selectedRoutes + controller.transferableRoutes).distinctBy { it.id }
+    DisposableEffect(audioManager) {
+        val callback = object : AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(addedDevices: Array<AudioDeviceInfo>) { revision++ }
+            override fun onAudioDevicesRemoved(removedDevices: Array<AudioDeviceInfo>) { revision++ }
+        }
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) { revision++ }
+        }
+        audioManager.registerAudioDeviceCallback(callback, Handler(Looper.getMainLooper()))
+        val filter = IntentFilter().apply {
+            addAction("android.media.VOLUME_CHANGED_ACTION")
+            addAction("android.media.STREAM_DEVICES_CHANGED_ACTION")
+        }
+        ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_EXPORTED)
+        onDispose {
+            audioManager.unregisterAudioDeviceCallback(callback)
+            context.unregisterReceiver(receiver)
+        }
     }
-    val selectedIds = router.systemController.selectedRoutes.map { it.id }.toSet()
+    val controller = remember(revision, granted) {
+        router.controllers.lastOrNull { !it.isReleased && it.selectedRoutes.any { route -> !route.isSystemRoute } }
+            ?: router.systemController
+    }
+    val routes = remember(revision, granted, controller) {
+        (controller.selectedRoutes + controller.transferableRoutes + router.routes).distinctBy { it.id }
+    }
+    val selection = remember(revision, granted, controller, routes, observedDevices) {
+        outputSelection(routes.map { it.outputRoute() }, controller.selectedRoutes.map { it.id }.toSet(),
+            currentAudioOutputs(audioManager, observedDevices))
+    }
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     var closing by remember { mutableStateOf(false) }
@@ -120,7 +161,7 @@ internal fun OutputDevicesDialog(track: Track, dismiss: () -> Unit) {
                     }
                 }
                 items(routes, key = { it.id }) { route ->
-                    val selected = route.id in selectedIds
+                    val selected = route.id in selection.routeIds
                     val contentColor = if (selected) colors.onSecondaryContainer else colors.onSurface
                     val icon = when (route.type) {
                         MediaRoute2Info.TYPE_BUILTIN_SPEAKER -> Icons.Rounded.PhoneAndroid
@@ -148,11 +189,24 @@ internal fun OutputDevicesDialog(track: Track, dismiss: () -> Unit) {
                                 }
                             }))
                 }
+                items(selection.undiscovered, key = { "audio:${it.id}" }) { device ->
+                    ListItem(headlineContent = { Text(device.name) }, supportingContent = { Text("Current output") },
+                        leadingContent = { Icon(if (device.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER)
+                            Icons.Rounded.PhoneAndroid else Icons.Rounded.Headphones, null) },
+                        trailingContent = { Icon(Icons.Rounded.Check, null) },
+                        colors = ListItemDefaults.colors(containerColor = colors.secondaryContainer,
+                            headlineColor = colors.onSecondaryContainer, supportingColor = colors.onSecondaryContainer,
+                            leadingIconColor = colors.onSecondaryContainer, trailingIconColor = colors.onSecondaryContainer),
+                        modifier = Modifier.clip(MaterialTheme.shapes.medium))
+                }
                 error?.let { message -> item {
                     Text(message, Modifier.padding(vertical = 12.dp), color = colors.error,
                         style = MaterialTheme.typography.bodyMedium)
                 } }
             }
+            OutputVolumeSlider(audioManager, controller,
+                selection.routeIds.sorted() + selection.undiscovered.map { "audio:${it.id}" },
+                revision, !closing) { error = it }
             FlowRow(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 32.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -170,5 +224,41 @@ internal fun OutputDevicesDialog(track: Track, dismiss: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun OutputVolumeSlider(audioManager: AudioManager, controller: MediaRouter2.RoutingController,
+    outputIds: List<String>, revision: Int, enabled: Boolean, onError: (String) -> Unit) {
+    val local = controller.selectedRoutes.all { it.isSystemRoute }
+    val minimum = if (local) audioManager.getStreamMinVolume(AudioManager.STREAM_MUSIC) else 0
+    val maximum = if (local) audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) else controller.volumeMax
+    val adjustable = if (local) !audioManager.isVolumeFixed else controller.volumeHandling == MediaRoute2Info.PLAYBACK_VOLUME_VARIABLE
+    fun readVolume() = if (local) audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) else controller.volume
+    var volume by remember(controller.id, outputIds) { mutableFloatStateOf(readVolume().toFloat()) }
+    var dragging by remember(controller.id, outputIds) { mutableStateOf(false) }
+    LaunchedEffect(revision, controller.id, outputIds) { if (!dragging) volume = readVolume().toFloat() }
+    val colors = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Volume", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+            Text(if (adjustable) "${volume.roundToInt()} / $maximum" else "Fixed volume",
+                style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant)
+        }
+        Slider(value = volume.coerceIn(minimum.toFloat(), maximum.coerceAtLeast(minimum + 1).toFloat()),
+                onValueChange = { value ->
+                    dragging = true
+                    volume = value
+                    runCatching {
+                        val level = value.roundToInt().coerceIn(minimum, maximum)
+                        if (level != readVolume()) {
+                            if (local) audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, level, 0)
+                            else controller.setVolume(level)
+                        }
+                    }.onFailure { onError("Couldn't change the volume.") }
+                }, onValueChangeFinished = { dragging = false; volume = readVolume().toFloat() },
+                enabled = enabled && adjustable && maximum > minimum,
+                valueRange = minimum.toFloat()..maximum.coerceAtLeast(minimum + 1).toFloat(),
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Media volume" })
     }
 }

@@ -43,6 +43,7 @@ import app.lynli.klang.MusicViewModel
 import app.lynli.klang.R
 import app.lynli.klang.data.Track
 import app.lynli.klang.data.albumGroupingArtist
+import app.lynli.klang.data.mixArtwork
 import kotlinx.coroutines.launch
 
 internal data class MusicCollection(val id: String, val title: String, val subtitle: String,
@@ -147,7 +148,9 @@ private fun RecentPlaylistCard(playlist: MusicCollection, open: () -> Unit) {
 private fun MixHero(collection: MusicCollection, state: MusicState, model: MusicViewModel,
     compact: Boolean, open: (() -> Unit)? = null) {
     // Resample when opened or the library changes; playback recompositions keep the artwork steady.
-    val artwork = remember(collection.tracks, compact) { collection.tracks.shuffled().take(3) }
+    val artwork = remember(collection.tracks, compact) {
+        mixArtwork(collection.tracks) { it.album to albumGroupingArtist(it.albumArtist, it.artist) }
+    }
     val modifier = Modifier.fillMaxWidth().then(if (open != null) Modifier.clickable(role = Role.Button,
         onClickLabel = "Open My Mix", onClick = open) else Modifier)
     BoxWithConstraints(modifier) {
@@ -165,16 +168,18 @@ private fun MixHero(collection: MusicCollection, state: MusicState, model: Music
             }
             if (collection.tracks.isNotEmpty()) {
                 val first = artwork.first()
-                val second = artwork.getOrElse(1) { first }
-                val third = artwork.getOrElse(2) { first }
                 val artWidth = if (compact) availableWidth * (if (narrow) 0.41f else 0.46f) else availableWidth * 0.63f
                 Artwork(first, Modifier.align(if (compact) Alignment.CenterEnd else Alignment.BottomCenter)
                     .padding(end = if (compact) 8.dp else 0.dp, bottom = if (compact) 0.dp else 8.dp)
                     .width(artWidth).height(if (compact) 148.dp else 248.dp).rotate(20f).clip(RoundedCornerShape(50)), large = true)
-                Artwork(second, Modifier.align(Alignment.BottomStart).padding(start = if (compact) 16.dp else 0.dp,
-                    bottom = if (compact) 4.dp else 124.dp).size(if (compact) 52.dp else 84.dp).clip(CircleShape))
-                Artwork(third, Modifier.align(Alignment.BottomEnd).padding(end = if (compact) 12.dp else 0.dp,
-                    bottom = 2.dp).size(if (compact) 52.dp else 88.dp).clip(RoundedCornerShape(28.dp)))
+                artwork.getOrNull(1)?.let { second ->
+                    Artwork(second, Modifier.align(Alignment.BottomStart).padding(start = if (compact) 16.dp else 0.dp,
+                        bottom = if (compact) 4.dp else 124.dp).size(if (compact) 52.dp else 84.dp).clip(CircleShape))
+                }
+                artwork.getOrNull(2)?.let { third ->
+                    Artwork(third, Modifier.align(Alignment.BottomEnd).padding(end = if (compact) 12.dp else 0.dp,
+                        bottom = 2.dp).size(if (compact) 52.dp else 88.dp).clip(RoundedCornerShape(28.dp)))
+                }
             }
             Box(Modifier.align(if (compact) Alignment.BottomStart else Alignment.TopEnd)
                 .padding(start = if (compact) 88.dp else 0.dp, top = if (compact) 0.dp else 36.dp, bottom = if (compact) 4.dp else 0.dp)) {
@@ -187,7 +192,7 @@ private fun MixHero(collection: MusicCollection, state: MusicState, model: Music
 
 @Composable
 private fun AlbumCard(album: MusicCollection, click: () -> Unit) {
-    Column(Modifier.width(172.dp).clip(MaterialTheme.shapes.extraLarge).clickable(role = Role.Button,
+    Column(Modifier.width(172.dp).clickable(role = Role.Button,
         onClickLabel = "Open ${album.title}", onClick = click)) {
         Artwork(album.tracks.first(), Modifier.size(172.dp).clip(RoundedCornerShape(28.dp)), large = true)
         Text(album.title, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.titleMedium,
