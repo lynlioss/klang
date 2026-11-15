@@ -3,6 +3,8 @@ package app.lynli.klang.ui
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
+import android.net.Uri
 import android.media.MediaMetadataRetriever
 import android.util.LruCache
 import androidx.compose.foundation.Image
@@ -21,6 +23,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.palette.graphics.Palette
 import app.lynli.klang.data.Track
+import app.lynli.klang.data.PlaylistCovers
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -121,5 +124,43 @@ fun Artwork(track: Track?, modifier: Modifier = Modifier, description: String? =
     Box(modifier.background(MaterialTheme.colorScheme.tertiaryContainer), contentAlignment = Alignment.Center) {
         bitmap.value?.let { Image(it.asImageBitmap(), description, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
             ?: Icon(Icons.Rounded.MusicNote, description, tint = MaterialTheme.colorScheme.onTertiaryContainer)
+    }
+}
+
+@Composable
+internal fun PlaylistArtwork(coverFile: String?, track: Track?, modifier: Modifier = Modifier,
+    description: String? = null, large: Boolean = false) {
+    if (coverFile == null) {
+        Artwork(track, modifier, description, large)
+        return
+    }
+    val context = LocalContext.current
+    var bitmap by remember(coverFile, large) { mutableStateOf(PlaylistCovers.peek(coverFile, large)) }
+    LaunchedEffect(coverFile, large) { bitmap = PlaylistCovers.bitmap(context, coverFile, large) }
+    if (bitmap == null) Artwork(track, modifier, description, large)
+    else Box(modifier) {
+        Image(bitmap!!.asImageBitmap(), description, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+    }
+}
+
+@Composable
+internal fun PickedCover(uri: Uri, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    var bitmap by remember(uri) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(uri) {
+        bitmap = withContext(Dispatchers.IO) {
+            runCatching {
+                ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { decoder, info, _ ->
+                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    val ratio = minOf(1f, 256f / maxOf(info.size.width, info.size.height))
+                    decoder.setTargetSize((info.size.width * ratio).toInt().coerceAtLeast(1),
+                        (info.size.height * ratio).toInt().coerceAtLeast(1))
+                }
+            }.getOrNull()
+        }
+    }
+    Box(modifier.background(MaterialTheme.colorScheme.tertiaryContainer), contentAlignment = Alignment.Center) {
+        bitmap?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+            ?: Icon(Icons.Rounded.MusicNote, null, tint = MaterialTheme.colorScheme.onTertiaryContainer)
     }
 }

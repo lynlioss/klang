@@ -2,6 +2,9 @@
 package app.lynli.klang.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -24,6 +27,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -31,14 +37,17 @@ import androidx.compose.ui.text.style.TextGeometricTransform
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import app.lynli.klang.MusicState
 import app.lynli.klang.MusicViewModel
 import app.lynli.klang.R
 import app.lynli.klang.data.Track
+import kotlinx.coroutines.launch
 
 internal data class MusicCollection(val id: String, val title: String, val subtitle: String,
     val tracks: List<Track>, val favorites: Boolean = false, val mix: Boolean = false,
-    val album: Boolean = false, val artist: Boolean = false, val editableId: String? = null)
+    val album: Boolean = false, val artist: Boolean = false, val editableId: String? = null,
+    val coverFile: String? = null)
 
 // Use artist as well as album title: different artists can release identically named albums.
 internal fun albumCollections(tracks: List<Track>): List<MusicCollection> = tracks
@@ -67,7 +76,7 @@ internal fun musicCollections(state: MusicState): List<MusicCollection> {
     return listOf(MusicCollection("mix", "My Mix", "", state.tracks, mix = true),
         MusicCollection("favorites", "Favorites", "Saved songs", state.tracks.filter { it.id in state.favorites }, favorites = true)) +
         state.playlists.map { playlist -> MusicCollection("playlist:${playlist.id}", playlist.name, "",
-            playlist.trackIds.mapNotNull { tracks[it] }, editableId = playlist.id) } +
+            playlist.trackIds.mapNotNull { tracks[it] }, editableId = playlist.id, coverFile = playlist.coverFile) } +
         albumCollections(state.tracks) + artistCollections(state.tracks)
 }
 
@@ -77,6 +86,8 @@ internal fun HomeScreen(state: MusicState, model: MusicViewModel, collections: L
     library: () -> Unit, openCollection: (MusicCollection) -> Unit, bottom: Dp) {
     val albums = collections.filter { it.album }
     val mix = collections.first { it.mix }
+    val recentPlaylists = state.playlists.filter { it.lastPlayedAt > 0 }.sortedByDescending { it.lastPlayedAt }
+        .take(8).mapNotNull { playlist -> collections.find { it.editableId == playlist.id } }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 20.dp, bottom = bottom)) {
         item {
             Column(Modifier.padding(horizontal = 24.dp)) {
@@ -89,6 +100,14 @@ internal fun HomeScreen(state: MusicState, model: MusicViewModel, collections: L
                 MixHero(mix, state, model, compact = true) { openCollection(mix) }
                 if (state.loading || state.busy) LoadingRow(state)
                 if (!state.permission) { Spacer(Modifier.height(16.dp)); AccessCard(permission, import) }
+            }
+        }
+        if (recentPlaylists.isNotEmpty()) {
+            item { Box(Modifier.padding(horizontal = 24.dp)) { SectionHeading("Recently played playlists") } }
+            item {
+                LazyRow(contentPadding = PaddingValues(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    items(recentPlaylists, key = { it.id }) { playlist -> RecentPlaylistCard(playlist) { openCollection(playlist) } }
+                }
             }
         }
         if (albums.isNotEmpty()) {
@@ -106,6 +125,21 @@ internal fun HomeScreen(state: MusicState, model: MusicViewModel, collections: L
         }
         if (state.tracks.isEmpty() && !state.loading && !state.busy) item {
             Column(Modifier.padding(horizontal = 24.dp)) { EmptyLibrary(import) }
+        }
+    }
+}
+
+@Composable
+private fun RecentPlaylistCard(playlist: MusicCollection, open: () -> Unit) {
+    Surface(onClick = open, modifier = Modifier.width(172.dp), shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.padding(12.dp)) {
+            PlaylistArtwork(playlist.coverFile, playlist.tracks.firstOrNull(),
+                Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(16.dp)), large = true)
+            Text(playlist.title, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text("${playlist.tracks.size} songs", Modifier.padding(top = 4.dp),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -170,11 +204,29 @@ internal fun CollectionScreen(collection: MusicCollection, state: MusicState, mo
     var deleting by remember { mutableStateOf(false) }
     var adding by rememberSaveable(collection.id) { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    val reorder = remember(collection.id, listState) { PlaylistReorderState(listState, collection.tracks) }
+    SideEffect { reorder.sync(collection.tracks) }
+    val haptics = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+    val latestCollection by rememberUpdatedState(collection)
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) collection.editableId?.let { model.setPlaylistCover(it, uri) }
+    }
+    val chooseCover = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+    val orderedCollection = collection.copy(tracks = reorder.tracks)
+    if (collection.editableId != null) {
+        val density = LocalDensity.current
+        PlaylistDragAutoScroll(reorder, with(density) { 72.dp.toPx() }, with(density) { 640.dp.toPx() }, haptics)
+    }
     BackHandler(adding) { adding = false }
-    ContentTheme(state.coverColor && collection.album, collection.tracks.firstOrNull()) {
+    PlaylistContentTheme(state.coverColor && (collection.album || collection.editableId != null),
+        collection.coverFile, collection.tracks.firstOrNull()) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
             Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-                LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(start = 24.dp, end = 24.dp,
+                val dragModifier = if (collection.editableId != null) Modifier.playlistDrag(reorder, haptics,
+                    finish = { scope.launch { reorder.finish({ ids -> model.reorderPlaylist(collection.editableId, ids) }, haptics) } },
+                    cancel = { reorder.cancel(latestCollection.tracks) }) else Modifier
+                LazyColumn(Modifier.fillMaxSize().then(dragModifier), state = listState, contentPadding = PaddingValues(start = 24.dp, end = 24.dp,
                     bottom = if (state.current != null) 112.dp else 24.dp)) {
                     item(key = "collection-header") {
                         Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -182,16 +234,27 @@ internal fun CollectionScreen(collection: MusicCollection, state: MusicState, mo
                             Spacer(Modifier.weight(1f))
                             if (collection.editableId != null) Box {
                                 UtilityIconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Playlist options") }
-                                DropdownMenu(menu, { menu = false }) {
-                                    DropdownMenuItem({ Text("Add songs") }, onClick = { adding = true; menu = false })
-                                    DropdownMenuItem({ Text("Rename") }, onClick = { rename = true; menu = false })
-                                    DropdownMenuItem({ Text("Delete playlist") }, onClick = { deleting = true; menu = false })
+                                DropdownMenu(menu, { menu = false }, shape = RoundedCornerShape(20.dp),
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+                                    DropdownMenuItem({ Text("Add songs") }, onClick = { adding = true; menu = false },
+                                        leadingIcon = { Icon(painterResource(R.drawable.playlist_add), null) })
+                                    DropdownMenuItem({ Text(if (collection.coverFile == null) "Choose cover" else "Change cover") },
+                                        onClick = { menu = false; chooseCover() }, leadingIcon = { Icon(painterResource(R.drawable.photo), null) })
+                                    if (collection.coverFile != null) DropdownMenuItem({ Text("Remove custom cover") },
+                                        onClick = { model.removePlaylistCover(collection.editableId); menu = false },
+                                        leadingIcon = { Icon(Icons.Rounded.Close, null) })
+                                    DropdownMenuItem({ Text("Rename") }, onClick = { rename = true; menu = false },
+                                        leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+                                    HorizontalDivider(Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                                    DropdownMenuItem({ Text("Delete playlist") }, onClick = { deleting = true; menu = false },
+                                        leadingIcon = { Icon(Icons.Rounded.Delete, null) }, colors = MenuDefaults.itemColors(
+                                            textColor = MaterialTheme.colorScheme.error, leadingIconColor = MaterialTheme.colorScheme.error))
                                 }
                             }
                         }
                         if (collection.mix) MixHero(collection, state, model, compact = false)
                         else {
-                            CollectionArtwork(collection)
+                            CollectionArtwork(collection, if (collection.editableId != null) chooseCover else null)
                             Spacer(Modifier.height(24.dp))
                             Text(collection.title, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.ExtraBold)
                             if (collection.subtitle.isNotBlank()) Text(collection.subtitle, Modifier.padding(top = 8.dp),
@@ -203,7 +266,6 @@ internal fun CollectionScreen(collection: MusicCollection, state: MusicState, mo
                                 Text(time(collection.tracks.sumOf { it.durationMs }), style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            if (collection.editableId != null) TextButton({ adding = true }) { Text("Add songs") }
                             FilledTonalIconButton({ model.play(collection.tracks, shuffled = true, sourceId = collection.id) },
                                 enabled = state.connected && collection.tracks.isNotEmpty()) { Icon(Icons.Rounded.Shuffle, "Shuffle collection") }
                             if (!collection.mix) {
@@ -211,10 +273,29 @@ internal fun CollectionScreen(collection: MusicCollection, state: MusicState, mo
                                 ExpressivePlay(state.playing && state.isPlayingFrom(collection.id), { model.playOrToggle(collection.tracks, collection.id) }, 72.dp, state.connected && collection.tracks.isNotEmpty())
                             }
                         }
+                        if (collection.editableId != null) {
+                            FilledTonalButton({ adding = true }, Modifier.fillMaxWidth().heightIn(min = 56.dp),
+                                shape = RoundedCornerShape(16.dp)) {
+                                Icon(painterResource(R.drawable.playlist_add), null, Modifier.size(20.dp))
+                                Spacer(Modifier.width(8.dp)); Text("Add songs", fontWeight = FontWeight.Bold)
+                            }
+                            Row(Modifier.padding(top = 16.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(painterResource(R.drawable.drag_handle), null, Modifier.size(20.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Hold a song to reorder", style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
                     }
-                    items(collection.tracks, key = { it.id }) { track ->
-                        if (collection.editableId != null) PlaylistTrackRow(track, collection.tracks.indexOf(track), collection,
-                            state, model, Modifier.animateItem(), player)
+                    items(orderedCollection.tracks, key = { it.id }) { track ->
+                        if (collection.editableId != null) {
+                            val lifted = reorder.draggingId == track.id || reorder.settlingId == track.id
+                            PlaylistTrackRow(track, orderedCollection.tracks.indexOf(track), orderedCollection, state, model,
+                                Modifier.animateItem(placementSpec = if (lifted) null else spring(0.8f, 380f))
+                                    .zIndex(if (lifted) 1f else 0f).graphicsLayer { translationY = reorder.offset(track.id) },
+                                player, lifted)
+                        }
                         else TrackRow(track, state, model, {
                             if (state.current?.id == track.id) player()
                             else model.play(collection.tracks, collection.tracks.indexOf(track), sourceId = collection.id)
@@ -231,28 +312,39 @@ internal fun CollectionScreen(collection: MusicCollection, state: MusicState, mo
                 }
             }
         }
+        if (rename) PlaylistNameDialog("Rename playlist", collection.title, { rename = false }) {
+            model.renamePlaylist(collection.editableId!!, it); rename = false
+        }
+        if (deleting) AlertDialog(onDismissRequest = { deleting = false },
+            icon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) },
+            title = { Text("Delete playlist?", fontWeight = FontWeight.Bold) },
+            text = { Text("Delete ${collection.title}? Your audio files will stay on your phone.") },
+            confirmButton = { Button({ model.deletePlaylist(collection.editableId!!); deleting = false; back() },
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError)) { Text("Delete") } },
+            dismissButton = { TextButton({ deleting = false }) { Text("Cancel") } })
+        if (adding) PlaylistTrackPicker(collection, state, { songs ->
+            model.addToPlaylist(collection.editableId!!, songs); adding = false
+        }) { adding = false }
     }
-    if (rename) PlaylistNameDialog("Rename playlist", collection.title, { rename = false }) {
-        model.renamePlaylist(collection.editableId!!, it); rename = false
-    }
-    if (deleting) AlertDialog(onDismissRequest = { deleting = false }, title = { Text("Delete playlist?") },
-        text = { Text("Delete ${collection.title}? Your audio files will stay on your phone.") },
-        confirmButton = { TextButton({ model.deletePlaylist(collection.editableId!!); deleting = false; back() }) { Text("Delete") } },
-        dismissButton = { TextButton({ deleting = false }) { Text("Cancel") } })
-    if (adding) PlaylistTrackPicker(collection, state, { songs ->
-        model.addToPlaylist(collection.editableId!!, songs); adding = false
-    }) { adding = false }
 }
 
 @Composable
-private fun CollectionArtwork(collection: MusicCollection) {
+private fun CollectionArtwork(collection: MusicCollection, chooseCover: (() -> Unit)? = null) {
     BoxWithConstraints(Modifier.fillMaxWidth().height(252.dp), contentAlignment = Alignment.Center) {
         if (collection.favorites && collection.tracks.size > 1) {
             Artwork(collection.tracks.last(), Modifier.align(Alignment.TopStart).size(88.dp).clip(CircleShape))
             Artwork(collection.tracks.first(), Modifier.width(maxWidth * 0.62f).height(224.dp).rotate(14f).clip(RoundedCornerShape(50)), large = true)
             Artwork(collection.tracks[1], Modifier.align(Alignment.BottomEnd).size(92.dp).clip(RoundedCornerShape(28.dp)))
-        } else if (collection.tracks.isNotEmpty()) {
-            Artwork(collection.tracks.first(), Modifier.size(244.dp).clip(RoundedCornerShape(48.dp)), large = true)
+        } else if (collection.tracks.isNotEmpty() || collection.coverFile != null || chooseCover != null) {
+            Box(Modifier.size(244.dp)) {
+                PlaylistArtwork(collection.coverFile, collection.tracks.firstOrNull(), Modifier.fillMaxSize()
+                    .clip(RoundedCornerShape(48.dp)).then(if (chooseCover != null) Modifier.clickable(role = Role.Button,
+                        onClickLabel = "Change playlist cover", onClick = chooseCover) else Modifier), large = true)
+                if (chooseCover != null) FilledTonalIconButton(chooseCover, Modifier.align(Alignment.BottomEnd).padding(8.dp)) {
+                    Icon(painterResource(R.drawable.photo), "Change playlist cover")
+                }
+            }
         } else {
             Box(Modifier.size(224.dp).clip(RoundedCornerShape(48.dp)).background(MaterialTheme.colorScheme.tertiaryContainer),
                 contentAlignment = Alignment.Center) {

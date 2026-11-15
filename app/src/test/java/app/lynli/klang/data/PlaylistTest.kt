@@ -5,7 +5,8 @@ import org.junit.Test
 
 class PlaylistTest {
     @Test fun playlistsRoundTripNamesAndOrderedIds() {
-        val saved = listOf(SavedPlaylist("one", "静かな夜 🎧", listOf("content://audio/9", "content://audio/2")),
+        val saved = listOf(SavedPlaylist("one", "静かな夜 🎧", listOf("content://audio/9", "content://audio/2"),
+            coverFile = "1234-abcd.jpg", lastPlayedAt = 1_800_000_000_000L),
             SavedPlaylist("two", "Empty"))
         assertEquals(saved, PlaylistCodec.decode(PlaylistCodec.encode(saved)))
     }
@@ -21,5 +22,15 @@ class PlaylistTest {
     @Test fun invalidEntriesDoNotEraseOtherPlaylists() {
         assertEquals(listOf(SavedPlaylist("ok", "Fine", listOf("a"))),
             PlaylistCodec.decode("""[{"id":"ok","name":"Fine","tracks":["a","a"]},{"name":"bad"}]"""))
+    }
+    @Test fun dragReorderRetainsMissingSongsAndDoesNotAddUnknownIds() {
+        val playlist = SavedPlaylist("id", "Mix", listOf("a", "missing", "b", "hidden", "c"))
+        assertEquals(listOf("c", "missing", "a", "hidden", "b"),
+            playlist.reorder(listOf("c", "a", "b", "b", "unknown")).trackIds)
+        assertEquals(playlist, playlist.reorder(emptyList()))
+    }
+    @Test fun legacyPlaylistsLoadWithoutACoverOrPlaybackHistory() {
+        assertEquals(listOf(SavedPlaylist("old", "Old mix", listOf("a", "b"))),
+            PlaylistCodec.decode("""[{"id":"old","name":"Old mix","tracks":["a","b"]}]"""))
     }
 }

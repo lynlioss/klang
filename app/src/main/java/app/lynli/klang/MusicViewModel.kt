@@ -20,6 +20,7 @@ import app.lynli.klang.data.Track
 import app.lynli.klang.data.TrackDetails
 import app.lynli.klang.data.PlaylistStore
 import app.lynli.klang.data.SavedPlaylist
+import app.lynli.klang.data.PlaylistCovers
 import app.lynli.klang.playback.PlaybackService
 import app.lynli.klang.playback.PLAYBACK_SOURCE_KEY
 import app.lynli.klang.playback.canResumeCollection
@@ -266,9 +267,36 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun renamePlaylist(id: String, name: String) {
         if (name.trim().isNotEmpty()) editPlaylist(id) { it.copy(name = name.trim()) }
     }
-    fun deletePlaylist(id: String) { savePlaylists(mutableState.value.playlists.filterNot { it.id == id }) }
+    fun deletePlaylist(id: String) {
+        val cover = mutableState.value.playlists.find { it.id == id }?.coverFile
+        savePlaylists(mutableState.value.playlists.filterNot { it.id == id })
+        viewModelScope.launch { PlaylistCovers.delete(getApplication(), cover) }
+    }
+    fun setPlaylistCover(id: String, uri: Uri) {
+        viewModelScope.launch {
+            try {
+                val cover = PlaylistCovers.import(getApplication(), uri)
+                val playlist = mutableState.value.playlists.find { it.id == id }
+                if (playlist == null) PlaylistCovers.delete(getApplication(), cover)
+                else {
+                    editPlaylist(id) { it.copy(coverFile = cover) }
+                    PlaylistCovers.delete(getApplication(), playlist.coverFile)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                message("Couldn't use that image. Choose another photo.")
+            }
+        }
+    }
+    fun removePlaylistCover(id: String) {
+        val cover = mutableState.value.playlists.find { it.id == id }?.coverFile
+        editPlaylist(id) { it.copy(coverFile = null) }
+        viewModelScope.launch { PlaylistCovers.delete(getApplication(), cover) }
+    }
     fun addToPlaylist(id: String, tracks: List<Track>) { editPlaylist(id) { it.add(tracks.map(Track::id)) } }
     fun removeFromPlaylist(id: String, trackId: String) { editPlaylist(id) { it.remove(trackId) } }
+    fun reorderPlaylist(id: String, orderedIds: List<String>) { editPlaylist(id) { it.reorder(orderedIds) } }
     fun moveInPlaylist(id: String, trackId: String, offset: Int) {
         val available = mutableState.value.tracks.map { it.id }.toSet()
         editPlaylist(id) { playlist ->
@@ -314,6 +342,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             item.mediaMetadata.artist?.toString() ?: "Unknown artist", item.mediaMetadata.albumTitle?.toString() ?: "Unknown album", 0)
     private fun syncPlayer() {
         val player = controller ?: return
+        val previous = mutableState.value
+        val source = player.playbackSourceOrNull()
+        if (player.isPlaying && (!previous.playing || previous.playbackSource != source)) {
+            source?.takeIf { it.startsWith("playlist:") }?.removePrefix("playlist:")?.let { id ->
+                if (previous.playlists.any { it.id == id }) editPlaylist(id) { it.copy(lastPlayedAt = System.currentTimeMillis()) }
+            }
+        }
         mutableState.update { it.copy(connected = true, playbackSource = player.playbackSourceOrNull(), current = player.currentMediaItem?.let(::track),
             playWhenReady = player.playWhenReady, hasPreviousTrack = player.hasPreviousMediaItem(), hasNextTrack = player.hasNextMediaItem(),
             queueIndex = player.currentMediaItemIndex, playing = player.isPlaying, position = player.currentPosition.coerceAtLeast(0),

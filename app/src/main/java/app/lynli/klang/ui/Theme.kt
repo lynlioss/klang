@@ -14,6 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import app.lynli.klang.R
 import app.lynli.klang.data.Track
+import app.lynli.klang.data.PlaylistCovers
 import com.materialkolor.PaletteStyle
 import com.materialkolor.rememberDynamicColorScheme
 
@@ -58,10 +59,26 @@ fun KlangTheme(theme: String, dynamic: Boolean, content: @Composable () -> Unit)
     }
 }
 
-/** Cover colors are scoped to playback and album screens, never the app shell. */
+/** Cover colors are scoped to playback and collection screens, never the app shell. */
 @Composable
 internal fun ContentTheme(enabled: Boolean, track: Track?, content: @Composable () -> Unit) {
     if (enabled && track != null) CoverTheme(track, content) else content()
+}
+
+@Composable
+internal fun PlaylistContentTheme(enabled: Boolean, coverFile: String?, track: Track?, content: @Composable () -> Unit) {
+    if (!enabled || coverFile == null) {
+        ContentTheme(enabled, track, content)
+        return
+    }
+    val context = LocalContext.current
+    var seed by remember(coverFile) { mutableStateOf(PlaylistCovers.peekSeed(coverFile)) }
+    LaunchedEffect(coverFile, track?.id) {
+        seed = PlaylistCovers.seed(context, coverFile) ?: track?.let { ArtworkStore.seed(context, it) }
+    }
+    val target = rememberDynamicColorScheme(seedColor = Color(seed ?: 0xFF5075C8.toInt()),
+        isDark = LocalKlangDark.current, style = PaletteStyle.Vibrant)
+    MaterialTheme(colorScheme = animatedScheme(target), content = content)
 }
 
 @Composable

@@ -306,7 +306,7 @@ private fun LibraryScreen(state: MusicState, model: MusicViewModel, settings: ()
             Row(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(if (filter == 1) "${albumCollections(tracks).size} albums" else if (filter == 2) "${state.playlists.size + 2} playlists" else "${tracks.size} songs",
                     Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (filter == 2) IconButton({ creatingPlaylist = true }) { Icon(Icons.Rounded.Add, "Create playlist") }
+                if (filter == 2) FilledTonalIconButton({ creatingPlaylist = true }) { Icon(Icons.Rounded.Add, "Create playlist") }
                 else IconButton(import, enabled = !state.busy) { Icon(Icons.Rounded.Add, "Add music") }
                 IconButton(model::refresh) { Icon(Icons.Rounded.Refresh, "Refresh library") }
                 Box {
@@ -347,8 +347,9 @@ private fun LibraryScreen(state: MusicState, model: MusicViewModel, settings: ()
             EmptyState("No albums", "Files with album metadata appear here.")
         }
     }
-    if (creatingPlaylist) PlaylistNameDialog("Create playlist", "", { creatingPlaylist = false }) { name ->
+    if (creatingPlaylist) PlaylistCreateDialog({ creatingPlaylist = false }) { name, cover ->
         model.createPlaylist(name)?.let { id ->
+            cover?.let { model.setPlaylistCover(id, it) }
             creatingPlaylist = false
             openCollection(MusicCollection("playlist:$id", name.trim(), "", emptyList(), editableId = id))
         }
@@ -720,7 +721,7 @@ private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission:
                     model.theme(listOf("dark", "light", "system")[it])
                 }
                 Spacer(Modifier.height(16.dp))
-                SettingSwitch("Cover colors", "Use artwork colors in Now playing and albums", state.coverColor, model::coverColor)
+                SettingSwitch("Cover colors", "Use artwork colors in Now playing, albums and playlists", state.coverColor, model::coverColor)
                 SettingSwitch("Wallpaper colors", "Use your phone’s Material You palette", state.dynamicColor, model::dynamicColor)
                 SectionHeading("Library")
                 SettingsAction(Icons.Rounded.FolderOpen, "Add audio files", "Copy files into Music/Klang", import, !state.busy)
