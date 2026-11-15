@@ -19,7 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
@@ -74,78 +73,74 @@ internal fun TrackPropertiesSheet(track: Track, state: MusicState, model: MusicV
             } finally { closing = false }
         }
     }
-    // Use the host window's already available insets so the dialog's first inset dispatch
-    // cannot move the footer after the sheet has appeared.
-    val density = LocalDensity.current
-    val direction = LocalLayoutDirection.current
-    val hostInsets = WindowInsets.safeDrawing
-    val sheetInsets = WindowInsets(hostInsets.getLeft(density, direction), 0,
-        hostInsets.getRight(density, direction), hostInsets.getBottom(density))
     ContentTheme(state.coverColor, track) {
         val colors = MaterialTheme.colorScheme
         // Klang design choice: match the sleep timer's corners and handle spacing. Keep the theme
         // outside the modal so its container, handle, system insets and content share one surface.
         ModalBottomSheet(onDismissRequest = dismiss, sheetState = sheet,
-            // Klang layout choice: reserve most of the window for a fixed sheet viewport.
-            // Metadata can grow inside it without moving the footer or the swipe anchors.
-            modifier = Modifier.fillMaxHeight(0.9f).semantics { paneTitle = "Song details" },
+            // Let Material measure against the full window to keep its bottom and swipe
+            // anchors correct. Default insets protect the handle and navigation area.
+            modifier = Modifier.semantics { paneTitle = "Song details" },
             sheetGesturesEnabled = !closing,
-            contentWindowInsets = { sheetInsets },
             containerColor = colors.surfaceContainerLow,
             contentColor = colors.onSurface,
             shape = KlangSheetShape,
             dragHandle = { BottomSheetDefaults.DragHandle(Modifier.padding(top = 10.dp)) }) {
-            Column(Modifier.fillMaxWidth().weight(1f)) {
-                Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 16.dp, bottom = 20.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Artwork(track, Modifier.size(64.dp).clip(MaterialTheme.shapes.large), "${track.title} cover")
-                    Column(Modifier.weight(1f).padding(start = 16.dp, end = 8.dp)) {
-                        Text(track.title, Modifier.semantics { heading() },
-                            style = MaterialTheme.typography.titleLargeEmphasized,
-                            maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(track.artist, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodyMedium,
-                            color = colors.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(track.album, style = MaterialTheme.typography.bodySmall,
-                            color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    IconButton({ close() }, Modifier.align(Alignment.Top), enabled = !closing) {
-                        Icon(Icons.Rounded.Close, "Close song details")
-                    }
-                }
-                Column(Modifier.weight(1f).verticalScroll(rememberScrollState())
-                    .padding(start = 24.dp, end = 24.dp, bottom = 16.dp)) {
-                    PropertyList(track, details)
-                    Spacer(Modifier.height(16.dp))
-                    LocationTile(details?.location, readingDetails)
-                    Spacer(Modifier.height(16.dp))
-                    Text("In playlists", style = MaterialTheme.typography.labelLarge,
-                        color = colors.onSurfaceVariant)
-                    if (playlistNames.isEmpty()) {
-                        Text("Not in a playlist", Modifier.padding(top = 6.dp),
-                            style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
-                    } else {
-                        FlowRow(Modifier.fillMaxWidth().padding(top = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            playlistNames.forEach { PlaylistPill(it) }
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                // Cap only the content, after Material has accounted for its handle and insets.
+                // This leaves room above a long sheet without changing the window's anchors.
+                Column(Modifier.fillMaxWidth().heightIn(max = maxHeight * 0.9f)) {
+                    Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 16.dp, bottom = 20.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Artwork(track, Modifier.size(64.dp).clip(MaterialTheme.shapes.large), "${track.title} cover")
+                        Column(Modifier.weight(1f).padding(start = 16.dp, end = 8.dp)) {
+                            Text(track.title, Modifier.semantics { heading() },
+                                style = MaterialTheme.typography.titleLargeEmphasized,
+                                maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(track.artist, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodyMedium,
+                                color = colors.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(track.album, style = MaterialTheme.typography.bodySmall,
+                                color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        IconButton({ close() }, Modifier.align(Alignment.Top), enabled = !closing) {
+                            Icon(Icons.Rounded.Close, "Close song details")
                         }
                     }
-                }
-                FlowRow(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 24.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val buttonHeight = ButtonDefaults.MediumContainerHeight
-                    TextButton(onClick = { close(hideSong = true) }, enabled = !closing,
-                        modifier = Modifier.heightIn(min = buttonHeight),
-                        shapes = ButtonDefaults.shapesFor(buttonHeight)) {
-                        Icon(ImageVector.vectorResource(R.drawable.visibility_off), null, Modifier.size(ButtonDefaults.SmallIconSize))
-                        Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-                        Text("Hide from app")
+                    Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
+                        .padding(start = 24.dp, end = 24.dp, bottom = 16.dp)) {
+                        PropertyList(track, details)
+                        Spacer(Modifier.height(16.dp))
+                        LocationTile(details?.location, readingDetails)
+                        Spacer(Modifier.height(16.dp))
+                        Text("In playlists", style = MaterialTheme.typography.labelLarge,
+                            color = colors.onSurfaceVariant)
+                        if (playlistNames.isEmpty()) {
+                            Text("Not in a playlist", Modifier.padding(top = 6.dp),
+                                style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
+                        } else {
+                            FlowRow(Modifier.fillMaxWidth().padding(top = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                playlistNames.forEach { PlaylistPill(it) }
+                            }
+                        }
                     }
-                    Button(onClick = { close() }, enabled = !closing, modifier = Modifier.heightIn(min = buttonHeight),
-                        shapes = ButtonDefaults.shapesFor(buttonHeight),
-                        contentPadding = ButtonDefaults.contentPaddingFor(buttonHeight)) {
-                        Text("Done", style = ButtonDefaults.textStyleFor(buttonHeight))
+                    FlowRow(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 24.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val buttonHeight = ButtonDefaults.MediumContainerHeight
+                        TextButton(onClick = { close(hideSong = true) }, enabled = !closing,
+                            modifier = Modifier.heightIn(min = buttonHeight),
+                            shapes = ButtonDefaults.shapesFor(buttonHeight)) {
+                            Icon(ImageVector.vectorResource(R.drawable.visibility_off), null, Modifier.size(ButtonDefaults.SmallIconSize))
+                            Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                            Text("Hide from app")
+                        }
+                        Button(onClick = { close() }, enabled = !closing, modifier = Modifier.heightIn(min = buttonHeight),
+                            shapes = ButtonDefaults.shapesFor(buttonHeight),
+                            contentPadding = ButtonDefaults.contentPaddingFor(buttonHeight)) {
+                            Text("Done", style = ButtonDefaults.textStyleFor(buttonHeight))
+                        }
                     }
                 }
             }
@@ -162,8 +157,9 @@ private fun PropertyList(track: Track, details: TrackDetails?) {
         add(Triple(Icons.Rounded.MusicNote, "Format", details?.format ?: "—"))
         add(Triple(Icons.Rounded.GraphicEq, "Bitrate", details?.bitrateKbps
             ?.let { "${NumberFormat.getIntegerInstance().format(it)} kbps" } ?: "—"))
-        details?.sampleRateHz?.let { add(Triple(Icons.Rounded.OfflineBolt, "Sample rate", sampleRateText(it))) }
-        details?.sizeBytes?.let { add(Triple(Icons.Rounded.Download, "File size", formatSize(it))) }
+        // Reserve these rows while file details load so the sheet's height stays stable.
+        add(Triple(Icons.Rounded.OfflineBolt, "Sample rate", details?.sampleRateHz?.let(::sampleRateText) ?: "—"))
+        add(Triple(Icons.Rounded.Download, "File size", details?.sizeBytes?.let(::formatSize) ?: "—"))
     }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         // Klang design choice: stack values when scaled text would crowd the two text columns.
@@ -198,7 +194,8 @@ private fun LocationTile(location: String?, reading: Boolean) {
         leadingContent = { Icon(Icons.Rounded.FolderOpen, null, Modifier.size(20.dp)) },
         supportingContent = {
             Text(location ?: if (reading) "Reading file…" else "Unavailable",
-                style = MaterialTheme.typography.bodySmall)
+                style = MaterialTheme.typography.bodySmall, minLines = 2, maxLines = 2,
+                overflow = TextOverflow.Ellipsis)
         },
         colors = ListItemDefaults.segmentedColors(containerColor = colors.surfaceContainerHigh)) {
         Text("File location", style = MaterialTheme.typography.bodyMedium)

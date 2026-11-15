@@ -486,9 +486,8 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
         var props by remember { mutableStateOf(false) }
         var sleepSheet by remember { mutableStateOf(false) }
         var overflow by remember { mutableStateOf(false) }
-        val context = androidx.compose.ui.platform.LocalContext.current
         if (addPlaylist) AddToPlaylistDialog(track, state, model) { addPlaylist = false }
-        if (devices) OutputDevicesDialog { devices = false }
+        if (devices) OutputDevicesDialog(track) { devices = false }
         if (props) TrackPropertiesSheet(track, state, model) { props = false }
         if (sleepSheet) SleepTimerSheet(state, model) { sleepSheet = false }
         BackHandler(queue || equalizer || showingLyrics) { when { equalizer -> equalizer = false; showingLyrics -> showingLyrics = false; else -> queue = false } }
@@ -569,10 +568,9 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
                                 IconButton({ showingLyrics = true }, enabled = lyricsEnabled) {
                                     Icon(ImageVector.vectorResource(R.drawable.lyrics), if (lyricsEnabled) "Open lyrics" else "Enable a lyrics plugin in settings")
                                 }
-                                IconButton({
-                                    val router = android.media.MediaRouter2.getInstance(context)
-                                    if (!runCatching { router.showSystemOutputSwitcher() }.getOrDefault(false)) devices = true
-                                }) { Icon(ImageVector.vectorResource(R.drawable.audio_output), "Choose playback device") }
+                                IconButton({ devices = true }) {
+                                    Icon(ImageVector.vectorResource(R.drawable.audio_output), "Choose playback device")
+                                }
                                 IconButton({ equalizer = true }) { Icon(ImageVector.vectorResource(R.drawable.equalizer), "Equalizer") }
                             }
                         }

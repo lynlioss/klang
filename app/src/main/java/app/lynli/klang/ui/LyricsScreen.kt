@@ -122,6 +122,7 @@ internal fun LyricsScreen(state: MusicState, model: MusicViewModel, close: () ->
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(track.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        LyricsProviderLabel(lyrics, model)
                     }
                     FilledTonalIconButton(close) { Icon(Icons.Rounded.KeyboardArrowDown, "Back to now playing") }
                 }
@@ -163,29 +164,29 @@ internal fun LyricsScreen(state: MusicState, model: MusicViewModel, close: () ->
                         Icon(Icons.Rounded.SkipNext, "Next", Modifier.size(28.dp))
                     }
                 }
-                val document = (lyrics as? LyricsState.Ready)?.document
-                val provider = document?.let { doc -> model.pluginManifests.find { it.id == doc.providerId } }
-                // No sync labels: a word-timed document turns the provider name into a pill, so
-                // the pill itself is the "word for word" signal.
-                val wordSync = document?.hasWordTiming == true
-                val caption = when {
-                    document == null || document.instrumental -> ""
-                    !document.synchronized -> "Plain lyrics"
-                    else -> ""
-                }
-                if (wordSync && provider != null) {
-                    Surface(Modifier.align(Alignment.CenterHorizontally).padding(top = 12.dp, bottom = 8.dp),
-                        color = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        shape = RoundedCornerShape(50)) {
-                        Text(provider.name, Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
-                            style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                    }
-                } else Text(listOfNotNull(provider?.name, caption.takeIf { it.isNotBlank() }).joinToString(" · "),
-                    Modifier.align(Alignment.CenterHorizontally).padding(top = 12.dp, bottom = 8.dp),
-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+    }
+}
+
+@Composable
+private fun LyricsProviderLabel(lyrics: LyricsState, model: MusicViewModel) {
+    val document = (lyrics as? LyricsState.Ready)?.document ?: return
+    val provider = model.pluginManifests.find { it.id == document.providerId }
+    // Keep the word-timing pill beside the song information when controls are visible.
+    if (document.hasWordTiming && provider != null) {
+        Surface(Modifier.padding(top = 4.dp), color = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer, shape = RoundedCornerShape(50)) {
+            Text(provider.name, Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    } else {
+        val caption = if (!document.instrumental && !document.synchronized) "Plain lyrics" else null
+        val label = listOfNotNull(provider?.name, caption).joinToString(" · ")
+        if (label.isNotBlank()) Text(label, Modifier.padding(top = 4.dp),
+            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
