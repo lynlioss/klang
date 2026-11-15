@@ -18,6 +18,11 @@ It is indeterminate until progress is known, becomes determinate, then animates
 to a checkmark and clears after three seconds. Tapping opens the Downloads sheet.
 There are no history tabs or past-download screens. Unresolved warnings persist.
 
+Link previews allow five minutes in the provider, with a 30-second host grace period.
+Downloads allow 45 minutes in the host; recording matching allows five minutes.
+Provider metadata requests allow 90 seconds total and 60 seconds without a response.
+Cancellation still closes the request and stops its downloader process.
+
 The app checks all accessible device audio (including hidden tracks) before
 queuing and again before downloading and publishing. Title and artist are
 normalized; duration must be known and within the greater of three seconds or

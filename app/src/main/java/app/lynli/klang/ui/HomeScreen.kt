@@ -42,6 +42,7 @@ import app.lynli.klang.MusicState
 import app.lynli.klang.MusicViewModel
 import app.lynli.klang.R
 import app.lynli.klang.data.Track
+import app.lynli.klang.data.albumGroupingArtist
 import kotlinx.coroutines.launch
 
 internal data class MusicCollection(val id: String, val title: String, val subtitle: String,
@@ -49,10 +50,10 @@ internal data class MusicCollection(val id: String, val title: String, val subti
     val album: Boolean = false, val artist: Boolean = false, val editableId: String? = null,
     val coverFile: String? = null)
 
-// Use artist as well as album title: different artists can release identically named albums.
+// Album credits stay constant when individual tracks include guest artists.
 internal fun albumCollections(tracks: List<Track>): List<MusicCollection> = tracks
     .filter { it.album != "Unknown album" }
-    .groupBy { it.album to it.artist }
+    .groupBy { it.album to albumGroupingArtist(it.albumArtist, it.artist) }
     .map { (key, songs) -> MusicCollection("album:${key.first.length}:${key.first}${key.second}",
         key.first, key.second, songs, album = true) }
 
@@ -69,11 +70,11 @@ internal fun artistCollections(tracks: List<Track>): List<MusicCollection> = tra
     .mapNotNull { artistCollection(it, tracks) }
 
 internal fun albumCollection(track: Track, tracks: List<Track>): MusicCollection? = albumCollections(tracks)
-    .find { it.title == track.album && it.subtitle == track.artist }
+    .find { it.title == track.album && it.tracks.any { song -> song.id == track.id } }
 
 internal fun musicCollections(state: MusicState): List<MusicCollection> {
     val tracks = state.tracks.associateBy { it.id }
-    return listOf(MusicCollection("mix", "My Mix", "", state.tracks, mix = true),
+    return listOf(MusicCollection("mix", "My Mix", "collection of all your songs", state.tracks, mix = true),
         MusicCollection("favorites", "Favorites", "Saved songs", state.tracks.filter { it.id in state.favorites }, favorites = true)) +
         state.playlists.map { playlist -> MusicCollection("playlist:${playlist.id}", playlist.name, "",
             playlist.trackIds.mapNotNull { tracks[it] }, editableId = playlist.id, coverFile = playlist.coverFile) } +
@@ -145,6 +146,8 @@ private fun RecentPlaylistCard(playlist: MusicCollection, open: () -> Unit) {
 @Composable
 private fun MixHero(collection: MusicCollection, state: MusicState, model: MusicViewModel,
     compact: Boolean, open: (() -> Unit)? = null) {
+    // Resample when opened or the library changes; playback recompositions keep the artwork steady.
+    val artwork = remember(collection.tracks, compact) { collection.tracks.shuffled().take(3) }
     val modifier = Modifier.fillMaxWidth().then(if (open != null) Modifier.clickable(role = Role.Button,
         onClickLabel = "Open My Mix", onClick = open) else Modifier)
     BoxWithConstraints(modifier) {
@@ -156,14 +159,14 @@ private fun MixHero(collection: MusicCollection, state: MusicState, model: Music
             Column(Modifier.align(Alignment.TopStart).padding(top = 8.dp)) {
                 Text("My\nMix", style = display.copy(textGeometricTransform = TextGeometricTransform(scaleX = 1.12f)),
                     fontWeight = FontWeight.Black)
-                if (!compact) Text(collection.tracks.map { it.artist }.distinct().take(3).joinToString(", "),
+                if (!compact) Text(collection.subtitle,
                     Modifier.width(availableWidth * 0.65f).padding(top = 12.dp), maxLines = 2, overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (collection.tracks.isNotEmpty()) {
-                val first = collection.tracks.first()
-                val second = collection.tracks.getOrElse(1) { first }
-                val third = collection.tracks.getOrElse(2) { first }
+                val first = artwork.first()
+                val second = artwork.getOrElse(1) { first }
+                val third = artwork.getOrElse(2) { first }
                 val artWidth = if (compact) availableWidth * (if (narrow) 0.41f else 0.46f) else availableWidth * 0.63f
                 Artwork(first, Modifier.align(if (compact) Alignment.CenterEnd else Alignment.BottomCenter)
                     .padding(end = if (compact) 8.dp else 0.dp, bottom = if (compact) 0.dp else 8.dp)

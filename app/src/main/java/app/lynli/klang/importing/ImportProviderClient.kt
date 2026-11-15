@@ -88,7 +88,7 @@ internal object ImportProviderClient {
             cancellations[id] = ::cancel
             bound = context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
             require(bound) { "Install and enable the music download plugin in Settings → Plugins." }
-            withTimeout(if (command == RESOLVE) 120_000L else 20 * 60_000L) { result.await() }
+            withTimeout(if (command == RESOLVE) 330_000L else 45 * 60_000L) { result.await() }
         } finally {
             cancellations.remove(id)
             if (!result.isCompleted || result.isCancelled) cancel()

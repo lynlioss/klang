@@ -25,6 +25,7 @@ data class Track(
     val album: String,
     val durationMs: Long,
     val added: Long = 0,
+    val albumArtist: String = "",
 ) {
     val id: String get() = uri.toString()
     fun mediaItem(): MediaItem = MediaItem.Builder().setMediaId(id).setUri(uri)
@@ -42,7 +43,7 @@ class MusicRepository(private val context: Context) {
     suspend fun tracks(): List<Track> = withContext(Dispatchers.IO) {
         val projection = arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE,
             MediaStore.Audio.Media.ARTIST, MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.DURATION,
-            MediaStore.Audio.Media.DISPLAY_NAME, MediaStore.Audio.Media.DATE_ADDED)
+            MediaStore.Audio.Media.DISPLAY_NAME, MediaStore.Audio.Media.DATE_ADDED, MediaStore.Audio.Media.ALBUM_ARTIST)
         val result = mutableListOf<Track>()
         // Android also exposes app-owned MediaStore entries without broad library permission.
         resolver.query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, projection,
@@ -53,7 +54,7 @@ class MusicRepository(private val context: Context) {
                 val filename = cursor.getString(5).orEmpty().substringBeforeLast('.')
                 result += Track(uri, usable(cursor.getString(1), filename),
                     usable(cursor.getString(2), "Unknown artist"), usable(cursor.getString(3), "Unknown album"),
-                    cursor.getLong(4), cursor.getLong(6))
+                    cursor.getLong(4), cursor.getLong(6), usable(cursor.getString(7), ""))
             }
         }
         result
@@ -128,9 +129,10 @@ class MusicRepository(private val context: Context) {
                 Track(source, usable(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE), name.substringBeforeLast('.')),
                     usable(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST), "Unknown artist"),
                     usable(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM), "Unknown album"),
-                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0)
+                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0,
+                    albumArtist = usable(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST), ""))
             } finally { retriever.release() }
-            writeMusic(name, track.title, track.artist, track.album, track.durationMs, mime.ifBlank { "audio/mpeg" }) { output ->
+            writeMusic(name, track.title, track.artist, track.album, track.durationMs, mime.ifBlank { "audio/mpeg" }, track.albumArtist) { output ->
                 requireNotNull(resolver.openInputStream(source)) { "Could not open $name" }.use { it.copyTo(output) }
             }
             count++
@@ -150,7 +152,8 @@ class MusicRepository(private val context: Context) {
             require(!title.isNullOrBlank() && !artist.isNullOrBlank()) { "The downloaded file is missing its music tags." }
             require(retriever.embeddedPicture?.isNotEmpty() == true) { "The downloaded file is missing embedded artwork. Retry the import." }
             Track(Uri.fromFile(file), title, artist,
-                usable(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM), "Unknown album"), duration)
+                usable(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM), "Unknown album"), duration,
+                albumArtist = usable(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST), ""))
         } finally { retriever.release() }
         val mime = when (file.extension.lowercase()) {
             "opus", "ogg" -> "audio/ogg"
@@ -162,20 +165,21 @@ class MusicRepository(private val context: Context) {
         val name = "${track.artist} - ${track.title}".map { char ->
             if (char in "/\\:*?\"<>|" || char.isISOControl()) '_' else char
         }.joinToString("").take(160) + ".${file.extension}"
-        val uri = writeMusic(name, track.title, track.artist, track.album, track.durationMs, mime) { output ->
+        val uri = writeMusic(name, track.title, track.artist, track.album, track.durationMs, mime, track.albumArtist) { output ->
             file.inputStream().use { it.copyTo(output) }
         }
         track.copy(uri = uri, added = System.currentTimeMillis() / 1000)
     }
 
     private fun writeMusic(name: String, title: String, artist: String, album: String, duration: Long,
-        mime: String = "audio/mpeg", copy: (java.io.OutputStream) -> Unit): Uri {
+        mime: String = "audio/mpeg", albumArtist: String = "", copy: (java.io.OutputStream) -> Unit): Uri {
         val values = ContentValues().apply {
             put(MediaStore.Audio.Media.DISPLAY_NAME, name)
             put(MediaStore.Audio.Media.MIME_TYPE, mime)
             put(MediaStore.Audio.Media.RELATIVE_PATH, Environment.DIRECTORY_MUSIC + "/Klang/")
             put(MediaStore.Audio.Media.TITLE, title); put(MediaStore.Audio.Media.ARTIST, artist)
             put(MediaStore.Audio.Media.ALBUM, album); put(MediaStore.Audio.Media.DURATION, duration)
+            if (albumArtist.isNotBlank()) put(MediaStore.Audio.Media.ALBUM_ARTIST, albumArtist)
             put(MediaStore.Audio.Media.IS_MUSIC, 1); put(MediaStore.Audio.Media.IS_PENDING, 1)
         }
         val dest = requireNotNull(resolver.insert(collection, values)) { "Could not create music file" }
