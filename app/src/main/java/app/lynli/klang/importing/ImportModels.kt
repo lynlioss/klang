@@ -12,7 +12,9 @@ internal data class ImportLink(val url: String) {
         fun parse(input: String): ImportLink {
             val raw = input.trim()
             require(raw.length in 1..4096) { "Paste a music link." }
-            val uri = runCatching { URI(raw) }.getOrNull() ?: error("Paste a valid music link.")
+            val uri = try { URI(raw) } catch (error: java.net.URISyntaxException) {
+                throw IllegalArgumentException("Paste a valid music link.", error)
+            }
             require(uri.scheme != null && uri.userInfo == null && uri.scheme.lowercase() !in
                 setOf("file", "content", "intent", "javascript", "data")) { "Paste a music link." }
             if (uri.scheme.lowercase() in setOf("https", "http")) require(!uri.host.isNullOrBlank()) { "Paste a music link." }

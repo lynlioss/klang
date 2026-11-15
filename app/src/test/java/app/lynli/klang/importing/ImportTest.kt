@@ -17,7 +17,8 @@ class ImportTest {
     @Test fun acceptsAlbumAndCustomProviderLinksWithoutKnowingTheService() {
         assertEquals("https://music.example/album/abc", ImportLink.parse(" https://music.example/album/abc ").url)
         assertEquals("custom:ep:abc", ImportLink.parse("custom:ep:abc").url)
-        listOf("file:///etc/passwd", "content://music/1", "--exec touch anything", "https://user@music.example/a").forEach {
+        listOf("file:///etc/passwd", "content://music/1", "--exec touch anything", "https://user@music.example/a",
+            "https://music.example/%invalid", "https://music.example/song with spaces").forEach {
             assertThrows(IllegalArgumentException::class.java) { ImportLink.parse(it) }
         }
     }
