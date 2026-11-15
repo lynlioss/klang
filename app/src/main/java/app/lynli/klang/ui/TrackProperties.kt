@@ -34,7 +34,7 @@ import app.lynli.klang.data.TrackDetails
 import java.text.NumberFormat
 
 /**
- * One cover-themed Material surface, including the native drag handle. Metadata scrolls independently
+ * One Material surface that follows the cover color setting, including the native drag handle. Metadata scrolls independently
  * of the song header and dismissal actions when the window or font size leaves less room.
  */
 @Composable
@@ -51,7 +51,7 @@ internal fun TrackPropertiesSheet(track: Track, state: MusicState, model: MusicV
         state.playlists.filter { track.id in it.trackIds }.map { it.name }
     }
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    CoverTheme(track) {
+    ContentTheme(state.coverColor, track) {
         val colors = MaterialTheme.colorScheme
         // Klang design choice: match the sleep timer's corners and handle spacing. Keep the theme
         // outside the modal so its container, handle, system insets and content share one surface.
