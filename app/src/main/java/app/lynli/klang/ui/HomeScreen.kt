@@ -88,15 +88,12 @@ internal fun HomeScreen(state: MusicState, model: MusicViewModel, collections: L
     val mix = collections.first { it.mix }
     val recentPlaylists = state.playlists.filter { it.lastPlayedAt > 0 }.sortedByDescending { it.lastPlayedAt }
         .take(8).mapNotNull { playlist -> collections.find { it.editableId == playlist.id } }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 20.dp, bottom = bottom)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = bottom)) {
         item {
             Column(Modifier.padding(horizontal = 24.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Text("Klang", style = MaterialTheme.typography.displaySmall)
+                PageTitle("Klang", brand = true) {
                     UtilityIconButton(settings) { Icon(Icons.Rounded.Settings, "Settings") }
                 }
-                Spacer(Modifier.height(4.dp))
                 MixHero(mix, state, model, compact = true) { openCollection(mix) }
                 if (state.loading || state.busy) LoadingRow(state)
                 if (!state.permission) { Spacer(Modifier.height(16.dp)); AccessCard(permission, import) }

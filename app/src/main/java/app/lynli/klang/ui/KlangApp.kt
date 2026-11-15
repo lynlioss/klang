@@ -234,9 +234,14 @@ private fun UpdateBanner(state: MusicState, model: MusicViewModel) {
 }
 
 @Composable
-private fun PageTitle(title: String, trailing: @Composable RowScope.() -> Unit = {}) {
+internal fun PageTitle(title: String, brand: Boolean = false, trailing: @Composable RowScope.() -> Unit = {}) {
     Row(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, Modifier.weight(1f), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+        // Reserve the same title line even without an action, and align different font metrics
+        // to one baseline. Sp keeps the header consistent when the user scales their text.
+        Text(title, Modifier.weight(1f).paddingFromBaseline(top = 36.sp, bottom = 12.sp),
+            style = if (brand) MaterialTheme.typography.displaySmall else MaterialTheme.typography.headlineLarge,
+            fontWeight = if (brand) FontWeight.Black else FontWeight.Bold,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
         trailing()
     }
 }
