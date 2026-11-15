@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -44,6 +45,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -57,6 +59,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
 import app.lynli.klang.BuildConfig
+import app.lynli.klang.AppIcon
 import app.lynli.klang.MusicState
 import app.lynli.klang.MusicViewModel
 import app.lynli.klang.R
@@ -89,6 +92,7 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
         }
     }
     var settingsEq by rememberSaveable { mutableStateOf(false) }
+    var appIcon by rememberSaveable { mutableStateOf(false) }
     var hiddenFiles by rememberSaveable { mutableStateOf(false) }
     var collectionId by rememberSaveable { mutableStateOf<String?>(null) }
     val collections = remember(state.tracks, state.favorites, state.playlists) { musicCollections(state) }
@@ -107,7 +111,7 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
                 actionLabel = "View plugins", withDismissAction = true, duration = SnackbarDuration.Long)
             model.dismissPluginUpdateNotice()
             if (result == SnackbarResult.ActionPerformed) {
-                expanded = false; settingsEq = false; hiddenFiles = false; collectionId = null; plugins = true
+                expanded = false; settingsEq = false; hiddenFiles = false; collectionId = null; appIcon = false; plugins = true
             }
         }
     }
@@ -116,8 +120,9 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
         val target = if (artist) artistCollection(track.artist, state.tracks) else albumCollection(track, state.tracks)
         if (target != null) { expanded = false; settings = false; collectionId = target.id }
     }
-    BackHandler(expanded || settingsEq || plugins || settings || hiddenFiles || collectionId != null || destination != 0) {
-        when { expanded -> expanded = false; settingsEq -> settingsEq = false; plugins -> plugins = false; settings -> settings = false;
+    BackHandler(expanded || settingsEq || plugins || settings || appIcon || hiddenFiles || collectionId != null || destination != 0) {
+        when { expanded -> expanded = false; settingsEq -> settingsEq = false; plugins -> plugins = false;
+            appIcon -> appIcon = false; settings -> settings = false;
             hiddenFiles -> hiddenFiles = false; collectionId != null -> collectionId = null; else -> destination = 0 }
     }
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
@@ -179,7 +184,11 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
             }
             AnimatedVisibility(settings, enter = slideInHorizontally(spring(0.8f, 200f)) { it } + fadeIn(Effects),
                 exit = slideOutHorizontally(spring(0.8f, 200f)) { it } + fadeOut(Effects)) {
-                SettingsScreen(state, model, onPermission, onImport, { plugins = true }, { settingsEq = true }, { hiddenFiles = true }) { settings = false }
+                SettingsScreen(state, model, onPermission, onImport, { plugins = true }, { settingsEq = true }, { hiddenFiles = true }, { appIcon = true }) { settings = false }
+            }
+            AnimatedVisibility(appIcon, enter = slideInHorizontally(spring(0.8f, 200f)) { it } + fadeIn(Effects),
+                exit = slideOutHorizontally(spring(0.8f, 200f)) { it } + fadeOut(Effects)) {
+                AppIconScreen(state, model) { appIcon = false }
             }
             AnimatedVisibility(collectionId != null,
                 enter = slideInHorizontally(spring(0.8f, 200f)) { it } + fadeIn(Effects),
@@ -220,7 +229,7 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
                     creatingImportPlaylist = false; destination = 2; collectionId = "playlist:$id"
                 }
             }
-            val snackbarBottom = if (settings || expanded || plugins || settingsEq || hiddenFiles || collectionId != null || wide) 16.dp
+            val snackbarBottom = if (settings || expanded || plugins || settingsEq || appIcon || hiddenFiles || collectionId != null || wide) 16.dp
                 else if (dockHeightPx > 0) with(density) { dockHeightPx.toDp() } + 8.dp else bottomSpace
             SnackbarHost(snack, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().imePadding()
                 .padding(bottom = snackbarBottom)) { data ->
@@ -754,7 +763,7 @@ private fun QueuePage(state: MusicState, model: MusicViewModel, back: () -> Unit
 }
 
 @Composable
-private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission: () -> Unit, import: () -> Unit, plugins: () -> Unit, equalizer: () -> Unit, hidden: () -> Unit, back: () -> Unit) {
+private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission: () -> Unit, import: () -> Unit, plugins: () -> Unit, equalizer: () -> Unit, hidden: () -> Unit, appIcon: () -> Unit, back: () -> Unit) {
     val uriHandler = LocalUriHandler.current
     var githubLinkError by remember { mutableStateOf(false) }
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
@@ -771,6 +780,8 @@ private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission:
                 Spacer(Modifier.height(16.dp))
                 SettingSwitch("Cover colors", "Use artwork colors in Now playing, albums and playlists", state.coverColor, model::coverColor)
                 SettingSwitch("Wallpaper colors", "Use your phone’s Material You palette", state.dynamicColor, model::dynamicColor)
+                SectionHeading("Customisation")
+                SettingsIconAction(state.appIcon, "App icon", appIcon)
                 SectionHeading("Library")
                 SettingsAction(Icons.Rounded.FolderOpen, "Add audio files", "Copy files into Music/Klang", import, !state.busy)
                 SettingsAction(Icons.Rounded.LibraryMusic, "Music access", if (state.permission) "Allowed · manage in Android settings" else "Allow access to your phone’s music", permission)
@@ -812,6 +823,17 @@ private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission:
                 if (githubLinkError) Text("Couldn't open GitHub.", Modifier.padding(top = 8.dp),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
+        }
+    }
+}
+@Composable
+private fun SettingsIconAction(icon: AppIcon, title: String, click: () -> Unit) {
+    Surface(Modifier.fillMaxWidth().padding(bottom = 4.dp).clip(MaterialTheme.shapes.medium).clickable(onClick = click),
+        shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Image(painterResource(if (icon == AppIcon.Dark) R.drawable.app_icon_dark else R.drawable.app_icon_light),
+                null, Modifier.size(24.dp).clip(CircleShape))
+            Text(title, Modifier.padding(start = 16.dp), style = MaterialTheme.typography.titleMedium)
         }
     }
 }

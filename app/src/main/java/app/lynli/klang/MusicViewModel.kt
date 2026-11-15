@@ -69,6 +69,7 @@ data class MusicState(
     val favorites: Set<String> = emptySet(), val message: String? = null,
     val playlists: List<SavedPlaylist> = emptyList(),
     val coverColor: Boolean = true, val dynamicColor: Boolean = false, val theme: String = "system", val sleepMinutes: Int = 0,
+    val appIcon: AppIcon = AppIcon.Light,
     val sleepEndsAt: Long = 0, val sleepRemaining: Long = 0,
     val hiddenIds: Set<String> = emptySet(), val hiddenTracks: List<Track> = emptyList(),
     val onboardingComplete: Boolean = false, val recommendedPluginsSeen: Boolean = true, val notificationPermission: Boolean = false,
@@ -114,6 +115,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         playlists = runCatching { playlistStore.read() }.getOrDefault(emptyList()),
         coverColor = prefs.getBoolean("contentColors", true),
         dynamicColor = prefs.getBoolean("dynamicColor", false), theme = prefs.getString("theme", "system")!!,
+        appIcon = AppIcon.from(prefs.getString("appIcon", null)),
         hiddenIds = prefs.getStringSet("hiddenTracks", emptySet()).orEmpty().toSet()))
     val state = mutableState.asStateFlow()
     private val mutableAudioDeletion = MutableStateFlow<AudioDeletionState?>(null)
@@ -563,6 +565,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun theme(value: String) { prefs.edit().putString("theme", value).apply(); mutableState.update { it.copy(theme = value) } }
     fun coverColor(value: Boolean) { prefs.edit().putBoolean("contentColors", value).apply(); mutableState.update { it.copy(coverColor = value) } }
     fun dynamicColor(value: Boolean) { prefs.edit().putBoolean("dynamicColor", value).apply(); mutableState.update { it.copy(dynamicColor = value) } }
+    fun appIcon(icon: AppIcon) {
+        AppIconSwitcher.apply(getApplication(), icon)
+        prefs.edit().putString("appIcon", icon.storageValue).apply()
+        mutableState.update { it.copy(appIcon = icon) }
+    }
     fun sleep(minutes: Int) {
         sleepJob?.cancel()
         val duration = minutes.coerceIn(0, 600)
