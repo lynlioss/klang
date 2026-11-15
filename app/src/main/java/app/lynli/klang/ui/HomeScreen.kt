@@ -279,13 +279,7 @@ internal fun CollectionScreen(collection: MusicCollection, state: MusicState, mo
                                 Icon(painterResource(R.drawable.playlist_add), null, Modifier.size(20.dp))
                                 Spacer(Modifier.width(8.dp)); Text("Add songs", fontWeight = FontWeight.Bold)
                             }
-                            Row(Modifier.padding(top = 16.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(painterResource(R.drawable.drag_handle), null, Modifier.size(20.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Spacer(Modifier.width(8.dp))
-                                Text("Hold a song to reorder", style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
+                            Spacer(Modifier.height(12.dp))
                         }
                     }
                     items(orderedCollection.tracks, key = { it.id }) { track ->

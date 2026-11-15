@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
@@ -32,6 +33,8 @@ import app.lynli.klang.R
 import app.lynli.klang.data.Track
 import app.lynli.klang.data.TrackDetails
 import java.text.NumberFormat
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 /**
  * One Material surface that follows the cover color setting, including the native drag handle. Metadata scrolls independently
@@ -43,25 +46,56 @@ internal fun TrackPropertiesSheet(track: Track, state: MusicState, model: MusicV
     var details by remember(track.id) { mutableStateOf<TrackDetails?>(null) }
     var readingDetails by remember(track.id) { mutableStateOf(true) }
     LaunchedEffect(track.id) {
-        details = runCatching { model.details(track) }.getOrNull()
+        details = try { model.details(track) }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { null }
         readingDetails = false
     }
-    val hideTrack = hide ?: { model.hide(track); dismiss() }
     val playlistNames = remember(state.playlists, track.id) {
         state.playlists.filter { track.id in it.trackIds }.map { it.name }
     }
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    var closing by remember(track.id) { mutableStateOf(false) }
+    val latestDismiss by rememberUpdatedState(dismiss)
+    val latestHide by rememberUpdatedState(hide)
+    fun close(hideSong: Boolean = false) {
+        if (closing) return
+        closing = true
+        scope.launch {
+            try {
+                sheet.hide()
+                if (!sheet.isVisible) {
+                    if (hideSong) {
+                        val action = latestHide
+                        if (action != null) action() else { model.hide(track); latestDismiss() }
+                    } else latestDismiss()
+                }
+            } finally { closing = false }
+        }
+    }
+    // Use the host window's already available insets so the dialog's first inset dispatch
+    // cannot move the footer after the sheet has appeared.
+    val density = LocalDensity.current
+    val direction = LocalLayoutDirection.current
+    val hostInsets = WindowInsets.safeDrawing
+    val sheetInsets = WindowInsets(hostInsets.getLeft(density, direction), 0,
+        hostInsets.getRight(density, direction), hostInsets.getBottom(density))
     ContentTheme(state.coverColor, track) {
         val colors = MaterialTheme.colorScheme
         // Klang design choice: match the sleep timer's corners and handle spacing. Keep the theme
         // outside the modal so its container, handle, system insets and content share one surface.
         ModalBottomSheet(onDismissRequest = dismiss, sheetState = sheet,
-            modifier = Modifier.semantics { paneTitle = "Song details" },
+            // Klang layout choice: reserve most of the window for a fixed sheet viewport.
+            // Metadata can grow inside it without moving the footer or the swipe anchors.
+            modifier = Modifier.fillMaxHeight(0.9f).semantics { paneTitle = "Song details" },
+            sheetGesturesEnabled = !closing,
+            contentWindowInsets = { sheetInsets },
             containerColor = colors.surfaceContainerLow,
             contentColor = colors.onSurface,
             shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
             dragHandle = { BottomSheetDefaults.DragHandle(Modifier.padding(top = 10.dp)) }) {
-            Column(Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth().weight(1f)) {
                 Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 16.dp, bottom = 20.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     Artwork(track, Modifier.size(64.dp).clip(MaterialTheme.shapes.large), "${track.title} cover")
@@ -74,11 +108,11 @@ internal fun TrackPropertiesSheet(track: Track, state: MusicState, model: MusicV
                         Text(track.album, style = MaterialTheme.typography.bodySmall,
                             color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    IconButton(dismiss, Modifier.align(Alignment.Top)) {
+                    IconButton({ close() }, Modifier.align(Alignment.Top), enabled = !closing) {
                         Icon(Icons.Rounded.Close, "Close song details")
                     }
                 }
-                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState())
                     .padding(start = 24.dp, end = 24.dp, bottom = 16.dp)) {
                     PropertyList(track, details)
                     Spacer(Modifier.height(16.dp))
@@ -101,13 +135,14 @@ internal fun TrackPropertiesSheet(track: Track, state: MusicState, model: MusicV
                     horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
                     verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     val buttonHeight = ButtonDefaults.MediumContainerHeight
-                    TextButton(onClick = hideTrack, modifier = Modifier.heightIn(min = buttonHeight),
+                    TextButton(onClick = { close(hideSong = true) }, enabled = !closing,
+                        modifier = Modifier.heightIn(min = buttonHeight),
                         shapes = ButtonDefaults.shapesFor(buttonHeight)) {
                         Icon(ImageVector.vectorResource(R.drawable.visibility_off), null, Modifier.size(ButtonDefaults.SmallIconSize))
                         Spacer(Modifier.width(ButtonDefaults.IconSpacing))
                         Text("Hide from app")
                     }
-                    Button(onClick = dismiss, modifier = Modifier.heightIn(min = buttonHeight),
+                    Button(onClick = { close() }, enabled = !closing, modifier = Modifier.heightIn(min = buttonHeight),
                         shapes = ButtonDefaults.shapesFor(buttonHeight),
                         contentPadding = ButtonDefaults.contentPaddingFor(buttonHeight)) {
                         Text("Done", style = ButtonDefaults.textStyleFor(buttonHeight))
