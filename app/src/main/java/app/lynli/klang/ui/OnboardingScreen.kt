@@ -4,7 +4,6 @@ package app.lynli.klang.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.LibraryMusic
@@ -48,7 +47,7 @@ internal fun OnboardingScreen(state: MusicState, musicAccess: () -> Unit, notifi
 @Composable
 private fun PermissionCard(icon: ImageVector, title: String, description: String, granted: Boolean,
     action: String, request: () -> Unit) {
-    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth().padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Icon(icon, null, tint = MaterialTheme.colorScheme.primary)

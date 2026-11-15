@@ -109,7 +109,8 @@ internal fun EqualizerScreen(back: () -> Unit, songTitle: String?, songContext: 
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(presets, key = { it.id }) { preset ->
-                        FilterChip(curve.presetId == preset.id, { edit(preset.curve()) }, label = { Text(preset.name) })
+                        FilterChip(curve.presetId == preset.id, { edit(preset.curve()) }, label = { Text(preset.name) },
+                            shapes = klangFilterChipShapes())
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -118,7 +119,7 @@ internal fun EqualizerScreen(back: () -> Unit, songTitle: String?, songContext: 
                 }
             }
             item {
-                Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.fillMaxWidth().padding(16.dp)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text("Tone", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -164,7 +165,7 @@ internal fun EqualizerScreen(back: () -> Unit, songTitle: String?, songContext: 
                     Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(12.dp))
-                Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                         if (songContext) AssignmentRow("This song", songTitle ?: "Play a song to save its sound", songAssigned, route.songId != null) { checked ->
                             route.songId?.let { id -> store.update {
@@ -189,7 +190,7 @@ internal fun EqualizerScreen(back: () -> Unit, songTitle: String?, songContext: 
                 }
             }
             item {
-                Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.padding(20.dp)) {
                         Text("Output trim", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Text("Automatic headroom protects boosted frequencies. Lower the output further if your headphones need it.",
@@ -215,17 +216,19 @@ internal fun EqualizerScreen(back: () -> Unit, songTitle: String?, songContext: 
         store.update { it.copy(presets = it.presets + preset) }
         edit(preset.curve()); save = false
     }
-    if (manage) AlertDialog(onDismissRequest = { manage = false }, title = { Text("Your presets") }, text = {
-        LazyColumn(Modifier.heightIn(max = 360.dp)) {
+    if (manage) AlertDialog(onDismissRequest = { manage = false }, shape = MaterialTheme.shapes.extraLarge, title = { Text("Your presets") }, text = {
+        LazyColumn(Modifier.heightIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             items(settings.presets, key = { it.id }) { preset ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(preset.name, Modifier.weight(1f))
-                    IconButton({ store.update { value ->
-                        fun unlabel(curve: EqCurve) = if (curve.presetId == preset.id) curve.copy(presetId = null) else curve
-                        value.copy(presets = value.presets.filterNot { it.id == preset.id }, defaultCurve = unlabel(value.defaultCurve),
-                            songCurves = value.songCurves.mapValues { unlabel(it.value) },
-                            deviceCurves = value.deviceCurves.mapValues { unlabel(it.value) })
-                    } }) { Icon(Icons.Rounded.Delete, "Delete ${preset.name}") }
+                Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer) {
+                    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(preset.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                        IconButton({ store.update { value ->
+                            fun unlabel(curve: EqCurve) = if (curve.presetId == preset.id) curve.copy(presetId = null) else curve
+                            value.copy(presets = value.presets.filterNot { it.id == preset.id }, defaultCurve = unlabel(value.defaultCurve),
+                                songCurves = value.songCurves.mapValues { unlabel(it.value) },
+                                deviceCurves = value.deviceCurves.mapValues { unlabel(it.value) })
+                        } }) { Icon(Icons.Rounded.Delete, "Delete ${preset.name}") }
+                    }
                 }
             }
         }
@@ -271,8 +274,8 @@ private fun EqCurvePreview(curve: EqCurve, modifier: Modifier) {
 @Composable
 private fun PresetNameDialog(dismiss: () -> Unit, save: (String) -> Unit) {
     var name by rememberSaveable { mutableStateOf("") }
-    AlertDialog(onDismissRequest = dismiss, title = { Text("Save preset") }, text = {
-        OutlinedTextField(name, { name = it.take(60) }, label = { Text("Preset name") }, singleLine = true)
+    AlertDialog(onDismissRequest = dismiss, shape = MaterialTheme.shapes.extraLarge, title = { Text("Save preset") }, text = {
+        OutlinedTextField(name, { name = it.take(60) }, label = { Text("Preset name") }, singleLine = true, shape = KlangFieldShape)
     }, confirmButton = { TextButton({ save(name.trim()) }, enabled = name.trim().isNotEmpty()) { Text("Save") } },
         dismissButton = { TextButton(dismiss) { Text("Cancel") } })
 }

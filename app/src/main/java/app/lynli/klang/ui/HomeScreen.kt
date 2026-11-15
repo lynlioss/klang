@@ -186,7 +186,7 @@ private fun MixHero(collection: MusicCollection, state: MusicState, model: Music
 
 @Composable
 private fun AlbumCard(album: MusicCollection, click: () -> Unit) {
-    Column(Modifier.width(172.dp).clip(RoundedCornerShape(16.dp)).clickable(role = Role.Button,
+    Column(Modifier.width(172.dp).clip(MaterialTheme.shapes.extraLarge).clickable(role = Role.Button,
         onClickLabel = "Open ${album.title}", onClick = click)) {
         Artwork(album.tracks.first(), Modifier.size(172.dp).clip(RoundedCornerShape(28.dp)), large = true)
         Text(album.title, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.titleMedium,
@@ -234,7 +234,7 @@ internal fun CollectionScreen(collection: MusicCollection, state: MusicState, mo
                             Spacer(Modifier.weight(1f))
                             if (collection.editableId != null) Box {
                                 UtilityIconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Playlist options") }
-                                DropdownMenu(menu, { menu = false }, shape = RoundedCornerShape(20.dp),
+                                DropdownMenu(menu, { menu = false }, shape = KlangMenuShape,
                                     containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                                     DropdownMenuItem({ Text("Add songs") }, onClick = { adding = true; menu = false },
                                         leadingIcon = { Icon(painterResource(R.drawable.playlist_add), null) })
@@ -309,7 +309,7 @@ internal fun CollectionScreen(collection: MusicCollection, state: MusicState, mo
         if (rename) PlaylistNameDialog("Rename playlist", collection.title, { rename = false }) {
             model.renamePlaylist(collection.editableId!!, it); rename = false
         }
-        if (deleting) AlertDialog(onDismissRequest = { deleting = false },
+        if (deleting) AlertDialog(onDismissRequest = { deleting = false }, shape = MaterialTheme.shapes.extraLarge,
             icon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) },
             title = { Text("Delete playlist?", fontWeight = FontWeight.Bold) },
             text = { Text("Delete ${collection.title}? Your audio files will stay on your phone.") },

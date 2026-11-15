@@ -65,7 +65,7 @@ private fun PlaylistEditorDialog(title: String, initial: String, creating: Boole
         if (uri != null) coverUri = uri.toString()
     }
     val submit = { if (name.trim().isNotEmpty()) save(name.trim(), coverUri?.let(Uri::parse)) }
-    AlertDialog(onDismissRequest = dismiss, shape = RoundedCornerShape(28.dp),
+    AlertDialog(onDismissRequest = dismiss, shape = MaterialTheme.shapes.extraLarge,
         icon = { Icon(painterResource(R.drawable.playlist_add), null, tint = MaterialTheme.colorScheme.secondary) },
         title = { Text(title, fontWeight = FontWeight.Bold) }, text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -73,7 +73,7 @@ private fun PlaylistEditorDialog(title: String, initial: String, creating: Boole
                     style = MaterialTheme.typography.bodyMedium)
                 if (creating) Surface(onClick = {
                     picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                }, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+                }, shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.secondaryContainer) {
                     Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (coverUri != null) PickedCover(Uri.parse(coverUri), Modifier.size(64.dp).clip(RoundedCornerShape(8.dp)))
                         else Box(Modifier.size(64.dp).clip(RoundedCornerShape(8.dp))
@@ -89,7 +89,7 @@ private fun PlaylistEditorDialog(title: String, initial: String, creating: Boole
                 }
                 TextField(name, { name = it.take(100) }, Modifier.fillMaxWidth(),
                     label = { Text("Playlist name") }, placeholder = { Text("Your next great mix") },
-                    singleLine = true, shape = RoundedCornerShape(12.dp),
+                    singleLine = true, shape = KlangFieldShape,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { submit() }))
             }
@@ -104,7 +104,7 @@ private fun PlaylistEditorDialog(title: String, initial: String, creating: Boole
 @Composable
 internal fun PlaylistListItem(collection: MusicCollection, modifier: Modifier = Modifier, open: () -> Unit) {
     Surface(onClick = open, modifier = modifier.fillMaxWidth().padding(bottom = 8.dp),
-        shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             PlaylistArtwork(collection.coverFile, collection.tracks.firstOrNull(), Modifier.size(64.dp).clip(RoundedCornerShape(8.dp)))
             Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
@@ -123,7 +123,7 @@ internal fun AddToPlaylistDialog(track: Track, state: MusicState, model: MusicVi
     var create by rememberSaveable { mutableStateOf(false) }
     val songs = remember(state.tracks) { state.tracks.associateBy { it.id } }
     ModalBottomSheet(onDismissRequest = dismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow, shape = KlangSheetShape) {
         Column(Modifier.fillMaxWidth().heightIn(max = 600.dp).padding(horizontal = 24.dp).padding(bottom = 24.dp)) {
             Text("Add to playlist", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Row(Modifier.padding(vertical = 20.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -143,7 +143,7 @@ internal fun AddToPlaylistDialog(track: Track, state: MusicState, model: MusicVi
                 items(state.playlists, key = { it.id }) { playlist ->
                     val added = track.id in playlist.trackIds
                     Surface(onClick = { model.addToPlaylist(playlist.id, listOf(track)); dismiss() }, enabled = !added,
-                        shape = RoundedCornerShape(16.dp), color = if (added) MaterialTheme.colorScheme.secondaryContainer
+                        shape = MaterialTheme.shapes.medium, color = if (added) MaterialTheme.colorScheme.secondaryContainer
                         else MaterialTheme.colorScheme.surfaceContainer) {
                         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             PlaylistArtwork(playlist.coverFile, playlist.trackIds.firstNotNullOfOrNull { songs[it] },
@@ -207,7 +207,7 @@ internal fun PlaylistTrackPicker(collection: MusicCollection, state: MusicState,
                     val checked = track.id in selected
                     val color by animateColorAsState(if (checked) MaterialTheme.colorScheme.secondaryContainer
                         else MaterialTheme.colorScheme.surfaceContainerLow, spring(1f, 1600f), label = "Song selection")
-                    val corner by animateDpAsState(if (checked) 20.dp else 12.dp, spring(0.6f, 800f), label = "Selection shape")
+                    val corner by animateDpAsState(if (checked) 28.dp else 20.dp, spring(0.6f, 800f), label = "Selection shape")
                     Surface(shape = RoundedCornerShape(corner), color = color, modifier = Modifier.fillMaxWidth().animateItem()
                         .toggleable(checked, role = Role.Checkbox) { value -> selected = if (value) selected + track.id else selected - track.id }) {
                         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -249,7 +249,7 @@ internal fun PlaylistTrackRow(track: Track, index: Int, collection: MusicCollect
     var menu by remember { mutableStateOf(false) }
     var properties by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (lifted) 1.025f else 1f, spring(0.6f, 800f), label = "Lift song")
-    val corner by animateDpAsState(if (lifted) 20.dp else 16.dp, spring(0.6f, 800f), label = "Lift shape")
+    val corner by animateDpAsState(if (lifted) 28.dp else 20.dp, spring(0.6f, 800f), label = "Lift shape")
     val elevation by animateDpAsState(if (lifted) 6.dp else 0.dp, spring(0.6f, 800f), label = "Lift elevation")
     val color by animateColorAsState(when {
         lifted -> MaterialTheme.colorScheme.secondaryContainer
@@ -279,7 +279,7 @@ internal fun PlaylistTrackRow(track: Track, index: Int, collection: MusicCollect
             else Text(time(track.durationMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Box {
                 IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Options for ${track.title}") }
-                DropdownMenu(menu, { menu = false }, shape = RoundedCornerShape(20.dp),
+                DropdownMenu(menu, { menu = false }, shape = KlangMenuShape,
                     containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                     DropdownMenuItem({ Text("Remove from playlist") }, onClick = {
                         model.removeFromPlaylist(collection.editableId!!, track.id); menu = false

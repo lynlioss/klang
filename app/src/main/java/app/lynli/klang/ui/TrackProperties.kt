@@ -93,7 +93,7 @@ internal fun TrackPropertiesSheet(track: Track, state: MusicState, model: MusicV
             contentWindowInsets = { sheetInsets },
             containerColor = colors.surfaceContainerLow,
             contentColor = colors.onSurface,
-            shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+            shape = KlangSheetShape,
             dragHandle = { BottomSheetDefaults.DragHandle(Modifier.padding(top = 10.dp)) }) {
             Column(Modifier.fillMaxWidth().weight(1f)) {
                 Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 16.dp, bottom = 20.dp),
@@ -248,7 +248,7 @@ internal fun HiddenAudioScreen(state: MusicState, model: MusicViewModel, back: (
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 24.dp)) {
                 items(state.hiddenTracks, key = { it.id }) { track ->
-                    Surface(Modifier.fillMaxWidth().padding(bottom = 4.dp).animateItem(), shape = RoundedCornerShape(16.dp),
+                    Surface(Modifier.fillMaxWidth().padding(bottom = 4.dp).animateItem(), shape = MaterialTheme.shapes.medium,
                         color = MaterialTheme.colorScheme.surfaceContainerLow) {
                         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Artwork(track, Modifier.size(52.dp).clip(RoundedCornerShape(12.dp)))

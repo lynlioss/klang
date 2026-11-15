@@ -70,7 +70,7 @@ private fun PluginList(manifests: List<PluginManifest>, config: PluginConfigurat
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(24.dp))
             listOf("Spotify" to R.drawable.spotify, "YouTube Music" to R.drawable.youtube_music).forEach { (name, logo) ->
-                Surface(Modifier.padding(bottom = 12.dp), shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                Surface(Modifier.padding(bottom = 12.dp), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(painterResource(logo), "$name logo", Modifier.size(48.dp), tint = Color.Unspecified)
                         Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
@@ -85,10 +85,10 @@ private fun PluginList(manifests: List<PluginManifest>, config: PluginConfigurat
         }
         items(manifests, key = { it.id }) { plugin ->
             val enabled = plugin.id in config.enabled
-            Surface(Modifier.fillMaxWidth().padding(bottom = 12.dp), shape = RoundedCornerShape(20.dp),
+            Surface(Modifier.fillMaxWidth().padding(bottom = 12.dp), shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.surfaceContainerLow) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Row(Modifier.weight(1f).clip(RoundedCornerShape(20.dp))
+                    Row(Modifier.weight(1f).clip(MaterialTheme.shapes.medium)
                         .clickable(onClickLabel = "About ${plugin.name}") { open(plugin.id) }.padding(20.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         PluginGlyph(plugin, Modifier.size(48.dp))
@@ -130,7 +130,7 @@ private fun PluginOverview(plugin: PluginManifest, config: PluginConfiguration, 
             }
         }
         item {
-            Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+            Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                 Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f).padding(end = 16.dp)) {
                         Text("Use ${plugin.name}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -157,7 +157,7 @@ private fun PluginOverview(plugin: PluginManifest, config: PluginConfiguration, 
         }
         if (plugin.settings.isNotEmpty()) item { Text("Your preferences", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
         items(plugin.settings, key = { it.id }) { setting ->
-            Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+            Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                 when (setting) {
                     is PluginSetting.Toggle -> Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f).padding(end = 16.dp)) {

@@ -1,4 +1,5 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package app.lynli.klang.ui
 
 import androidx.compose.animation.AnimatedContent
@@ -58,7 +59,7 @@ internal fun SleepTimerSheet(state: MusicState, model: MusicViewModel, dismiss: 
     val primary = MaterialTheme.colorScheme.primary
     ModalBottomSheet(onDismissRequest = dismiss, sheetState = sheet,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        shape = KlangSheetShape,
         dragHandle = { BottomSheetDefaults.DragHandle(modifier = Modifier.padding(top = 10.dp)) }) {
         Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally) {
@@ -84,12 +85,13 @@ internal fun SleepTimerSheet(state: MusicState, model: MusicViewModel, dismiss: 
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf(15, 30, 45, 60, 90).forEach { preset ->
-                    FilterChip(minutes == preset, { minutes = preset }, label = { Text(if (preset >= 60) "${preset / 60} h" else "$preset m") })
+                    FilterChip(minutes == preset, { minutes = preset }, label = { Text(if (preset >= 60) "${preset / 60} h" else "$preset m") },
+                        shapes = klangFilterChipShapes())
                 }
             }
             if (active) {
                 Spacer(Modifier.height(16.dp))
-                Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.secondaryContainer,
+                Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.secondaryContainer,
                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
                     Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(ImageVector.vectorResource(R.drawable.timer), null, Modifier.size(20.dp), tint = primary)
@@ -103,7 +105,7 @@ internal fun SleepTimerSheet(state: MusicState, model: MusicViewModel, dismiss: 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (active) TextButton({ model.sleep(0); dismiss() }, Modifier.height(56.dp)) { Text("End timer") }
                 Button({ model.sleep(minutes); dismiss() }, Modifier.weight(1f).height(56.dp),
-                    enabled = minutes > 0, shape = RoundedCornerShape(20.dp)) {
+                    enabled = minutes > 0, shape = MaterialTheme.shapes.medium) {
                     Icon(ImageVector.vectorResource(R.drawable.timer), null, Modifier.size(20.dp))
                     Spacer(Modifier.width(10.dp))
                     Text(if (active) "Update timer" else "Start timer")

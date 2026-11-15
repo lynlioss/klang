@@ -4,6 +4,8 @@ package app.lynli.klang.ui
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
@@ -11,6 +13,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.lynli.klang.R
 import app.lynli.klang.data.Track
@@ -32,6 +35,28 @@ internal val KlangTypography = Typography().let { native ->
     )
 }
 private val LocalKlangDark = staticCompositionLocalOf { false }
+
+// Klang's rounded shape scale uses M3 corner steps. The remapping of smaller defaults is
+// an app design choice, so legacy components share the expressive collection surfaces.
+internal val KlangShapes = Shapes(
+    extraSmall = RoundedCornerShape(12.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(20.dp),
+    large = RoundedCornerShape(20.dp),
+    extraLarge = RoundedCornerShape(28.dp),
+    largeIncreased = RoundedCornerShape(20.dp),
+    extraLargeIncreased = RoundedCornerShape(32.dp),
+    extraExtraLarge = RoundedCornerShape(48.dp),
+)
+internal val KlangMenuShape = KlangShapes.medium
+internal val KlangFieldShape = KlangShapes.medium
+internal val KlangSheetShape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
+
+@Composable
+internal fun klangFilterChipShapes() = FilterChipDefaults.shapes(
+    shape = CircleShape, selectedShape = MaterialTheme.shapes.small,
+    pressedShape = MaterialTheme.shapes.small,
+)
 
 // Neutral surface tones keep dark mode black instead of washing the app in its accent hue.
 internal fun ColorScheme.blackSurfaces() = copy(
@@ -55,7 +80,8 @@ fun KlangTheme(theme: String, dynamic: Boolean, content: @Composable () -> Unit)
     } else generated
     val scheme = animatedScheme(if (dark) target.blackSurfaces() else target)
     CompositionLocalProvider(LocalKlangDark provides dark) {
-        MaterialTheme(colorScheme = scheme, typography = KlangTypography, motionScheme = MotionScheme.expressive(), content = content)
+        MaterialTheme(colorScheme = scheme, typography = KlangTypography, shapes = KlangShapes,
+            motionScheme = MotionScheme.expressive(), content = content)
     }
 }
 

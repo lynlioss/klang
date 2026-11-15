@@ -17,6 +17,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
@@ -45,8 +48,8 @@ internal fun OutputDevicesDialog(dismiss: () -> Unit) {
         (controller.selectedRoutes + controller.transferableRoutes).distinctBy { it.id }
     }
     val selectedIds = router.systemController.selectedRoutes.map { it.id }.toSet()
-    AlertDialog(onDismissRequest = dismiss, title = { Text("Play on") }, text = {
-        LazyColumn(Modifier.heightIn(max = 320.dp)) {
+    AlertDialog(onDismissRequest = dismiss, shape = MaterialTheme.shapes.extraLarge, title = { Text("Play on") }, text = {
+        LazyColumn(Modifier.heightIn(max = 320.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             if (!granted) item {
                 Text("Allow nearby devices to choose connected headphones.")
                 TextButton({ permissions.launch(arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)) }) {
@@ -56,7 +59,16 @@ internal fun OutputDevicesDialog(dismiss: () -> Unit) {
             items(routes, key = { it.id }) { route ->
                 ListItem(headlineContent = { Text(route.name.toString()) }, supportingContent = {
                     Text(if (route.id in selectedIds) "Current output" else "Available")
-                }, modifier = Modifier.clickable {
+                }, trailingContent = { if (route.id in selectedIds) Icon(Icons.Rounded.Check, null) },
+                    colors = ListItemDefaults.colors(containerColor = if (route.id in selectedIds)
+                        MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+                        headlineColor = if (route.id in selectedIds) MaterialTheme.colorScheme.onSecondaryContainer
+                        else MaterialTheme.colorScheme.onSurface,
+                        supportingColor = if (route.id in selectedIds) MaterialTheme.colorScheme.onSecondaryContainer
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        trailingIconColor = if (route.id in selectedIds) MaterialTheme.colorScheme.onSecondaryContainer
+                        else MaterialTheme.colorScheme.onSurfaceVariant),
+                    modifier = Modifier.clip(MaterialTheme.shapes.medium).clickable {
                     runCatching { router.transferTo(route) }; dismiss()
                 })
             }

@@ -314,7 +314,7 @@ private fun LyricRow(line: LyricLine, active: Boolean, distance: Int, position: 
 @Composable
 private fun LyricsMessage(title: String, message: String, retry: (() -> Unit)? = null) {
     Column(Modifier.fillMaxSize().padding(vertical = 32.dp), verticalArrangement = Arrangement.Center) {
-        Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.secondaryContainer,
+        Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
             Icon(ImageVector.vectorResource(R.drawable.lyrics), null, Modifier.padding(16.dp).size(32.dp))
         }

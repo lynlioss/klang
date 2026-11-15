@@ -182,7 +182,9 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
                 }
             }
             SnackbarHost(snack, Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
-                .padding(bottom = if (settings || expanded || plugins || hiddenFiles || collectionId != null) 16.dp else bottomSpace))
+                .padding(bottom = if (settings || expanded || plugins || hiddenFiles || collectionId != null) 16.dp else bottomSpace)) { data ->
+                Snackbar(data, shape = MaterialTheme.shapes.medium)
+            }
         }
     }
 }
@@ -241,7 +243,7 @@ private fun PageTitle(title: String, trailing: @Composable RowScope.() -> Unit =
 
 @Composable
 internal fun AccessCard(permission: () -> Unit, import: () -> Unit) {
-    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.padding(16.dp)) {
             Text("Music access", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text("Find audio on your phone, or choose files to add.", Modifier.padding(top = 6.dp),
@@ -270,8 +272,9 @@ private fun SearchScreen(state: MusicState, model: MusicViewModel, import: () ->
                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                 focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent))
         Row(Modifier.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(filter == 0, { filter = 0 }, label = { Text("All songs") })
-            FilterChip(filter == 1, { filter = 1 }, label = { Text("Favorites") }, leadingIcon = { Icon(Icons.Rounded.Favorite, null, Modifier.size(18.dp)) })
+            FilterChip(filter == 0, { filter = 0 }, label = { Text("All songs") }, shapes = klangFilterChipShapes())
+            FilterChip(filter == 1, { filter = 1 }, label = { Text("Favorites") }, shapes = klangFilterChipShapes(),
+                leadingIcon = { Icon(Icons.Rounded.Favorite, null, Modifier.size(18.dp)) })
         }
         Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(if (query.isBlank()) "Songs" else "Results", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -311,9 +314,13 @@ private fun LibraryScreen(state: MusicState, model: MusicViewModel, settings: ()
                 IconButton(model::refresh) { Icon(Icons.Rounded.Refresh, "Refresh library") }
                 Box {
                     IconButton({ sortMenu = true }) { Icon(Icons.AutoMirrored.Rounded.Sort, "Sort library") }
-                    DropdownMenu(sortMenu, { sortMenu = false }) {
+                    DropdownMenu(sortMenu, { sortMenu = false }, shape = KlangMenuShape,
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                         listOf("Recently added", "Title", "Artist").forEachIndexed { i, label ->
-                            DropdownMenuItem(text = { Text(label) }, onClick = { sort = i; sortMenu = false })
+                            DropdownMenuItem(text = { Text(label) }, onClick = { sort = i; sortMenu = false },
+                                leadingIcon = { Icon(if (i == 0) Icons.Rounded.Refresh else if (i == 1)
+                                    Icons.Rounded.MusicNote else Icons.Rounded.Person, null) },
+                                trailingIcon = { if (sort == i) Icon(Icons.Rounded.Check, null) })
                         }
                     }
                 }
@@ -326,7 +333,7 @@ private fun LibraryScreen(state: MusicState, model: MusicViewModel, settings: ()
                 val name = collection.title
                 val songs = collection.tracks
                 Surface(Modifier.fillMaxWidth().padding(bottom = 8.dp).animateItem().clip(RoundedCornerShape(20.dp)).clickable { openCollection(collection) },
-                    shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Artwork(songs.first(), Modifier.size(80.dp).clip(RoundedCornerShape(12.dp)))
                         Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
@@ -409,8 +416,8 @@ internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, pl
     val fill by animateColorAsState(if (active) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
         spring(1f, 3800f), label = "Track selection")
     val content = if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface
-    Surface(modifier.fillMaxWidth().padding(bottom = 4.dp).clip(RoundedCornerShape(16.dp))
-        .combinedClickable(onClick = play, onLongClick = { menu = true }), color = fill) {
+    Surface(modifier.fillMaxWidth().padding(bottom = 4.dp).clip(MaterialTheme.shapes.medium)
+        .combinedClickable(onClick = play, onLongClick = { menu = true }), shape = MaterialTheme.shapes.medium, color = fill) {
         Row(Modifier.padding(start = 10.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Artwork(track, Modifier.size(52.dp).clip(RoundedCornerShape(12.dp)))
             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
@@ -423,7 +430,8 @@ internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, pl
             else Text(time(track.durationMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Box {
                 IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Options for ${track.title}") }
-                DropdownMenu(menu, { menu = false }) {
+                DropdownMenu(menu, { menu = false }, shape = KlangMenuShape,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                     DropdownMenuItem(text = { Text(if (track.id in state.favorites) "Remove favorite" else "Add favorite") },
                         onClick = { model.favorite(track); menu = false }, leadingIcon = { Icon(Icons.Rounded.FavoriteBorder, null) })
                     DropdownMenuItem(text = { Text("Add to playlist") },
@@ -502,7 +510,8 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
                             Row(Modifier.align(Alignment.CenterEnd)) {
                                 Box {
                                     IconButton({ overflow = true }) { Icon(Icons.Rounded.MoreVert, "More options") }
-                                    DropdownMenu(overflow, { overflow = false }) {
+                                    DropdownMenu(overflow, { overflow = false }, shape = KlangMenuShape,
+                                        containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                                         DropdownMenuItem(text = { Text("Queue") }, onClick = { overflow = false; queue = true },
                                             leadingIcon = { Icon(Icons.AutoMirrored.Rounded.QueueMusic, null) })
                                         HorizontalDivider(Modifier.padding(vertical = 4.dp))
@@ -655,7 +664,7 @@ internal fun ExpressiveSeekbar(state: MusicState, model: MusicViewModel, progres
             val x = (fraction * trackWidth - pillPx / 2f).coerceIn(0f, (trackWidth - pillPx).coerceAtLeast(0f))
             Surface(color = MaterialTheme.colorScheme.inverseSurface,
                 contentColor = MaterialTheme.colorScheme.inverseOnSurface,
-                shape = RoundedCornerShape(12.dp), shadowElevation = 6.dp,
+                shape = MaterialTheme.shapes.medium, shadowElevation = 6.dp,
                 modifier = Modifier.offset { IntOffset(x.roundToInt(), (-40).dp.roundToPx()) }) {
                 Text(time(scrub.toLong()), Modifier.width(pill).padding(vertical = 6.dp),
                     style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
@@ -690,7 +699,8 @@ private fun QueuePage(state: MusicState, model: MusicViewModel, back: () -> Unit
         item { PageTitle("Queue") { UtilityIconButton(back) { Icon(Icons.Rounded.Close, "Close queue") } } }
         items(state.queue.size) { index ->
             val song = state.queue[index]
-            Surface(Modifier.fillMaxWidth().padding(bottom = 4.dp).clip(RoundedCornerShape(16.dp)).clickable { model.queuePlay(index) },
+            Surface(Modifier.fillMaxWidth().padding(bottom = 4.dp).clip(MaterialTheme.shapes.medium).clickable { model.queuePlay(index) },
+                shape = MaterialTheme.shapes.medium,
                 color = if (index == state.queueIndex) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow) {
                 Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Artwork(song, Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)))
@@ -734,7 +744,7 @@ private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission:
                 SectionHeading("Playback")
                 SettingsAction(ImageVector.vectorResource(R.drawable.equalizer), "Equalizer", "Presets and headphone sound", equalizer)
                 SectionHeading("About")
-                Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.fillMaxWidth().padding(20.dp)) {
                         Text("Klang", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         Text("${BuildConfig.VERSION_NAME} · Created by Lynli", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium)
@@ -767,7 +777,7 @@ private fun SettingsScreen(state: MusicState, model: MusicViewModel, permission:
 }
 @Composable
 private fun SettingSwitch(title: String, subtitle: String, checked: Boolean, change: (Boolean) -> Unit, enabled: Boolean = true) {
-    Surface(Modifier.fillMaxWidth().padding(bottom = 4.dp), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+    Surface(Modifier.fillMaxWidth().padding(bottom = 4.dp), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).padding(end = 12.dp)) {
                 Text(title, style = MaterialTheme.typography.titleMedium)
@@ -779,7 +789,8 @@ private fun SettingSwitch(title: String, subtitle: String, checked: Boolean, cha
 }
 @Composable
 private fun SettingsAction(icon: ImageVector, title: String, subtitle: String, click: () -> Unit, enabled: Boolean = true) {
-    Surface(Modifier.fillMaxWidth().padding(bottom = 4.dp).clip(RoundedCornerShape(16.dp)).clickable(enabled = enabled, onClick = click), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+    Surface(Modifier.fillMaxWidth().padding(bottom = 4.dp).clip(MaterialTheme.shapes.medium).clickable(enabled = enabled, onClick = click),
+        shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
             Column(Modifier.weight(1f).padding(start = 16.dp)) {
