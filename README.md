@@ -27,7 +27,7 @@ A lightweight music player for Android, built with Material 3 Expressive.
 - Connect to other services through plugins.
 - Follow synced lyrics, with word-by-word highlighting when available.
 - Browse your library and control playback through a Material 3 Expressive interface.
-- Klang is privacy friendly, with no hidden analytics.
+- Analytics are optional and off until you choose Yes. Change your choice in Settings → Privacy.
 
 ![Klang mockup: the equalizer and the song properties sheet](assets/banner2.png)
 
@@ -51,5 +51,7 @@ printf 'sdk.dir=/path/to/Android/sdk\n' > local.properties
 ```
 
 The APK lands in `app/build/outputs/apk/debug/app-debug.apk`. A release build runs `./gradlew assembleRelease` and is signed with the key named in `keystore.properties`, or with the debug key when no keystore is configured.
+
+For optional analytics, copy [.env.example](.env.example) to `.env` at the repository root and set your PostHog project token. Builds without a token work normally and cannot send analytics. See the [analytics guide](docs/analytics.md) for consent, event definitions and daily or weekly reporting.
 
 Klang is released under the GNU GPL v3. The licenses for the bundled fonts and icons are in `licenses/`.

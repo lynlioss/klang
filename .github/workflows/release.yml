@@ -90,6 +90,8 @@ jobs:
           KLANG_KEYSTORE_PASSWORD: ${{ secrets.KLANG_KEYSTORE_PASSWORD }}
           KLANG_KEY_ALIAS: ${{ secrets.KLANG_KEY_ALIAS }}
           KLANG_KEY_PASSWORD: ${{ secrets.KLANG_KEY_PASSWORD }}
+          POSTHOG_PROJECT_TOKEN: ${{ secrets.POSTHOG_PROJECT_TOKEN }}
+          POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
         run: |
           python3 scripts/test-import-packaging.py
           ./gradlew assembleRelease lintDebug testDebugUnitTest --no-daemon

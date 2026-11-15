@@ -1,0 +1,71 @@
+# Optional analytics
+
+Klang asks during onboarding whether to share app usage and basic device information with PostHog. The Yes and No buttons have equal emphasis and neither is preselected. Either choice lets the user continue. Existing installs remain off until the user enables **Settings → Privacy → Share analytics**.
+
+No SDK instance, event queue, analytics identity or PostHog request exists before explicit consent. Events while analytics is off are discarded rather than saved for later. Turning the switch off immediately closes the transport gate, cancels HTTP calls, persists the choice, resets the SDK identity and discards queued data. Enabling again creates a new anonymous consent period, so old queued data and identities cannot be reused. Previously delivered events are not deleted by the switch.
+
+The client allows only POST requests to the configured PostHog `/batch` endpoint. Redirects, feature flag requests, remote configuration, logs, session replay, automatic screen views, deep links, push notification tracking and crash reports are disabled or blocked. Event properties are filtered to the documented schema; music titles, artists, file names, file paths, URLs, provider payloads, email, locale, network carrier and persistent device IDs are excluded. GeoIP enrichment and person profiles are disabled. The ingestion service necessarily receives the connection's IP address.
+
+## Configuration
+
+Use the project token (`phc_…`), not a personal API key. The Android SDK needs a token and ingestion host; it does not use a numeric project ID.
+
+- `.env` at the repository root is ignored by Git. [.env.example](../.env.example) lists the supported values. Process environment variables override `.env`.
+- GitHub Actions secret: `POSTHOG_PROJECT_TOKEN`.
+- GitHub Actions variables: `POSTHOG_HOST=https://eu.i.posthog.com`, `POSTHOG_PROJECT_ID=351549`.
+- The release workflow passes the secret and host into Gradle. Debug builds and CI work without configuration. The token is embedded in configured APKs as required for client event ingestion; it grants no access to read analytics or administer the project.
+- PostHog Android is pinned to `3.77.1`. Recheck SDK configuration, storage hooks and transport tests before upgrading. Storage hooks isolate disk queues by consent period because the SDK's close method attempts a flush.
+
+## Events and device properties
+
+All events require consent and include `android_version`, `android_api_level`, `device_manufacturer`, `device_model`, `app_version` and `app_version_code`. They use a random anonymous identifier for the current consent period and SDK session metadata; no account or hardware identifier is used.
+
+| Event | Meaning |
+| --- | --- |
+| `analytics_enabled` | An explicit Yes or switch-on action, with `source=onboarding` or `settings`. |
+| `app_first_opened` | First consenting open during initial setup, once per install. This is counted after consent, not at download time. |
+| `onboarding_started` | Initial setup is in progress when consent is granted, once per install. Pre-consent interactions are excluded. |
+| `onboarding_completed` | The consenting user completes initial setup. Enabling later does not invent a historical completion. |
+| `app_opened` | The activity enters the foreground, or consent is enabled, with current `onboarding_complete` status. Use unique users for daily or weekly activity. |
+| `music_imported` | Local file import succeeds; includes `track_count`. |
+| `playback_started` | A queue starts; includes `queue_size`, categorical `source_type`, and `shuffled`. |
+| `audio_deleted` | A confirmed audio deletion succeeds. |
+| `plugin_installed` / `plugin_uninstalled` | A plugin operation succeeds; includes categorical `plugin_type` and installation `operation`. |
+| `favorite_toggled` | A favorite changes; includes `is_favorite`. |
+| `playlist_created` / `playlist_deleted` | A playlist operation succeeds. |
+| `sleep_timer_set` | Timer changes; includes `duration_minutes` and `is_active`. |
+
+Users who decline analytics are absent from these counts. Changing consent resets the anonymous identifier; daily or weekly unique-user totals are estimates of consenting installations, not exact people. Reinstalls also create a new identifier. A foreground event does not mean background playback remained active.
+
+## PostHog reports
+
+In [project 351549](https://eu.posthog.com/project/351549), save these views to a dashboard:
+
+| Report | Query |
+| --- | --- |
+| New consenting installs | Trends → `app_first_opened` → total count; daily or weekly interval. |
+| Setup completion | Funnel → `onboarding_started` → `onboarding_completed`; both events use the same consent period identifier. |
+| Daily active Android versions | Trends → `app_opened` → unique users → breakdown `android_version` → daily interval. |
+| Weekly active Android versions | Same query with weekly interval. |
+| Android API distribution | `app_opened` → unique users → breakdown `android_api_level`. |
+| Phone models | `app_opened` → unique users → breakdown `device_model` or `device_manufacturer`. |
+
+Choose a 30- or 90-day date range. PostHog computes daily and weekly groupings from event timestamps; the phone does not need a scheduled background upload. These views can populate after CI builds a configured APK and consenting users run it. The existing starter dashboard may also use the unchanged product event names.
+
+## App download totals
+
+An APK cannot report a download before it runs. Use GitHub release asset statistics to measure APK downloads independently of the app's analytics choice. Count only `klang.apk`, excluding checksum and other attachments:
+
+```sh
+gh api --paginate repos/lynlioss/klang/releases --jq '.[] | .tag_name as $release | .assets[] | select(.name == "klang.apk") | {release: $release, downloads: .download_count}'
+```
+
+The **Download analytics** workflow runs daily at approximately 08:00 UTC after it is merged to the default branch. It sends one aggregate `github_downloads_snapshot` event to PostHog from GitHub Actions, with `total_downloads` and `apk_count`. No phone identity or data is involved. Use the same project token secret. Run it manually from the Actions tab to take an initial snapshot.
+
+Create a Trends view of `github_downloads_snapshot`, using the maximum of the `total_downloads` property for each day. Compare consecutive daily snapshots for new downloads; compare snapshots seven days apart for weekly downloads. The first snapshot is a baseline, so history before it cannot be reconstructed. Counters can fall when a release asset is removed. These are download requests, not unique users or verified installs.
+
+## Validation
+
+The Checks workflow builds, lints and runs the JVM suite on GitHub, including consent transitions, persistence failures, queued requests after revocation, rejection before DNS, redirect rejection, payload filtering and missing configuration. It also checks the server-side download aggregation. Tests use a local mock server and never send events to PostHog. No Android build or test was run on the phone while editing this PR; CI results remain pending.
+
+After CI passes, verify on a test device: a fresh launch and No must produce no PostHog traffic; Yes enables the documented events; turning sharing off cancels and blocks requests; relaunch remains off; turning it on again uses a new anonymous identifier without replaying old queued events. Confirm the Android version breakdown in PostHog with actual consenting traffic. These device checks have not been performed by the PR edit.

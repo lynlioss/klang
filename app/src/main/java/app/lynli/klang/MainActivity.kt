@@ -13,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.graphics.luminance
@@ -58,6 +59,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val model: MusicViewModel = viewModel()
             val state by model.state.collectAsStateWithLifecycle()
+            LifecycleStartEffect(Unit) { model.appOpened(); onStopOrDispose { } }
             LifecycleResumeEffect(Unit) { model.refresh(); model.refreshPluginServices(); onPauseOrDispose { } }
             val permissionPrefs = remember { getSharedPreferences("klang_permissions", MODE_PRIVATE) }
             val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { model.refresh() }
@@ -84,7 +86,8 @@ class MainActivity : ComponentActivity() {
                     notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
                 } }
                 val importFiles = { importer.launch(arrayOf("audio/*")) }
-                if (!state.onboardingComplete) OnboardingScreen(state, musicAccess, notificationAccess, importFiles, model::completeOnboarding)
+                if (!state.onboardingComplete) OnboardingScreen(state, musicAccess, notificationAccess, importFiles,
+                    model::setAnalyticsConsent, model::completeOnboarding)
                 else if (!state.recommendedPluginsSeen) app.lynli.klang.ui.RecommendedPluginsScreen(model, complete = model::completePluginRecommendations)
                 else KlangApp(state, model, onPermission = musicAccess, onImport = importFiles,
                     importRequest = importRequest, incomingMusicLink = incomingMusicLink)
