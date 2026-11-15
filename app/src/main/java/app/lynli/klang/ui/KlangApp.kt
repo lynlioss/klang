@@ -77,15 +77,17 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
     var addingMusic by rememberSaveable { mutableStateOf(false) }
     var creatingImportPlaylist by rememberSaveable { mutableStateOf(false) }
     val addMusic = { addingMusic = true }
-    LaunchedEffect(importRequest) {
-        if (importRequest > 0) {
-            incomingMusicLink?.let { model.musicImports.resolve(it) }
-            addingMusic = true
-        }
-    }
 
     var settings by rememberSaveable { mutableStateOf(false) }
     var plugins by rememberSaveable { mutableStateOf(false) }
+    var recommendedPlugins by rememberSaveable { mutableStateOf(false) }
+    var downloadingMusic by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(importRequest) {
+        if (importRequest > 0) {
+            if (incomingMusicLink == null) downloadingMusic = true
+            else { model.musicImports.resolve(incomingMusicLink); addingMusic = true }
+        }
+    }
     var settingsEq by rememberSaveable { mutableStateOf(false) }
     var hiddenFiles by rememberSaveable { mutableStateOf(false) }
     var collectionId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -131,8 +133,6 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
                     enter = expandVertically(spring(0.8f, 380f)) + fadeIn(Effects),
                     exit = shrinkVertically(spring(0.8f, 380f)) + fadeOut(Effects),
                 ) { UpdateBanner(state, model) }
-                MusicImportStatus(model.musicImports, addMusic,
-                    Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
                 Row(Modifier.weight(1f).fillMaxWidth()) {
                     if (wide) NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                         Spacer(Modifier.height(24.dp))
@@ -145,10 +145,10 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
                             holder.SaveableStateProvider(page) {
                                 when (page) {
                                     0 -> HomeScreen(state, model, collections, { settings = true }, onPermission, addMusic,
-                                        { destination = 2 }, { collectionId = it.id }, bottomSpace)
+                                        { destination = 2 }, { collectionId = it.id }, bottomSpace, { downloadingMusic = true })
                                     1 -> SearchScreen(state, model, addMusic, bottomSpace)
                                     else -> LibraryScreen(state, model, { settings = true }, onPermission, addMusic,
-                                        { collectionId = it.id }, bottomSpace)
+                                        { collectionId = it.id }, bottomSpace, { downloadingMusic = true })
                                 }
                             }
                         }
@@ -190,7 +190,7 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
             }
             AnimatedVisibility(plugins, enter = slideInHorizontally(spring(0.8f, 200f)) { it } + fadeIn(Effects),
                 exit = slideOutHorizontally(spring(0.8f, 200f)) { it } + fadeOut(Effects)) {
-                PluginsScreen(model) { plugins = false }
+                PluginsScreen(model, startRecommended = recommendedPlugins) { plugins = false; recommendedPlugins = false }
             }
             AnimatedVisibility(settingsEq, enter = slideInHorizontally(spring(0.8f, 200f)) { it } + fadeIn(Effects),
                 exit = slideOutHorizontally(spring(0.8f, 200f)) { it } + fadeOut(Effects)) {
@@ -209,9 +209,10 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
                         onGoToAlbum = { openTrackCollection(it, artist = false) })
                 }
             }
+            if (downloadingMusic) DownloadProgressSheet(model.musicImports) { downloadingMusic = false }
             if (addingMusic) MusicImportSheet(model.musicImports, onImport,
                 dismiss = { addingMusic = false }, createPlaylist = { creatingImportPlaylist = true },
-                initialLink = incomingMusicLink)
+                initialLink = incomingMusicLink, recommended = { recommendedPlugins = true; plugins = true })
             if (creatingImportPlaylist) PlaylistCreateDialog({ creatingImportPlaylist = false }) { name, cover ->
                 model.createPlaylist(name)?.let { id ->
                     cover?.let { model.setPlaylistCover(id, it) }
@@ -337,7 +338,7 @@ private fun SearchScreen(state: MusicState, model: MusicViewModel, import: () ->
 }
 
 @Composable
-private fun LibraryScreen(state: MusicState, model: MusicViewModel, settings: () -> Unit, permission: () -> Unit, import: () -> Unit, openCollection: (MusicCollection) -> Unit, bottom: Dp) {
+private fun LibraryScreen(state: MusicState, model: MusicViewModel, settings: () -> Unit, permission: () -> Unit, import: () -> Unit, openCollection: (MusicCollection) -> Unit, bottom: Dp, downloads: () -> Unit) {
     var filter by rememberSaveable { mutableIntStateOf(0) }
     var sort by rememberSaveable { mutableIntStateOf(0) }
     var sortMenu by remember { mutableStateOf(false) }
@@ -347,7 +348,10 @@ private fun LibraryScreen(state: MusicState, model: MusicViewModel, settings: ()
     }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = bottom)) {
         item {
-            PageTitle("Library") { UtilityIconButton(settings) { Icon(Icons.Rounded.Settings, "Settings") } }
+            PageTitle("Library") {
+                DownloadStatusButton(model.musicImports, downloads)
+                UtilityIconButton(settings) { Icon(Icons.Rounded.Settings, "Settings") }
+            }
             ChoiceGroup(listOf("Songs", "Albums", "Playlists"), filter) { filter = it }
             Row(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(if (filter == 1) "${albumCollections(tracks).size} albums" else if (filter == 2) "${state.playlists.size + 2} playlists" else "${tracks.size} songs",

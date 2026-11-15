@@ -4,7 +4,9 @@ import org.json.JSONObject
 import java.net.URI
 import java.util.Locale
 
-enum class PluginType(val key: String, val label: String) { LYRICS("lyrics", "Lyrics") }
+enum class PluginType(val key: String, val label: String) { LYRICS("lyrics", "Lyrics"), IMPORT("musicImport", "Music downloads") }
+
+data class MusicImportPluginSpec(val packageName: String, val service: String, val hosts: Set<String>, val schemes: Set<String>)
 
 data class PluginButton(val label: String, val url: String, val icon: String)
 
@@ -41,13 +43,18 @@ data class PluginManifest(
     val features: List<String>, val buttons: List<PluginButton>, val settings: List<PluginSetting>,
     val defaultEnabled: Boolean = false, val apiVersion: Int = 1, val repository: String? = null,
     val lyrics: LyricsPluginSpec? = null,
+    val musicImport: MusicImportPluginSpec? = null,
 ) {
     companion object {
         const val API_VERSION = 1
         fun parse(source: String): PluginManifest {
             require(source.length <= 262_144) { "Plugin manifest is too large" }
             val json = JSONObject(source)
-            require(json.optInt("apiVersion", 1) == API_VERSION) { "This plugin needs a different Klang plugin API" }
+            val api = json.optInt("apiVersion", 1)
+            require(api in 1..2) { "This plugin needs a different Klang plugin API" }
+            val typeKey = json.getString("type")
+            val supportedType = when (api) { 1 -> typeKey == "lyrics"; 2 -> typeKey == "musicImport"; else -> false }
+            require(supportedType) { "Unsupported plugin API and type" }
             val id = json.getString("id")
             require(id.matches(Regex("[a-z][a-z0-9._-]{0,79}"))) { "Invalid plugin ID" }
             val version = json.getString("version")
@@ -125,12 +132,27 @@ data class PluginManifest(
                 }
                 LyricsPluginSpec(endpoints, lyrics.optInt("requestIntervalMs", 300).also { require(it in 100..5000) })
             }
+            val importer = json.optJSONObject("musicImport")?.let { spec ->
+                val packageName = spec.getString("package")
+                val service = spec.getString("service")
+                require(packageName.matches(Regex("[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+")))
+                require(service.startsWith("$packageName.") && service.matches(Regex("[a-zA-Z0-9_.]+")))
+                fun strings(key: String) = spec.optJSONArray(key)?.let { a ->
+                    (0 until a.length()).map { a.getString(it).lowercase(Locale.ROOT) }.toSet()
+                }.orEmpty().also { require(it.size <= 30) }
+                MusicImportPluginSpec(packageName, service, strings("hosts"), strings("schemes")).also {
+                    require(it.hosts.isNotEmpty() || it.schemes.isNotEmpty())
+                    require(it.hosts.all { host -> host.matches(Regex("[a-z0-9.-]+")) })
+                    require(it.schemes.all { scheme -> scheme.matches(Regex("[a-z][a-z0-9+.-]*")) })
+                }
+            }
+            require(api != 2 || importer != null) { "Download plugins must define a service" }
             return PluginManifest(id, json.getString("name").also { require(it.isNotBlank() && it.length <= 100) }, version,
                 PluginType.entries.first { it.key == json.getString("type") }, json.getString("author"),
                 json.getString("summary"), json.getString("description"), json.optString("privacy"),
                 json.optJSONArray("features")?.let { a -> (0 until a.length()).map(a::getString) }.orEmpty(),
-                buttons, settings, json.optBoolean("defaultEnabled", false), API_VERSION,
-                json.optString("repository").takeIf { it.isNotBlank() }?.let { GitHubPluginRepo.parse(it).url }, spec)
+                buttons, settings, json.optBoolean("defaultEnabled", false), api,
+                json.optString("repository").takeIf { it.isNotBlank() }?.let { GitHubPluginRepo.parse(it).url }, spec, importer)
         }
     }
 }

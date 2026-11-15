@@ -83,7 +83,7 @@ internal fun musicCollections(state: MusicState): List<MusicCollection> {
 @Composable
 internal fun HomeScreen(state: MusicState, model: MusicViewModel, collections: List<MusicCollection>,
     settings: () -> Unit, permission: () -> Unit, import: () -> Unit,
-    library: () -> Unit, openCollection: (MusicCollection) -> Unit, bottom: Dp) {
+    library: () -> Unit, openCollection: (MusicCollection) -> Unit, bottom: Dp, downloads: () -> Unit) {
     val albums = collections.filter { it.album }
     val mix = collections.first { it.mix }
     val recentPlaylists = state.playlists.filter { it.lastPlayedAt > 0 }.sortedByDescending { it.lastPlayedAt }
@@ -92,6 +92,7 @@ internal fun HomeScreen(state: MusicState, model: MusicViewModel, collections: L
         item {
             Column(Modifier.padding(horizontal = 24.dp)) {
                 PageTitle("Klang", brand = true) {
+                    DownloadStatusButton(model.musicImports, downloads)
                     UtilityIconButton(settings) { Icon(Icons.Rounded.Settings, "Settings") }
                 }
                 MixHero(mix, state, model, compact = true) { openCollection(mix) }

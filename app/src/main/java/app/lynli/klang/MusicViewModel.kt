@@ -67,7 +67,7 @@ data class MusicState(
     val coverColor: Boolean = true, val dynamicColor: Boolean = false, val theme: String = "system", val sleepMinutes: Int = 0,
     val sleepEndsAt: Long = 0, val sleepRemaining: Long = 0,
     val hiddenIds: Set<String> = emptySet(), val hiddenTracks: List<Track> = emptyList(),
-    val onboardingComplete: Boolean = false, val notificationPermission: Boolean = false,
+    val onboardingComplete: Boolean = false, val recommendedPluginsSeen: Boolean = true, val notificationPermission: Boolean = false,
     val update: UpdateInfo? = null, val updateDismissed: Boolean = false, val updating: Boolean = false,
     val downloadProgress: Float = 0f,
 ) {
@@ -76,7 +76,6 @@ data class MusicState(
 
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = MusicRepository(application)
-    internal val musicImports = app.lynli.klang.importing.ImportController(application, viewModelScope)
     private val prefs = application.getSharedPreferences("klang", 0)
     private val playlistStore = PlaylistStore(application)
     private val pluginRegistry = PluginRegistry(application)
@@ -87,6 +86,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     val pluginManifests get() = mutablePluginCatalog.value.installed.map { it.manifest }
     private val mutablePlugins = MutableStateFlow(pluginStore.read())
     val plugins = mutablePlugins.asStateFlow()
+    internal val musicImports = app.lynli.klang.importing.ImportController(application, viewModelScope) {
+        pluginRegistry.entries.filter { it.manifest.musicImport != null && it.manifest.id in mutablePlugins.value.enabled }
+    }
     private val lyricsRepository = LyricsRepository(application, pluginRegistry)
     private val mutableLyrics = MutableStateFlow<LyricsState>(LyricsState.Idle)
     val lyrics = mutableLyrics.asStateFlow()
@@ -94,6 +96,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val lyricsRetry = MutableStateFlow(0)
     private val mutableState = MutableStateFlow(MusicState(
         onboardingComplete = prefs.getBoolean("onboardingComplete", false),
+        recommendedPluginsSeen = prefs.getBoolean("recommendedPluginsSeen", prefs.getBoolean("onboardingComplete", false)),
         permission = repository.hasLibraryPermission(), notificationPermission = hasNotificationPermission(),
         favorites = prefs.getStringSet("favorites", emptySet()).orEmpty().toSet(),
         playlists = runCatching { playlistStore.read() }.getOrDefault(emptyList()),
@@ -153,6 +156,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         checkPluginUpdates(clearError = false)
         viewModelScope.launch {
             try {
+                withContext(Dispatchers.IO) {
+                    // The downloader moved to a separate APK; reclaim its old unpacked host runtimes.
+                    java.io.File(getApplication<Application>().noBackupFilesDir, "youtubedl-android").deleteRecursively()
+                    java.io.File(getApplication<Application>().filesDir, "music-imports.json").delete()
+                }
                 // A previous update's APK is no longer needed once this version runs.
                 Updater.clearDownloads(getApplication())
                 Updater.latest()?.let { info -> mutableState.update { it.copy(update = info) } }
@@ -212,6 +220,19 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun details(track: Track): TrackDetails = repository.details(track)
     private fun hasNotificationPermission() = ContextCompat.checkSelfPermission(getApplication(),
         Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    fun completePluginRecommendations() {
+        prefs.edit().putBoolean("recommendedPluginsSeen", true).apply()
+        mutableState.update { it.copy(recommendedPluginsSeen = true) }
+    }
+    fun refreshPluginServices() {
+        val previous = pluginRegistry.entries.map { it.manifest.id }.toSet()
+        pluginRegistry.discoverServices()
+        mutablePlugins.value = pluginStore.read()
+        pluginRegistry.entries.filter { it.manifest.id !in previous && it.manifest.defaultEnabled }.forEach {
+            mutablePlugins.value = pluginStore.enable(it.manifest.id, true)
+        }
+        mutablePluginCatalog.update { it.copy(installed = pluginRegistry.entries) }
+    }
     fun completeOnboarding() {
         prefs.edit().putBoolean("onboardingComplete", true).apply()
         mutableState.update { it.copy(onboardingComplete = true) }
@@ -273,14 +294,33 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun inspectPlugin(link: String): PluginCandidate = requireNotNull(pluginDownload.latest(GitHubPluginRepo.parse(link)))
     fun clearPluginError() { mutablePluginCatalog.update { it.copy(error = null) } }
     fun dismissPluginUpdateNotice() { mutablePluginCatalog.update { it.copy(updateNoticeDismissed = true) } }
-    fun installPlugin(candidate: PluginCandidate) {
+    fun installRecommendedPlugin(link: String) {
+        if (mutablePluginCatalog.value.busyId != null) return
+        mutablePluginCatalog.update { it.copy(busyId = "recommended", error = null) }
+        viewModelScope.launch {
+            try {
+                val candidate = inspectPlugin(link)
+                mutablePluginCatalog.update { it.copy(busyId = null) }
+                installPlugin(candidate, enable = true)
+            } catch (cancelled: CancellationException) { throw cancelled } catch (error: Exception) { mutablePluginCatalog.update { it.copy(busyId = null, error = error.message) } }
+        }
+    }
+    fun installPlugin(candidate: PluginCandidate, enable: Boolean = false) {
         if (mutablePluginCatalog.value.busyId != null) return
         mutablePluginCatalog.update { it.copy(busyId = candidate.manifest.id, error = null) }
         viewModelScope.launch {
             try {
                 val existing = pluginRegistry.entries.find { it.manifest.id == candidate.manifest.id }
                 // Preserve the previous enabled state when updating. New plugins need a user toggle.
-                val enabled = existing != null && existing.manifest.id in mutablePlugins.value.enabled
+                val enabled = enable || existing != null && existing.manifest.id in mutablePlugins.value.enabled
+                if (candidate.manifest.musicImport != null) {
+                    val existingRepository = pluginRegistry.entries.find { it.manifest.id == candidate.manifest.id }?.repository
+                    require(existingRepository == null || existingRepository == candidate.repository) { "This plugin ID belongs to another repository." }
+                    val apk = pluginDownload.downloadApk(getApplication(), candidate)
+                    pluginRegistry.allowReinstall(candidate.manifest.id)
+                    app.lynli.klang.update.Updater.install(getApplication(), apk)
+                    return@launch
+                }
                 withContext(Dispatchers.IO) { pluginRegistry.install(candidate) }
                 mutablePlugins.value = pluginStore.enable(candidate.manifest.id, enabled)
                 mutablePluginCatalog.update { it.copy(installed = pluginRegistry.entries, updates = it.updates - candidate.manifest.id) }

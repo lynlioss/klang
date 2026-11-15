@@ -1,123 +1,42 @@
 package app.lynli.klang.importing
 
-import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
-import java.util.Base64
 
 class ImportTest {
-    private val spotifyId = "4cOdK2wGLETKBW3PvgPWqT"
-    private val song = ImportSong("spotify:track:$spotifyId", "https://open.spotify.com/track/$spotifyId",
-        "Never Gonna Give You Up", "Rick Astley", "Whenever You Need Somebody", 213_000,
-        "https://example.com/cover.jpg", "1987-11-12", 1, 1, true)
-
-    @Test fun canonicalizesSharedLinksWithoutTracking() {
-        val link = ImportLink.parse(" https://open.spotify.com/intl-de/track/$spotifyId?si=tracking ")
-        assertEquals(song.url, link.url)
-        assertFalse(link.playlist)
-        assertEquals(link, ImportLink.parse("spotify:track:$spotifyId"))
-        assertEquals("https://music.youtube.com/watch?v=dQw4w9WgXcQ",
-            ImportLink.parse("https://youtu.be/dQw4w9WgXcQ?si=tracking").url)
+    private val song = ImportSong("id", "https://music.example/song", "ELEMENT.", "Kendrick Lamar", durationMs = 209_000,
+        payload = "{\"customToken\":\"abc\"}")
+    @Test fun journalPreservesOpaqueProviderPayloadAndDuplicateDecision() {
+        val entry = ImportEntry(song, ImportPhase.DUPLICATE, duplicateUri = "content://media/1", allowDuplicate = false)
+        val batch = ImportBatch("batch", "Album", "custom-provider", listOf(entry), createdAt = 10)
+        assertEquals(listOf(batch), ImportCodec.decode(ImportCodec.encode(listOf(batch))))
+        assertTrue(batch.warnings)
+        assertFalse(batch.pending)
     }
-
-    @Test fun songSharedFromPlaylistDoesNotImportEntirePlaylist() {
-        val link = ImportLink.parse("https://music.youtube.com/watch?v=dQw4w9WgXcQ&list=PL1234567890123")
-        assertFalse(link.playlist)
-        assertTrue(ImportLink.parse("https://music.youtube.com/playlist?list=PL1234567890123").playlist)
-    }
-
-    @Test fun rejectsLookalikeHostsAndCommands() {
-        listOf("https://youtube.com.attacker.org/watch?v=dQw4w9WgXcQ",
-            "https://user@music.youtube.com/watch?v=dQw4w9WgXcQ", "file:///etc/passwd",
-            "--exec touch /tmp/anything", "https://open.spotify.com/album/$spotifyId").forEach { value ->
-            assertThrows(IllegalArgumentException::class.java) { ImportLink.parse(value) }
+    @Test fun acceptsAlbumAndCustomProviderLinksWithoutKnowingTheService() {
+        assertEquals("https://music.example/album/abc", ImportLink.parse(" https://music.example/album/abc ").url)
+        assertEquals("custom:ep:abc", ImportLink.parse("custom:ep:abc").url)
+        listOf("file:///etc/passwd", "content://music/1", "--exec touch anything", "https://user@music.example/a").forEach {
+            assertThrows(IllegalArgumentException::class.java) { ImportLink.parse(it) }
         }
     }
-
-    @Test fun journalPreservesMetadataOrderAndFailures() {
-        val first = ImportEntry(song.copy(explicit = false), ImportPhase.COMPLETE, 1f,
-            uri = "content://media/external/audio/media/3", audioFormat = "OPUS · 140 kbps", importRevision = 1)
-        val second = ImportEntry(song.copy(sourceId = "other"), ImportPhase.FAILED, error = "Network unavailable")
-        val batch = ImportBatch("batch", "Playlist", ImportSource.SPOTIFY, listOf(first, second), "playlist", 10)
-        assertEquals(listOf(batch), ImportCodec.decode(ImportCodec.encode(listOf(batch))))
-        assertFalse(batch.pending)
-        assertEquals(1, batch.complete)
-        assertEquals(1, batch.failed)
-        assertEquals(1f, batch.progress, 0f)
+    @Test fun metadataPayloadIsNotLostWhenPreviewEntersQueue() {
+        val json = JSONObject().put("id", "custom:1").put("url", "https://example.com/song").put("title", "Song")
+            .put("privateProviderField", JSONObject().put("token", "abc"))
+        val parsed = ImportCodec.readSong(json)
+        assertEquals("abc", JSONObject(parsed.payload).getJSONObject("privateProviderField").getString("token"))
     }
-
-    @Test fun matchesOfficialRecordingAndRejectsWrongVersions() {
-        fun candidate(title: String, artist: String = "Rick Astley - Topic", duration: Int = 213) =
-            JSONObject().put("title", title).put("uploader", artist).put("duration", duration)
-        assertTrue(recordingScore(song, candidate(song.title)) >= .72)
-        assertEquals(0.0, recordingScore(song, candidate(song.title + " (Live)")), 0.0)
-        assertEquals(0.0, recordingScore(song, candidate(song.title + " (Karaoke)")), 0.0)
-        assertEquals(0.0, recordingScore(song, candidate(song.title, "Cover Artist")), 0.0)
-        assertEquals(0.0, recordingScore(song, candidate(song.title, duration = 350)), 0.0)
-        assertTrue(recordingScore(song.copy(title = song.title + " (Live)"), candidate(song.title + " (Live)")) >= .72)
+    @Test fun blockedDuplicatesDoNotPretendAudioHasDownloaded() {
+        val preparing = ImportEntry(song, ImportPhase.MATCHING)
+        val duplicate = ImportEntry(song, ImportPhase.DUPLICATE)
+        assertEquals(0f, downloadProgress(listOf(preparing, duplicate)), 0f)
+        assertEquals(.45f, downloadProgress(listOf(preparing.copy(phase = ImportPhase.DOWNLOADING, progress = .5f), duplicate)), .001f)
     }
-
-    @Test fun flatSearchChannelAndStructuredArtistsBothMatch() {
-        val element = song.copy(title = "ELEMENT.", artist = "Kendrick Lamar", durationMs = 209_000)
-        val flat = JSONObject().put("title", "ELEMENT.").put("channel", "Kendrick Lamar - Topic").put("duration", 209)
-        assertTrue(recordingScore(element, flat) >= .8)
-        assertEquals(0.0, recordingScore(element, flat.put("channel", "Someone else")), 0.0)
-        flat.remove("channel")
-        flat.put("artists", JSONArray(listOf("Kendrick Lamar")))
-        assertTrue(recordingScore(element, flat) >= .8)
-        assertEquals(0.0, recordingScore(element, flat.put("title", "DNA.")), 0.0)
-    }
-
-    @Test fun cleansOnlyPresentationTextFromYouTubeTitles() {
-        assertEquals("hey now", cleanVideoTitle("Kendrick Lamar - hey now (Official Audio)", "Kendrick Lamar"))
-        assertEquals("hey now (Live)", cleanVideoTitle("Kendrick Lamar - hey now (Live)", "Kendrick Lamar"))
-        assertEquals("Artist - hey now", cleanVideoTitle("Artist - hey now", "Other Artist"))
-        val info = JSONObject().put("title", "Kendrick Lamar - hey now (Official Audio)")
-            .put("uploader", "Kendrick Lamar").put("duration", 217)
-        assertEquals("hey now", youtubeSong(info, "9PumlOWjXMM").title)
-    }
-
-    @Test fun unknownAlbumDoesNotInheritSourceContainerTag() {
-        val info = JSONObject().put("album", "Klang")
-        tagInfo(info, song.copy(album = ""))
-        assertFalse(info.has("album"))
-        assertEquals("", info.getString("meta_album"))
-    }
-
-    @Test fun engineInitializationErrorsHaveAnActionableMessage() {
-        val error = ImportEngineException(ExceptionInInitializerError(RuntimeException("class zh is not a concrete class")))
-        assertTrue(importError(error).contains("download engine"))
-        assertTrue(error.cause is ExceptionInInitializerError)
-        assertTrue(importError(java.io.InterruptedIOException("timeout")).contains("too long"))
-    }
-
-    @Test fun tagsUseReleaseDateAndAlbumArtwork() {
-        val info = JSONObject().put("title", "Video title").put("upload_date", "20261115")
-        tagInfo(info, song)
-        assertEquals(song.title, info.getString("track"))
-        assertEquals(song.artist, info.getString("artist"))
-        assertEquals(song.album, info.getString("album"))
-        assertEquals("1987-11-12", info.getString("meta_date"))
-        assertEquals(1, info.getInt("track_number"))
-        assertEquals(song.artwork, info.getJSONArray("thumbnails").getJSONObject(0).getString("url"))
-    }
-
-    @Test fun publicSpotifyMetadataSelectsLargestCover() {
-        val json = JSONObject().put("uri", song.sourceId).put("name", song.title)
-            .put("artists", JSONObject().put("items", JSONArray().put(JSONObject()
-                .put("profile", JSONObject().put("name", song.artist)))))
-            .put("duration", JSONObject().put("totalMilliseconds", song.durationMs))
-            .put("albumOfTrack", JSONObject().put("name", song.album).put("coverArt", JSONObject()
-                .put("sources", JSONArray().put(JSONObject().put("width", 64).put("url", "small"))
-                    .put(JSONObject().put("width", 640).put("url", "large")))))
-        val metadata = SpotifyMetadata.parsePublicTrack(json)
-        assertEquals("large", metadata.artwork)
-        assertEquals(song.album, metadata.album)
-        assertEquals(song.artist, metadata.artist)
-        val state = JSONObject().put("entities", JSONObject().put("items", JSONObject().put(song.sourceId, json)))
-        val html = "<script id=\"initialState\" type=\"text/plain\">" +
-            Base64.getEncoder().encodeToString(state.toString().toByteArray()) + "</script>"
-        assertEquals(song.title, SpotifyMetadata.publicEntity(html, song.sourceId)?.getString("name"))
+    @Test fun completionAlertsRequireBackgroundVisibilityAndPermission() {
+        assertFalse(shouldNotifyDownloadCompletion(appVisible = true, permissionGranted = true, hasOutcome = true))
+        assertFalse(shouldNotifyDownloadCompletion(appVisible = false, permissionGranted = false, hasOutcome = true))
+        assertFalse(shouldNotifyDownloadCompletion(appVisible = false, permissionGranted = true, hasOutcome = false))
+        assertTrue(shouldNotifyDownloadCompletion(appVisible = false, permissionGranted = true, hasOutcome = true))
     }
 }

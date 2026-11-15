@@ -22,13 +22,21 @@ import app.lynli.klang.ui.KlangTheme
 import app.lynli.klang.ui.OnboardingScreen
 
 class MainActivity : ComponentActivity() {
+    override fun onStart() {
+        super.onStart()
+        app.lynli.klang.importing.DownloadNotifications.appVisible = true
+    }
+    override fun onStop() {
+        app.lynli.klang.importing.DownloadNotifications.appVisible = false
+        super.onStop()
+    }
     private var importRequest by mutableIntStateOf(0)
     private var incomingMusicLink by mutableStateOf<String?>(null)
 
     private fun receiveImport(intent: Intent?) {
         val shared = if (intent?.action == Intent.ACTION_SEND) intent.getStringExtra(Intent.EXTRA_TEXT) else null
         val link = shared?.let { text ->
-            Regex("https?://[^\\s]+|spotify:(?:track|playlist):[A-Za-z0-9]+")
+            Regex("[A-Za-z][A-Za-z0-9+.-]*:[^\\s]+")
                 .find(text)?.value?.let { runCatching { app.lynli.klang.importing.ImportLink.parse(it).url }.getOrNull() }
         }
         if (link != null || intent?.getBooleanExtra("showMusicImports", false) == true) {
@@ -50,7 +58,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val model: MusicViewModel = viewModel()
             val state by model.state.collectAsStateWithLifecycle()
-            LifecycleResumeEffect(Unit) { model.refresh(); onPauseOrDispose { } }
+            LifecycleResumeEffect(Unit) { model.refresh(); model.refreshPluginServices(); onPauseOrDispose { } }
             val permissionPrefs = remember { getSharedPreferences("klang_permissions", MODE_PRIVATE) }
             val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { model.refresh() }
             val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { model.refresh() }
@@ -77,6 +85,7 @@ class MainActivity : ComponentActivity() {
                 } }
                 val importFiles = { importer.launch(arrayOf("audio/*")) }
                 if (!state.onboardingComplete) OnboardingScreen(state, musicAccess, notificationAccess, importFiles, model::completeOnboarding)
+                else if (!state.recommendedPluginsSeen) app.lynli.klang.ui.RecommendedPluginsScreen(model, complete = model::completePluginRecommendations)
                 else KlangApp(state, model, onPermission = musicAccess, onImport = importFiles,
                     importRequest = importRequest, incomingMusicLink = incomingMusicLink)
             }

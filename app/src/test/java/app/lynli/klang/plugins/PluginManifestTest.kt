@@ -58,4 +58,18 @@ class PluginManifestTest {
         assertFalse(config.boolean(manifest, "cacheLyrics"))
         assertEquals(-500, config.integer(manifest, "timingOffset"))
     }
+    @Test fun api2MusicProvidersDeclareAServiceAndSupportedLinks() {
+        val json = JSONObject(File("src/main/assets/plugins/lrclib.json").readText())
+        json.put("apiVersion", 2).put("type", "musicImport")
+        json.remove("lyrics")
+        json.put("musicImport", JSONObject().put("package", "com.example.provider")
+            .put("service", "com.example.provider.DownloadService").put("hosts", JSONArray(listOf("music.example.com")))
+            .put("schemes", JSONArray(listOf("example-music"))))
+        val provider = PluginManifest.parse(json.toString())
+        assertEquals(PluginType.IMPORT, provider.type)
+        assertEquals(2, provider.apiVersion)
+        assertEquals("com.example.provider", provider.musicImport!!.packageName)
+        json.getJSONObject("musicImport").put("service", "another.package.Service")
+        assertThrows(IllegalArgumentException::class.java) { PluginManifest.parse(json.toString()) }
+    }
 }

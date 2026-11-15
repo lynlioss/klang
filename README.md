@@ -36,7 +36,7 @@ Grab the latest build from the [releases page](https://github.com/lynlioss/klang
 
 Read the [music import guide](docs/music-imports.md) for source support and quality details.
 
-To create a lyric provider, read the [plugin guide](docs/plugins.md). Plugins install from GitHub releases and can define their own settings and links.
+To create a lyrics or music download provider, read the [plugin guide](docs/plugins.md). Plugins install from GitHub releases and can define their own settings and links. The optional [Music Import plugin](https://github.com/lynlioss/music-import-klang) keeps download runtimes outside Klang and supports songs, albums, EPs and playlists.
 
 ## Build it yourself
 

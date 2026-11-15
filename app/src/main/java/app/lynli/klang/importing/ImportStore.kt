@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit
 /** One process-wide journal shared by UI and WorkManager, including after process recreation. */
 internal class ImportStore private constructor(context: Context) {
     private val app = context.applicationContext
-    private val file = AtomicFile(File(app.filesDir, "music-imports.json"))
+    private val file = AtomicFile(File(app.filesDir, "music-downloads-v2.json"))
     private val mutable = MutableStateFlow(runCatching {
         file.openRead().bufferedReader().use { ImportCodec.decode(it.readText()) }
     }.getOrDefault(emptyList()))
@@ -25,14 +25,14 @@ internal class ImportStore private constructor(context: Context) {
     private var persistedAt = 0L
 
     @Synchronized
-    fun enqueue(preview: ImportPreview, selected: List<ImportSong>): ImportBatch {
+    fun enqueue(preview: ImportPreview, selected: List<ImportEntry>): ImportBatch {
         require(selected.isNotEmpty()) { "Select at least one song." }
         val playlists = PlaylistStore(app)
-        val playlist = if (preview.link.playlist) playlists.create(preview.title).also { added ->
+        val playlist = if (preview.collection) playlists.create(preview.title).also { added ->
             playlists.update { it + added }
         } else null
-        val batch = ImportBatch(title = preview.title, source = preview.link.source,
-            entries = selected.distinctBy { it.sourceId }.map { ImportEntry(it) }, playlistId = playlist?.id)
+        val batch = ImportBatch(title = preview.title, providerId = preview.providerId,
+            entries = selected, playlistId = playlist?.id)
         publish(mutable.value + batch, persist = true)
         schedule()
         return batch
@@ -79,11 +79,18 @@ internal class ImportStore private constructor(context: Context) {
         }) }, true)
         // Kill only this batch's native processes. A publication already in progress can finish.
         batch.entries.indices.filter { batch.entries[it].phase != ImportPhase.SAVING }
-            .forEach { ImportEngine.stop(processId(batchId, it)) }
+            .forEach { ImportProviderClient.stop(processId(batchId, it)) }
+    }
+    @Synchronized fun cancelEntry(batchId: String, index: Int) {
+        if (mutable.value.find { it.id == batchId }?.entries?.getOrNull(index)?.phase == ImportPhase.SAVING) return
+        updateEntry(batchId, index) { if (!it.phase.finished && it.phase != ImportPhase.SAVING)
+            it.copy(phase = ImportPhase.CANCELLED) else it }
+        ImportProviderClient.stop(processId(batchId, index))
     }
 
     @Synchronized
     fun retry(batchId: String) {
+        app.getSharedPreferences("download_notifications", Context.MODE_PRIVATE).edit().remove("finished-$batchId").apply()
         publish(mutable.value.map { if (it.id != batchId) it else it.copy(entries = it.entries.map { entry ->
             if (entry.phase in listOf(ImportPhase.FAILED, ImportPhase.CANCELLED)) entry.copy(
                 phase = ImportPhase.QUEUED, progress = 0f, error = null, speed = null, etaSeconds = -1,
@@ -95,7 +102,35 @@ internal class ImportStore private constructor(context: Context) {
     @Synchronized
     fun dismiss(batchId: String) {
         publish(mutable.value.filterNot { it.id == batchId && !it.pending }, true)
+        if (mutable.value.none { it.id == batchId }) app.getSharedPreferences("download_notifications", Context.MODE_PRIVATE)
+            .edit().remove("finished-$batchId").apply()
         File(app.cacheDir, "music-imports/$batchId").deleteRecursively()
+    }
+
+    @Synchronized fun resolveDuplicate(batchId: String, index: Int, download: Boolean) {
+        if (download) app.getSharedPreferences("download_notifications", Context.MODE_PRIVATE).edit().remove("finished-$batchId").apply()
+        updateEntry(batchId, index) { entry ->
+            if (entry.phase != ImportPhase.DUPLICATE) entry else entry.copy(
+                phase = if (download) ImportPhase.QUEUED else ImportPhase.CANCELLED, allowDuplicate = download,
+                progress = 0f, error = null)
+        }
+        if (download) schedule()
+    }
+    @Synchronized fun clearFinished() {
+        val removed = mutable.value.filter { !it.pending && !it.warnings }
+        publish(mutable.value.filter { it.pending || it.warnings }, true)
+        val edit = app.getSharedPreferences("download_notifications", Context.MODE_PRIVATE).edit()
+        removed.forEach { edit.remove("finished-${it.id}") }
+        edit.apply()
+    }
+    @Synchronized fun dismissEntry(batchId: String, index: Int) {
+        updateEntry(batchId, index) { if (it.phase.finished) it.copy(phase = ImportPhase.CANCELLED, error = null) else it }
+    }
+    @Synchronized fun retryEntry(batchId: String, index: Int) {
+        app.getSharedPreferences("download_notifications", Context.MODE_PRIVATE).edit().remove("finished-$batchId").apply()
+        updateEntry(batchId, index) { if (it.phase == ImportPhase.FAILED)
+            it.copy(phase = ImportPhase.QUEUED, progress = 0f, error = null) else it }
+        schedule()
     }
 
     @Synchronized

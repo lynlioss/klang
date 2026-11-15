@@ -11,7 +11,7 @@ import org.json.JSONObject
 import java.io.File
 
 /** The bundled plugin is a first-install default. Uninstalling it persists across app updates. */
-class PluginRegistry(context: Context) {
+class PluginRegistry(private val context: Context) {
     private val file = AtomicFile(File(context.filesDir, "plugins/installed.json").also { it.parentFile?.mkdirs() })
     private val loadErrors = mutableListOf<String>()
     val loadError: String? get() = loadErrors.takeIf { it.isNotEmpty() }?.joinToString("\n")
@@ -37,7 +37,7 @@ class PluginRegistry(context: Context) {
                 val source = entry.getJSONObject("manifest").toString()
                 val manifest = PluginManifest.parse(source)
                 val repository = GitHubPluginRepo.parse(entry.getString("repository"))
-                require(manifest.lyrics != null && manifest.repository == repository.url)
+                require((manifest.lyrics != null || manifest.musicImport != null) && manifest.repository == repository.url)
                 InstalledPlugin(manifest, repository, source, false)
             }.onFailure { recordLoadError("Installed plugin ${index + 1}", it) }.getOrNull()
         } }.orEmpty().distinctBy { it.manifest.id }
@@ -46,6 +46,7 @@ class PluginRegistry(context: Context) {
             else InstalledPlugin(manifest, manifest.repository?.let(GitHubPluginRepo::parse), source, true)
         }
         installed = installed.distinctBy { it.manifest.id }
+        discoverServices()
     }
     private fun recordLoadError(name: String, error: Throwable) {
         Log.e("KlangPlugins", "Couldn't load $name", error)
@@ -57,12 +58,31 @@ class PluginRegistry(context: Context) {
         if (providerConfig != config || providerEntries != entries) {
             providerConfig = config
             providerEntries = entries
-            providers = entries.map { entry ->
+            providers = entries.filter { it.manifest.type == PluginType.LYRICS }.map { entry ->
                 if (entry.manifest.lyrics != null) DeclarativeLyricsProvider(entry.manifest, config)
                 else LrclibProvider().also { require(entry.manifest.id == "lrclib") }
             }
         }
         return providers
+    }
+    @Synchronized fun discoverServices() {
+        val discovered = context.packageManager.queryIntentServices(android.content.Intent(MUSIC_IMPORT_ACTION),
+            android.content.pm.PackageManager.GET_META_DATA).mapNotNull { match -> runCatching {
+            val service = match.serviceInfo
+            require(service.exported && service.enabled && service.applicationInfo.enabled)
+            val resource = service.metaData?.getInt("klang.plugin") ?: error("Missing plugin manifest")
+            val source = context.packageManager.getResourcesForApplication(service.packageName)
+                .openRawResource(resource).bufferedReader().use { it.readText() }
+            val manifest = PluginManifest.parse(source)
+            val spec = requireNotNull(manifest.musicImport)
+            require(manifest.apiVersion == 2 && manifest.type == PluginType.IMPORT && manifest.repository != null)
+            require(spec.packageName == service.packageName && spec.service == service.name)
+            InstalledPlugin(manifest, manifest.repository?.let(GitHubPluginRepo::parse), source, false)
+        }.getOrNull() }.filter { it.manifest.id !in removed }
+        val existingRepositories = installed.associate { it.manifest.id to it.repository }
+        installed = (installed.filter { it.manifest.type != PluginType.IMPORT } + discovered.filter {
+            existingRepositories[it.manifest.id]?.let { repo -> repo == it.repository } != false
+        }).distinctBy { it.manifest.id }
     }
     fun install(candidate: PluginCandidate) {
         val existing = entries.find { it.manifest.id == candidate.manifest.id }
@@ -87,6 +107,10 @@ class PluginRegistry(context: Context) {
         removed = nextRemoved
         installed = next
     }
+    @Synchronized fun allowReinstall(id: String) {
+        persist(installed, removed - id)
+        removed = removed - id
+    }
     private fun persist(entries: List<InstalledPlugin>, removedIds: Set<String>) {
         val json = JSONObject().put("removed", JSONArray(removedIds.toList())).put("installed", JSONArray(entries.filterNot { it.bundled }.map {
             JSONObject().put("repository", it.repository!!.url).put("manifest", JSONObject(it.source))
@@ -97,8 +121,11 @@ class PluginRegistry(context: Context) {
     }
 }
 
+const val MUSIC_IMPORT_ACTION = "io.github.lynlioss.klang.MUSIC_IMPORT_V2"
+
 data class InstalledPlugin(val manifest: PluginManifest, val repository: GitHubPluginRepo?, val source: String, val bundled: Boolean)
-data class PluginCandidate(val manifest: PluginManifest, val repository: GitHubPluginRepo, val source: String, val releaseUrl: String)
+data class PluginCandidate(val manifest: PluginManifest, val repository: GitHubPluginRepo, val source: String, val releaseUrl: String,
+    val apkUrl: String? = null, val apkChecksum: String? = null)
 data class PluginCatalog(val installed: List<InstalledPlugin> = emptyList(), val updates: Map<String, PluginCandidate> = emptyMap(),
     val checking: Boolean = false, val busyId: String? = null, val error: String? = null, val checked: Boolean = false,
     val updateNoticeDismissed: Boolean = false)
@@ -107,6 +134,13 @@ class PluginStore(context: Context, private val manifests: () -> List<PluginMani
     private val prefs = context.getSharedPreferences("klang_plugins", Context.MODE_PRIVATE)
     fun read(): PluginConfiguration {
         val definitions = manifests()
+        val known = prefs.getStringSet("knownPlugins", if (prefs.contains("enabled"))
+            definitions.filter { it.type == PluginType.LYRICS }.map { it.id }.toSet() else emptySet()).orEmpty()
+        val savedEnabled = prefs.getStringSet("enabled", definitions.filter { it.defaultEnabled }.map { it.id }.toSet()).orEmpty()
+        val newDefaults = definitions.filter { it.id !in known && it.defaultEnabled }.map { it.id }
+        if (definitions.any { it.id !in known }) prefs.edit()
+            .putStringSet("enabled", (savedEnabled + newDefaults).toSet())
+            .putStringSet("knownPlugins", (known + definitions.map { it.id }).toSet()).apply()
         return PluginConfiguration(
             prefs.getStringSet("enabled", definitions.filter { it.defaultEnabled }.map { it.id }.toSet()).orEmpty()
                 .filter { id -> definitions.any { it.id == id } }.toSet(),

@@ -51,9 +51,10 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 @Composable
-internal fun PluginsScreen(model: MusicViewModel, back: () -> Unit) {
+internal fun PluginsScreen(model: MusicViewModel, startRecommended: Boolean = false, back: () -> Unit) {
     val config by model.plugins.collectAsStateWithLifecycle()
     val catalog by model.pluginCatalog.collectAsStateWithLifecycle()
+    var recommendations by rememberSaveable { mutableStateOf(startRecommended) }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     var adding by rememberSaveable { mutableStateOf(false) }
     val motion = motionEnabled()
@@ -61,7 +62,8 @@ internal fun PluginsScreen(model: MusicViewModel, back: () -> Unit) {
     LaunchedEffect(catalog.installed) {
         if (selected != null && catalog.installed.none { it.manifest.id == selected }) selected = null
     }
-    BackHandler(selected != null) { selected = null }
+    BackHandler(selected != null || recommendations) { if (recommendations) recommendations = false else selected = null }
+    if (recommendations) { RecommendedPluginsScreen(model, back = { recommendations = false }); return }
     if (adding) InstallPluginSheet(model, catalog) { adding = false }
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         AnimatedContent(selected, transitionSpec = {
@@ -72,7 +74,7 @@ internal fun PluginsScreen(model: MusicViewModel, back: () -> Unit) {
                     fadeOut(if (motion) scheme.defaultEffectsSpec() else snap()))
         }, label = "Plugin overview") { id ->
             val plugin = catalog.installed.find { it.manifest.id == id }?.manifest
-            if (plugin == null) PluginList(catalog, config, model, { selected = it }, { adding = true }, back)
+            if (plugin == null) PluginList(catalog, config, model, { selected = it }, { adding = true }, { recommendations = true }, back)
             else PluginOverview(plugin, config, catalog, model) { selected = null }
         }
     }
@@ -80,7 +82,7 @@ internal fun PluginsScreen(model: MusicViewModel, back: () -> Unit) {
 
 @Composable
 private fun PluginList(catalog: PluginCatalog, config: PluginConfiguration, model: MusicViewModel,
-    open: (String) -> Unit, add: () -> Unit, back: () -> Unit) {
+    openPlugin: (String) -> Unit, add: () -> Unit, recommended: () -> Unit, back: () -> Unit) {
     Scaffold(contentWindowInsets = WindowInsets(0, 0, 0, 0),
         floatingActionButton = {
             MediumFloatingActionButton(add, Modifier.navigationBarsPadding(),
@@ -102,21 +104,10 @@ private fun PluginList(catalog: PluginCatalog, config: PluginConfiguration, mode
                     }
                 }
                 Text("Plugins", Modifier.padding(top = 24.dp, bottom = 12.dp), style = MaterialTheme.typography.displayMedium)
-                Text("Music integrations", style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(24.dp))
-                listOf("Spotify" to R.drawable.spotify, "YouTube Music" to R.drawable.youtube_music).forEach { (name, logo) ->
-                    Surface(Modifier.padding(bottom = 12.dp), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                        Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(painterResource(logo), "$name logo", Modifier.size(48.dp), tint = Color.Unspecified)
-                            Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
-                                Text(name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Text("Unavailable", Modifier.padding(top = 4.dp), style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Switch(checked = false, onCheckedChange = null, enabled = false)
-                        }
-                    }
+                FilledTonalButton(recommended, Modifier.padding(top = 12.dp, bottom = 24.dp)) {
+                    Text("Recommended plugins")
+                    Spacer(Modifier.width(8.dp))
+                    Icon(Icons.Rounded.KeyboardArrowRight, null)
                 }
             }
             items(catalog.installed, key = { it.manifest.id }) { entry ->
@@ -126,7 +117,7 @@ private fun PluginList(catalog: PluginCatalog, config: PluginConfiguration, mode
                     color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Row(Modifier.weight(1f).clip(MaterialTheme.shapes.medium)
-                            .clickable(onClickLabel = "About ${plugin.name}") { open(plugin.id) }.padding(20.dp),
+                            .clickable(onClickLabel = "About ${plugin.name}") { openPlugin(plugin.id) }.padding(20.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             PluginGlyph(plugin, Modifier.size(48.dp))
                             Column(Modifier.weight(1f).padding(start = 16.dp)) {
@@ -157,7 +148,7 @@ private fun PluginList(catalog: PluginCatalog, config: PluginConfiguration, mode
 @Composable
 private fun PluginGlyph(plugin: PluginManifest, modifier: Modifier = Modifier) {
     if (plugin.id == "lrclib") Icon(painterResource(R.drawable.lrclib), "LRCLIB logo", modifier, tint = Color.Unspecified)
-    else Icon(ImageVector.vectorResource(R.drawable.lyrics), null, modifier, tint = MaterialTheme.colorScheme.primary)
+    else Icon(if (plugin.musicImport != null) Icons.Rounded.Download else ImageVector.vectorResource(R.drawable.lyrics), null, modifier, tint = MaterialTheme.colorScheme.primary)
 }
 
 @Composable
@@ -177,7 +168,7 @@ private fun PluginOverview(plugin: PluginManifest, config: PluginConfiguration, 
         effects, label = "Plugin toggle content")
     if (removing) AlertDialog(onDismissRequest = { removing = false }, shape = MaterialTheme.shapes.extraLarge,
         icon = { Icon(Icons.Rounded.DeleteOutline, null) }, title = { Text("Uninstall ${plugin.name}?") },
-        text = { Text("This removes the plugin, its settings and saved lyrics. You can install it again from its GitHub link.") },
+        text = { Text("This removes the plugin from Klang and clears its settings. Android service plugins remain installed on the device until removed in Android settings.") },
         confirmButton = { TextButton({ removing = false; model.uninstallPlugin(plugin.id) }) { Text("Uninstall", color = colors.error) } },
         dismissButton = { TextButton({ removing = false }) { Text("Cancel") } })
     LazyColumn(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(), contentPadding = PaddingValues(24.dp),
@@ -409,10 +400,7 @@ private fun InstallPluginSheet(model: MusicViewModel, catalog: PluginCatalog, di
                     if (ready == null) {
                         loading = true; error = null
                         scope.launch {
-                            try { candidate = model.inspectPlugin(link) }
-                            catch (cancelled: CancellationException) { throw cancelled }
-                            catch (failure: Exception) { error = failure.message ?: "Couldn't find this plugin." }
-                            finally { loading = false }
+                            try { candidate = model.inspectPlugin(link) } catch (cancelled: CancellationException) { throw cancelled } catch (failure: Exception) { error = failure.message ?: "Couldn't find this plugin." } finally { loading = false }
                         }
                     } else { error = null; installing = true; model.installPlugin(ready) }
                 }, enabled = link.isNotBlank() && !loading && !installing && !alreadyInstalled && catalog.busyId == null,

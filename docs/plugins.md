@@ -70,4 +70,39 @@ Buttons have a label, HTTPS URL, and `website`, `source`, or `donate` icon. Omit
 
 Klang checks stable releases at startup. An available update shows a snackbar linking to Plugins and an update button on the plugin. Updates keep settings and enabled state. Uninstall removes the plugin, settings, and cached lyrics. IDs and repository URLs must stay unchanged across versions. The checksum detects a damaged download; repository ownership determines who publishes updates.
 
-API 1 does not execute downloaded code or support scraping, OAuth, POST requests, or arbitrary scripts. Services with those needs can expose a compatible HTTPS endpoint. Future executable plugins will need a separate, sandboxed API version. Unknown API versions are rejected so an app update can introduce new capabilities without breaking API 1 providers.
+API 1 does not execute downloaded code or support scraping, OAuth, POST requests, or arbitrary scripts. Services with those needs can expose a compatible HTTPS endpoint. API 2 music providers run in a separately installed Android service under their own UID. Unknown API versions are rejected so an app update can introduce new capabilities without breaking API 1 providers.
+
+## Music download plugins (API 2)
+
+API 1 lyrics providers stay unchanged. API 2 is an independently installed Android
+service, not executable code loaded into Klang. A download plugin manifest uses
+`apiVersion: 2`, `type: "musicImport"` and:
+
+```json
+"musicImport": {
+  "package": "com.example.provider",
+  "service": "com.example.provider.DownloadService",
+  "hosts": ["music.example.com"],
+  "schemes": ["example-music"]
+}
+```
+
+The exported service advertises `io.github.lynlioss.klang.MUSIC_IMPORT_V2` and embeds
+its JSON manifest as the `klang.plugin` metadata resource. Klang discovers it
+through PackageManager, validates the package/service match and provides enable,
+settings and update controls. An uninstall in Klang removes the integration;
+remove the separate APK in Android settings to reclaim its runtime storage.
+
+API 2 releases attach `plugin.apk` and `plugin.apk.sha256` as well as the API 1
+manifest/checksum assets. Klang verifies both checksums and APK package/version
+before handing installation to Android. Android enforces signing continuity for
+updates. No native downloader binaries are in the host APK.
+
+The protocol is documented in the reference plugin's
+[API.md](https://github.com/lynlioss/music-import-klang/blob/main/API.md).
+Resolve accepts a link and returns metadata for review. Download accepts one
+opaque metadata payload and a host-owned output descriptor, streams progress,
+then returns file type and final metadata. Large metadata responses use a pipe
+to avoid Binder size limits. The host owns duplicate checks, queue order,
+foreground scheduling and atomic file publication. Providers own source-specific
+links, metadata requests, matching and audio downloading.
