@@ -80,67 +80,76 @@ internal fun PluginsScreen(model: MusicViewModel, back: () -> Unit) {
 @Composable
 private fun PluginList(catalog: PluginCatalog, config: PluginConfiguration, model: MusicViewModel,
     open: (String) -> Unit, add: () -> Unit, back: () -> Unit) {
-    LazyColumn(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(),
-        contentPadding = PaddingValues(24.dp)) {
-        item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                UtilityIconButton(back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to settings") }
-                Spacer(Modifier.weight(1f))
-                IconButton({ model.checkPluginUpdates() }, enabled = !catalog.checking && catalog.busyId == null) {
-                    if (catalog.checking) LoadingIndicator(Modifier.size(24.dp))
-                    else Icon(Icons.Rounded.Refresh, "Check plugin updates")
-                }
-                FilledTonalIconButton(add) { Icon(Icons.Rounded.Add, "Add plugin from GitHub") }
+    Scaffold(contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        floatingActionButton = {
+            MediumFloatingActionButton(add, Modifier.navigationBarsPadding(),
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer) {
+                Icon(Icons.Rounded.Add, "Add plugin from GitHub", Modifier.size(FloatingActionButtonDefaults.MediumIconSize))
             }
-            Text("Plugins", Modifier.padding(top = 24.dp, bottom = 12.dp), style = MaterialTheme.typography.displayMedium)
-            Text("Music integrations", style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(24.dp))
-            listOf("Spotify" to R.drawable.spotify, "YouTube Music" to R.drawable.youtube_music).forEach { (name, logo) ->
-                Surface(Modifier.padding(bottom = 12.dp), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(painterResource(logo), "$name logo", Modifier.size(48.dp), tint = Color.Unspecified)
-                        Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
-                            Text(name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                            Text("Unavailable", Modifier.padding(top = 4.dp), style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Switch(checked = false, onCheckedChange = null, enabled = false)
-                    }
-                }
-            }
-        }
-        items(catalog.installed, key = { it.manifest.id }) { entry ->
-            val plugin = entry.manifest
-            val enabled = plugin.id in config.enabled
-            Surface(Modifier.fillMaxWidth().padding(bottom = 12.dp), shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        }) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding).statusBarsPadding().navigationBarsPadding(),
+            // Leave scroll space for the persistent add action while preserving the list layout.
+            contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 112.dp)) {
+            item {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Row(Modifier.weight(1f).clip(MaterialTheme.shapes.medium)
-                        .clickable(onClickLabel = "About ${plugin.name}") { open(plugin.id) }.padding(20.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        PluginGlyph(plugin, Modifier.size(48.dp))
-                        Column(Modifier.weight(1f).padding(start = 16.dp)) {
-                            Text(plugin.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                            Text("${plugin.type.label} · ${if (enabled) "Enabled" else "Disabled"}", Modifier.padding(top = 4.dp), style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    UtilityIconButton(back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to settings") }
+                    Spacer(Modifier.weight(1f))
+                    IconButton({ model.checkPluginUpdates() }, enabled = !catalog.checking && catalog.busyId == null) {
+                        if (catalog.checking) LoadingIndicator(Modifier.size(24.dp))
+                        else Icon(Icons.Rounded.Refresh, "Check plugin updates")
+                    }
+                }
+                Text("Plugins", Modifier.padding(top = 24.dp, bottom = 12.dp), style = MaterialTheme.typography.displayMedium)
+                Text("Music integrations", style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(24.dp))
+                listOf("Spotify" to R.drawable.spotify, "YouTube Music" to R.drawable.youtube_music).forEach { (name, logo) ->
+                    Surface(Modifier.padding(bottom = 12.dp), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                        Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(painterResource(logo), "$name logo", Modifier.size(48.dp), tint = Color.Unspecified)
+                            Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
+                                Text(name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                Text("Unavailable", Modifier.padding(top = 4.dp), style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(checked = false, onCheckedChange = null, enabled = false)
                         }
                     }
-                    catalog.updates[plugin.id]?.let { update ->
-                        IconButton({ model.installPlugin(update) }, enabled = catalog.busyId == null) {
-                            Icon(Icons.Rounded.SystemUpdateAlt, "Update ${plugin.name} to ${update.manifest.version}", tint = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                    if (catalog.busyId == plugin.id) LoadingIndicator(Modifier.size(32.dp).padding(end = 4.dp))
-                    Switch(enabled, { model.enablePlugin(plugin.id, it) }, enabled = catalog.busyId == null,
-                        modifier = Modifier.padding(end = 20.dp).semantics { contentDescription = "Enable ${plugin.name}" })
                 }
             }
+            items(catalog.installed, key = { it.manifest.id }) { entry ->
+                val plugin = entry.manifest
+                val enabled = plugin.id in config.enabled
+                Surface(Modifier.fillMaxWidth().padding(bottom = 12.dp), shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.weight(1f).clip(MaterialTheme.shapes.medium)
+                            .clickable(onClickLabel = "About ${plugin.name}") { open(plugin.id) }.padding(20.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            PluginGlyph(plugin, Modifier.size(48.dp))
+                            Column(Modifier.weight(1f).padding(start = 16.dp)) {
+                                Text(plugin.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                Text("${plugin.type.label} · ${if (enabled) "Enabled" else "Disabled"}", Modifier.padding(top = 4.dp), style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        catalog.updates[plugin.id]?.let { update ->
+                            IconButton({ model.installPlugin(update) }, enabled = catalog.busyId == null) {
+                                Icon(Icons.Rounded.SystemUpdateAlt, "Update ${plugin.name} to ${update.manifest.version}", tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                        if (catalog.busyId == plugin.id) LoadingIndicator(Modifier.size(32.dp).padding(end = 4.dp))
+                        Switch(enabled, { model.enablePlugin(plugin.id, it) }, enabled = catalog.busyId == null,
+                            modifier = Modifier.padding(end = 20.dp).semantics { contentDescription = "Enable ${plugin.name}" })
+                    }
+                }
+            }
+            if (catalog.installed.isEmpty()) item {
+                EmptyState("Add your first plugin", "Tap + and paste a plugin's GitHub repository link.")
+            }
+            item { PluginError(catalog.error, model::clearPluginError) }
         }
-        if (catalog.installed.isEmpty()) item {
-            EmptyState("Add your first plugin", "Tap + and paste a plugin's GitHub repository link.")
-        }
-        item { PluginError(catalog.error, model::clearPluginError) }
     }
 }
 

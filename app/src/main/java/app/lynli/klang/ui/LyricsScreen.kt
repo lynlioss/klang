@@ -122,9 +122,11 @@ internal fun LyricsScreen(state: MusicState, model: MusicViewModel, close: () ->
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(track.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        LyricsProviderLabel(lyrics, model)
                     }
                     FilledTonalIconButton(close) { Icon(Icons.Rounded.KeyboardArrowDown, "Back to now playing") }
+                }
+                Box(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp), contentAlignment = Alignment.Center) {
+                    LyricsProviderLabel(lyrics, model)
                 }
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -173,9 +175,9 @@ internal fun LyricsScreen(state: MusicState, model: MusicViewModel, close: () ->
 private fun LyricsProviderLabel(lyrics: LyricsState, model: MusicViewModel) {
     val document = (lyrics as? LyricsState.Ready)?.document ?: return
     val provider = model.pluginManifests.find { it.id == document.providerId }
-    // Keep the word-timing pill beside the song information when controls are visible.
+    // The provider occupies its own centered row beneath the navigation header.
     if (document.hasWordTiming && provider != null) {
-        Surface(Modifier.padding(top = 4.dp), color = MaterialTheme.colorScheme.secondaryContainer,
+        Surface(color = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer, shape = RoundedCornerShape(50)) {
             Text(provider.name, Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
                 style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold,
@@ -184,7 +186,7 @@ private fun LyricsProviderLabel(lyrics: LyricsState, model: MusicViewModel) {
     } else {
         val caption = if (!document.instrumental && !document.synchronized) "Plain lyrics" else null
         val label = listOfNotNull(provider?.name, caption).joinToString(" · ")
-        if (label.isNotBlank()) Text(label, Modifier.padding(top = 4.dp),
+        if (label.isNotBlank()) Text(label,
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
