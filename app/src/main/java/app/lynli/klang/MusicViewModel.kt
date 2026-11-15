@@ -15,6 +15,7 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.core.content.ContextCompat
+import com.posthog.PostHog
 import app.lynli.klang.data.MusicRepository
 import app.lynli.klang.data.Track
 import app.lynli.klang.data.TrackDetails
@@ -126,6 +127,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         override fun onEvents(player: Player, events: Player.Events) { syncPlayer() }
         override fun onPlayerError(error: PlaybackException) {
             android.util.Log.e("KlangPlayback", "Playback failed: ${error.errorCodeName}", error)
+            KlangPostHogLogger.playbackFailed(error.errorCodeName)
             message("Playback failed (${error.errorCodeName}). Try playing again.")
         }
     }
@@ -201,6 +203,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 throw cancelled
             } catch (error: Exception) {
                 android.util.Log.e("KlangLibrary", "Library scan failed", error)
+                KlangPostHogLogger.libraryScanFailed(error)
                 mutableState.update { it.copy(loading = false, permission = repository.hasLibraryPermission(),
                     notificationPermission = hasNotificationPermission()) }
                 message("Couldn't read your library. Check music access and refresh.")
@@ -278,6 +281,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (mutableState.value.queue.isEmpty()) sleep(0)
         syncPlayer()
         refresh()
+        PostHog.capture(event = "audio_deleted")
         message("Audio file deleted")
     }
     private fun hasNotificationPermission() = ContextCompat.checkSelfPermission(getApplication(),
@@ -298,13 +302,16 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun completeOnboarding() {
         prefs.edit().putBoolean("onboardingComplete", true).apply()
         mutableState.update { it.copy(onboardingComplete = true) }
+        PostHog.capture(event = "onboarding_completed")
     }
     fun importFiles(uris: List<Uri>) {
         if (uris.isEmpty() || mutableState.value.busy) return
         viewModelScope.launch {
             mutableState.update { it.copy(busy = true) }
-            runCatching { repository.importFiles(uris) }.onSuccess { message("$it tracks added to Music/Klang") }
-                .onFailure { message("Import stopped: ${it.localizedMessage}. Any completed files are in your library.") }
+            runCatching { repository.importFiles(uris) }.onSuccess { count ->
+                PostHog.capture(event = "music_imported", properties = mapOf("track_count" to count))
+                message("$count tracks added to Music/Klang")
+            }.onFailure { message("Import stopped: ${it.localizedMessage}. Any completed files are in your library.") }
             mutableState.update { it.copy(busy = false) }; refresh()
         }
     }
@@ -318,6 +325,16 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         player.setMediaItems(tracks.map { it.mediaItem().withPlaybackSource(sourceId) }, start.index, 0)
         player.shuffleModeEnabled = start.shuffle
         player.prepare(); player.play(); syncPlayer()
+        PostHog.capture(event = "playback_started", properties = mapOf(
+            "queue_size" to tracks.size,
+            "source_type" to when {
+                sourceId == null -> "library"
+                sourceId == "mix" -> "mix"
+                sourceId.startsWith("playlist:") -> "playlist"
+                else -> "collection"
+            },
+            "shuffled" to start.shuffle,
+        ))
     }
     /** Resume/pause a matching collection without replacing the queue or resetting the position. */
     fun playOrToggle(tracks: List<Track>, sourceId: String) {
@@ -390,6 +407,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 mutablePlugins.value = pluginStore.enable(candidate.manifest.id, enabled)
                 mutablePluginCatalog.update { it.copy(installed = pluginRegistry.entries, updates = it.updates - candidate.manifest.id) }
                 retryLyrics()
+                PostHog.capture(event = "plugin_installed", properties = mapOf(
+                    "plugin_type" to candidate.manifest.type.name.lowercase(),
+                    "operation" to if (existing == null) "installed" else "updated",
+                ))
                 message(if (existing == null) "${candidate.manifest.name} installed" else "${candidate.manifest.name} updated")
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) { mutablePluginCatalog.update { it.copy(error = error.message ?: "Couldn't install this plugin.") } }
@@ -398,6 +419,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun uninstallPlugin(id: String) {
         if (mutablePluginCatalog.value.busyId != null) return
+        val pluginType = pluginRegistry.entries.find { it.manifest.id == id }?.manifest?.type?.name?.lowercase() ?: "unknown"
         mutablePluginCatalog.update { it.copy(busyId = id, error = null) }
         viewModelScope.launch {
             try {
@@ -408,6 +430,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 retryLyrics()
                 // Disabling first cancels the in-flight lookup before deleting its cache.
                 lyricsRepository.clearCache(id)
+                PostHog.capture(event = "plugin_uninstalled", properties = mapOf("plugin_type" to pluginType))
                 message("Plugin uninstalled")
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) { mutablePluginCatalog.update { it.copy(error = "Couldn't uninstall this plugin.") } }
@@ -462,11 +485,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val updated = mutableState.value.favorites.toMutableSet().apply { if (!add(track.id)) remove(track.id) }.toSet()
         prefs.edit().putStringSet("favorites", updated).apply()
         mutableState.update { it.copy(favorites = updated) }
+        PostHog.capture(event = "favorite_toggled", properties = mapOf("is_favorite" to (track.id in updated)))
     }
     fun createPlaylist(name: String): String? {
         if (name.trim().isEmpty()) return null
         val playlist = playlistStore.create(name)
         updatePlaylists { it + playlist }
+        PostHog.capture(event = "playlist_created")
         return playlist.id
     }
     fun renamePlaylist(id: String, name: String) {
@@ -475,6 +500,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun deletePlaylist(id: String) {
         val cover = mutableState.value.playlists.find { it.id == id }?.coverFile
         updatePlaylists { items -> items.filterNot { it.id == id } }
+        PostHog.capture(event = "playlist_deleted")
         viewModelScope.launch { PlaylistCovers.delete(getApplication(), cover) }
     }
     fun setPlaylistCover(id: String, uri: Uri) {
@@ -528,6 +554,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val endsAt = if (duration > 0) System.currentTimeMillis() + duration * 60_000L else 0
         mutableState.update { it.copy(sleepMinutes = duration, sleepEndsAt = endsAt,
             sleepRemaining = if (endsAt > 0) duration * 60_000L else 0) }
+        PostHog.capture(event = "sleep_timer_set", properties = mapOf(
+            "duration_minutes" to duration,
+            "is_active" to (duration > 0),
+        ))
         if (duration > 0) sleepJob = viewModelScope.launch {
             delay(duration * 60_000L)
             controller?.pause()
@@ -581,6 +611,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 throw cancelled
             } catch (error: Exception) {
                 android.util.Log.e("KlangUpdate", "Update failed", error)
+                KlangPostHogLogger.updateInstallationFailed(error)
                 message("Update failed. Check your connection and try again.")
             } finally {
                 mutableState.update { it.copy(updating = false, downloadProgress = 0f) }

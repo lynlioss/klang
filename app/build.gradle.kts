@@ -19,6 +19,18 @@ fun signingSetting(property: String, environment: String): String? =
 
 val releaseSigningStore = signingSetting("storeFile", "KLANG_KEYSTORE_FILE")
 
+val posthogProperties = Properties().apply {
+    val file = rootProject.file(".env")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
+fun posthogSetting(environment: String): String? =
+    System.getenv(environment)?.takeIf { it.isNotBlank() }
+        ?: posthogProperties.getProperty(environment)?.takeIf { it.isNotBlank() }
+
+val posthogProjectToken = posthogSetting("POSTHOG_PROJECT_TOKEN")
+val posthogHost = posthogSetting("POSTHOG_HOST")
+
 if (releaseSigningStore == null && System.getenv("KLANG_REQUIRE_RELEASE_SIGNING").toBoolean()) {
     throw GradleException(
         "Release signing is required but no keystore was configured. " +
@@ -42,6 +54,8 @@ android {
         versionCode = 35
         versionName = "1.0.12"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "POSTHOG_PROJECT_TOKEN", posthogProjectToken?.let { "\"$it\"" } ?: "null")
+        buildConfigField("String", "POSTHOG_HOST", posthogHost?.let { "\"$it\"" } ?: "null")
     }
     signingConfigs {
         create("release") {
@@ -82,6 +96,7 @@ dependencies {
     implementation("com.materialkolor:material-kolor:4.1.1")
     implementation("org.yaml:snakeyaml:2.6")
     implementation("androidx.work:work-runtime-ktx:2.11.0")
+    implementation("com.posthog:posthog-android:3.+")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")
 }

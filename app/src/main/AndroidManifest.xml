@@ -14,10 +14,10 @@
     <queries>
         <intent><action android:name="io.github.lynlioss.klang.MUSIC_IMPORT_V1" /></intent>
     </queries>
-    <application android:label="Klang" android:icon="@drawable/ic_launcher" android:roundIcon="@drawable/ic_launcher" android:theme="@style/Theme.Klang" android:allowBackup="false" android:supportsRtl="true">
+    <application android:name=".KlangApplication" android:label="Klang" android:icon="@drawable/ic_launcher" android:roundIcon="@drawable/ic_launcher" android:theme="@style/Theme.Klang" android:allowBackup="false" android:supportsRtl="true">
         <service android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync" android:exported="false" />
-        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop">
+        <activity android:name=".MainActivity" android:label="Klang" android:exported="true" android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
