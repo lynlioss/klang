@@ -64,6 +64,13 @@ class ImportTest {
         assertTrue(recordingScore(song.copy(title = song.title + " (Live)"), candidate(song.title + " (Live)")) >= .72)
     }
 
+    @Test fun engineInitializationErrorsHaveAnActionableMessage() {
+        val error = ImportEngineException(ExceptionInInitializerError(RuntimeException("class zh is not a concrete class")))
+        assertTrue(importError(error).contains("download engine"))
+        assertTrue(error.cause is ExceptionInInitializerError)
+        assertTrue(importError(java.io.InterruptedIOException("timeout")).contains("too long"))
+    }
+
     @Test fun tagsUseReleaseDateAndAlbumArtwork() {
         val info = JSONObject().put("title", "Video title").put("upload_date", "20261115")
         tagInfo(info, song)

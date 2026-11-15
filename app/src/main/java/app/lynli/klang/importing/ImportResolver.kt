@@ -8,16 +8,23 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.Base64
 import kotlin.coroutines.coroutineContext
 import kotlin.math.abs
 
 internal object ImportEngine {
     fun initialize(context: Context) {
-        YoutubeDL.init(context.applicationContext)
-        FFmpeg.init(context.applicationContext)
+        try {
+            YoutubeDL.init(context.applicationContext)
+            FFmpeg.init(context.applicationContext)
+        } catch (error: LinkageError) {
+            throw ImportEngineException(error)
+        }
+    }
+
+    fun stop(processId: String) {
+        try { YoutubeDL.destroyProcessById(processId) }
+        catch (_: LinkageError) { /* A failed class initializer cannot own a live process. */ }
     }
 
     @Synchronized
@@ -51,7 +58,7 @@ internal object ImportEngine {
 
 internal class ImportResolver(private val context: Context) {
     suspend fun resolve(link: ImportLink, processId: String): ImportPreview = withContext(Dispatchers.IO) {
-        if (link.source == ImportSource.SPOTIFY) kotlinx.coroutines.runInterruptible { SpotifyMetadata.preview(link) }
+        if (link.source == ImportSource.SPOTIFY) SpotifyMetadata.preview(link)
         else {
             ImportEngine.initialize(context)
             val json = kotlinx.coroutines.runInterruptible { ImportEngine.info(link.url, processId, flat = link.playlist) }
@@ -85,17 +92,21 @@ internal fun thumbnail(json: JSONObject): String? = json.optJSONArray("thumbnail
 
 /** Public metadata only. Never reads Spotify audio previews as a download source. */
 internal object SpotifyMetadata {
-    fun preview(link: ImportLink): ImportPreview {
+    suspend fun preview(link: ImportLink): ImportPreview {
         val kind = if (link.playlist) "playlist" else "track"
         val embedHtml = getText("https://open.spotify.com/embed/$kind/${link.id}")
         val embed = parseEmbed(embedHtml)
         val entity = embed.getJSONObject("props").getJSONObject("pageProps").getJSONObject("state")
             .getJSONObject("data").getJSONObject("entity")
-        val regular = runCatching { publicEntity(getText(link.url), "spotify:$kind:${link.id}") }.getOrNull()
         if (!link.playlist) {
-            val song = regular?.let { parsePublicTrack(it) } ?: parseEmbedTrack(entity)
+            // The embed already contains title/artist/duration/artwork. Album enrichment happens in the worker.
+            val song = parseEmbedTrack(entity)
             return ImportPreview(link, song.title, listOf(song), song.artwork)
         }
+        val regular = try { publicEntity(getText(link.url), "spotify:$kind:${link.id}") }
+        catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) { null }
         val rich = regular?.optJSONObject("content")?.optJSONArray("items")?.objects().orEmpty()
             .mapNotNull { it.optJSONObject("itemV2")?.optJSONObject("data")?.let(::parsePublicTrack) }
             .associateBy { it.sourceId }
@@ -119,7 +130,7 @@ internal object SpotifyMetadata {
             image(entity.optJSONObject("coverArt")) ?: image(entity.optJSONObject("visualIdentity")))
     }
 
-    fun enrich(song: ImportSong): ImportSong {
+    suspend fun enrich(song: ImportSong): ImportSong {
         if (!song.spotify || (song.album.isNotBlank() && song.artwork != null)) return song
         val entity = publicEntity(getText(song.url), song.sourceId)
             ?: throw IllegalArgumentException("Spotify couldn't provide the song's album and artwork. Try again later.")
@@ -127,12 +138,14 @@ internal object SpotifyMetadata {
         return rich.copy(date = rich.date ?: song.date, durationMs = rich.durationMs.takeIf { it > 0 } ?: song.durationMs)
     }
 
-    private fun fullPlaylist(id: String, token: String, total: Int): List<ImportSong> {
+    private suspend fun fullPlaylist(id: String, token: String, total: Int): List<ImportSong> {
         val songs = mutableListOf<ImportSong>()
         var offset = 0
         while (offset < total) {
             val page = try {
                 JSONObject(getText("https://api.spotify.com/v1/playlists/$id/tracks?limit=100&offset=$offset", token))
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
                 throw IllegalArgumentException("Spotify didn't expose the full playlist ($total songs). Try again later or import smaller playlists.", error)
             }
@@ -198,24 +211,7 @@ internal object SpotifyMetadata {
     }
 }
 
-internal fun getText(url: String, bearer: String? = null): String {
-    val connection = URL(url).openConnection() as HttpURLConnection
-    connection.connectTimeout = 15_000
-    connection.readTimeout = 25_000
-    connection.setRequestProperty("User-Agent", "Mozilla/5.0")
-    connection.setRequestProperty("Accept-Language", "en")
-    bearer?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
-    try {
-        require(connection.responseCode in 200..299) {
-            when (connection.responseCode) {
-                429 -> "The music service is busy. Try again in a few minutes."
-                401, 403, 404 -> "This link isn't publicly accessible. Check its sharing settings."
-                else -> "Couldn't read the music link (${connection.responseCode}). Try again."
-            }
-        }
-        return connection.inputStream.bufferedReader().use { it.readText() }
-    } finally { connection.disconnect() }
-}
+internal suspend fun getText(url: String, bearer: String? = null): String = ImportHttp.getText(url, bearer)
 
 /** Match duration, artist, title and version; reject ambiguous covers/live recordings. */
 internal fun recordingScore(song: ImportSong, candidate: JSONObject): Double {

@@ -22,9 +22,15 @@ internal fun tagInfo(info: JSONObject, song: ImportSong) {
     }
 }
 
+internal class ImportEngineException(cause: LinkageError) : Exception(
+    "The bundled download engine couldn't start. Update Klang and try again.", cause,
+)
+
 internal fun importError(error: Exception): String {
     val raw = error.message.orEmpty()
     return when {
+        error is ImportEngineException -> error.message.orEmpty()
+        error is java.io.InterruptedIOException -> "The music service took too long to respond. Try again."
         raw.contains("Sign in", true) || raw.contains("bot", true) -> "YouTube requires sign-in for this recording. Try another public song link."
         raw.contains("429") -> "The service is rate limiting requests. Wait a few minutes, then retry."
         raw.contains("403") -> "The audio source refused access. Retry later or choose another recording."

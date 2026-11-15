@@ -90,7 +90,9 @@ jobs:
           KLANG_KEYSTORE_PASSWORD: ${{ secrets.KLANG_KEYSTORE_PASSWORD }}
           KLANG_KEY_ALIAS: ${{ secrets.KLANG_KEY_ALIAS }}
           KLANG_KEY_PASSWORD: ${{ secrets.KLANG_KEY_PASSWORD }}
-        run: ./gradlew assembleRelease lintDebug testDebugUnitTest --no-daemon
+        run: |
+          python3 scripts/test-import-packaging.py
+          ./gradlew assembleRelease lintDebug testDebugUnitTest --no-daemon
 
       - name: Verify APK and rename
         env:
@@ -98,6 +100,7 @@ jobs:
         run: |
           APK=app/build/outputs/apk/release/app-release.apk
           python3 scripts/verify-apk.py "$APK"
+          python3 scripts/verify-import-packaging.py "$APK"
 
           built=$("$ANDROID_HOME/build-tools/37.0.0/aapt2" dump badging "$APK" |
             sed -n "s/^package:.*versionName='\([^']*\)'.*/\1/p")
@@ -131,6 +134,7 @@ jobs:
           path: |
             klang.apk
             klang.apk.sha256
+            app/build/outputs/mapping/release/mapping.txt
           if-no-files-found: error
 
       - uses: softprops/action-gh-release@v2

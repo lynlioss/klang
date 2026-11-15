@@ -4,6 +4,10 @@ The library's plus button opens Add music. Paste a public Spotify or YouTube
 Music song or playlist link, review the songs, and choose Add. Local audio files
 and creating a playlist are available from the same sheet.
 
+Lookups have a 45-second deadline. Spotify song previews use one public embed
+request; album enrichment runs in the background after adding. Each metadata
+request has a 20-second total timeout and cancellation closes its connection.
+
 Imports run in WorkManager with a foreground notification and an app status
 card. Three songs download concurrently, with eight concurrent fragments per
 song when the source uses fragmented transfers. Completed files become
@@ -15,7 +19,10 @@ order even when downloads finish out of order.
 ## Audio and metadata
 
 Klang bundles yt-dlp through youtubedl-android 0.18.1, together with FFmpeg,
-Python and QuickJS. There is no separate downloader app or server. yt-dlp's
+Python and QuickJS for ARM64 phones. Other-ABI development builds can use
+`-Pklang.abis=x86_64` (or another comma-separated ABI list). The distributed APK
+contains one architecture, not four complete runtimes. There is no separate
+downloader app or server. yt-dlp's
 stable extractor is refreshed at most once daily when an import starts; an
 unavailable update does not prevent using the bundled version.
 
@@ -51,6 +58,7 @@ Check artwork and tags in another player; verify Opus/AAC stays in its original
 codec. Close the sheet during downloads, reopen from the status card, interrupt
 the network, cancel/retry, and verify playlist order. Check notification behavior
 with permission granted and denied. Test large Spotify playlists for an explicit
-error when pagination is unavailable. Run the release package verifier to check
-native library packaging. Download speed and matching accuracy still require
+error when pagination is unavailable. Run `scripts/verify-import-packaging.py` against the release APK and R8 mapping
+to check native library packaging, size and reflected ZIP-handler constructors.
+CI retains the R8 mapping for readable release crash reports. Download speed and matching accuracy still require
 real device testing; no performance guarantee is implied by the concurrency settings.

@@ -9,7 +9,6 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import app.lynli.klang.data.PlaylistStore
-import com.yausername.youtubedl_android.YoutubeDL
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
@@ -80,7 +79,7 @@ internal class ImportStore private constructor(context: Context) {
         }) }, true)
         // Kill only this batch's native processes. A publication already in progress can finish.
         batch.entries.indices.filter { batch.entries[it].phase != ImportPhase.SAVING }
-            .forEach { YoutubeDL.destroyProcessById(processId(batchId, it)) }
+            .forEach { ImportEngine.stop(processId(batchId, it)) }
     }
 
     @Synchronized

@@ -37,6 +37,9 @@ android {
         applicationId = "io.github.lynlioss.klang"
         minSdk = 36
         targetSdk = 36
+        // Android 16 phones use ARM64. Avoid shipping three unused Python/FFmpeg runtimes.
+        // Emulator builds can opt into their ABI without growing the distributed APK.
+        ndk { abiFilters += providers.gradleProperty("klang.abis").orElse("arm64-v8a").get().split(',') }
         // Single source of truth for the release: scripts/bump-version.py edits
         // these two lines, and the UI reads them through BuildConfig.
         versionCode = 30
@@ -85,8 +88,10 @@ dependencies {
     implementation("com.materialkolor:material-kolor:4.1.1")
     implementation("org.yaml:snakeyaml:2.6")
     implementation("androidx.work:work-runtime-ktx:2.11.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")
 }

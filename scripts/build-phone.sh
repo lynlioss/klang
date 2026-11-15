@@ -22,6 +22,7 @@ for task in "$@"; do
   case "$task" in
     assembleRelease|:app:assembleRelease)
       python3 scripts/verify-apk.py app/build/outputs/apk/release/app-release.apk
+      python3 scripts/verify-import-packaging.py app/build/outputs/apk/release/app-release.apk
       if [[ -f /apex/com.android.art/bin/dalvikvm64 && -f /apex/com.android.runtime/bin/linker64 ]]; then
         python3 scripts/verify-release-lyrics.py app/build/outputs/apk/release/app-release.apk
       fi

@@ -1,7 +1,6 @@
 package app.lynli.klang.importing
 
 import android.content.Context
-import com.yausername.youtubedl_android.YoutubeDL
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -9,6 +8,8 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
 import java.util.UUID
 
 internal data class ImportUiState(
@@ -33,18 +34,27 @@ internal class ImportController(context: Context, private val scope: CoroutineSc
         mutable.value = ImportUiState(resolving = true)
         job = scope.launch {
             try {
-                val result = resolver.resolve(link, id)
+                val result = withTimeout(45_000) { resolver.resolve(link, id) }
                 kotlinx.coroutines.currentCoroutineContext().ensureActive()
                 mutable.value = ImportUiState(preview = result)
+            } catch (_: TimeoutCancellationException) {
+                mutable.value = ImportUiState(error = "Finding music took too long. Check your connection and try again.")
+            } catch (error: LinkageError) {
+                mutable.value = ImportUiState(error = importError(ImportEngineException(error)))
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (error: Exception) { mutable.value = ImportUiState(error = importError(error)) }
+            } catch (error: Exception) {
+                android.util.Log.e("KlangImport", "Music lookup failed", error)
+                mutable.value = ImportUiState(error = importError(error))
+            } finally {
+                ImportEngine.stop(id)
+            }
         }
     }
 
     fun clear() {
         job?.cancel()
-        processId?.let { YoutubeDL.destroyProcessById(it) }
+        processId?.let(ImportEngine::stop)
         processId = null
         mutable.value = ImportUiState()
     }

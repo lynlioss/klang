@@ -76,17 +76,25 @@ class MusicImportWorker(context: Context, params: WorkerParameters) : CoroutineW
         } catch (cancelled: CancellationException) {
             // WorkManager will restart unfinished work when its constraints are met again.
             store.batches.value.filter { it.pending }.forEach { batch ->
-                batch.entries.indices.forEach { YoutubeDL.destroyProcessById(ImportStore.processId(batch.id, it)) }
+                batch.entries.indices.forEach { ImportEngine.stop(ImportStore.processId(batch.id, it)) }
             }
             store.flush()
             throw cancelled
-        } catch (error: Exception) {
-            store.batches.value.filter { it.pending }.forEach { batch ->
-                batch.entries.indices.filter { !batch.entries[it].phase.finished }.forEach { index ->
-                    store.updateEntry(batch.id, index) { it.copy(phase = ImportPhase.FAILED, error = importError(error)) }
-                }
-            }
+        } catch (error: LinkageError) {
+            failPending(ImportEngineException(error))
             Result.failure()
+        } catch (error: Exception) {
+            failPending(error)
+            Result.failure()
+        }
+    }
+
+    private fun failPending(error: Exception) {
+        android.util.Log.e("KlangImport", "Music import failed", error)
+        store.batches.value.filter { it.pending }.forEach { batch ->
+            batch.entries.indices.filter { !batch.entries[it].phase.finished }.forEach { index ->
+                store.updateEntry(batch.id, index) { it.copy(phase = ImportPhase.FAILED, error = importError(error)) }
+            }
         }
     }
 
@@ -105,7 +113,7 @@ class MusicImportWorker(context: Context, params: WorkerParameters) : CoroutineW
                 return
             }
             store.updateEntry(batchId, index) { it.copy(phase = ImportPhase.MATCHING) }
-            val song = runInterruptible { SpotifyMetadata.enrich(entry.song) }
+            val song = kotlinx.coroutines.withTimeout(45_000) { SpotifyMetadata.enrich(entry.song) }
             currentCoroutineContext().ensureActive()
             checkNotCancelled(batchId, index)
             store.updateEntry(batchId, index) { it.copy(song = song) }
@@ -176,8 +184,14 @@ class MusicImportWorker(context: Context, params: WorkerParameters) : CoroutineW
                 store.complete(batchId, index, track.id)
             }
             directory.deleteRecursively()
+        } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
+            store.updateEntry(batchId, index) { it.copy(phase = ImportPhase.FAILED,
+                error = "Spotify took too long to read this song. Try again.", speed = null, etaSeconds = -1) }
+        } catch (error: LinkageError) {
+            store.updateEntry(batchId, index) { it.copy(phase = ImportPhase.FAILED,
+                error = importError(ImportEngineException(error)), speed = null, etaSeconds = -1) }
         } catch (cancelled: CancellationException) {
-            YoutubeDL.destroyProcessById(processId)
+            ImportEngine.stop(processId)
             throw cancelled
         } catch (error: Exception) {
             store.updateEntry(batchId, index) {
