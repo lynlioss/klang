@@ -33,6 +33,8 @@ A lightweight music player for Android, built with Material 3 Expressive.
 
 Grab the latest build from the [releases page](https://github.com/lynlioss/klang/releases/latest).
 
+To create a lyric provider, read the [plugin guide](docs/plugins.md). Plugins install from GitHub releases and can define their own settings and links.
+
 ## Build it yourself
 
 You need JDK 17 and the Android SDK with platform 37.2 and build tools 37.

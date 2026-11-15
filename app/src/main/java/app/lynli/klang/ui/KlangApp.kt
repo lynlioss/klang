@@ -84,8 +84,20 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
     SideEffect { if (selectedCollection != null) lastCollection = selectedCollection }
     var expanded by rememberSaveable { mutableStateOf(false) }
     val snack = remember { SnackbarHostState() }
+    val pluginCatalog by model.pluginCatalog.collectAsStateWithLifecycle()
     val holder = rememberSaveableStateHolder()
     LaunchedEffect(state.message) { state.message?.let { snack.showSnackbar(it); model.clearMessage() } }
+    LaunchedEffect(pluginCatalog.updates.keys.toSet(), pluginCatalog.checking, pluginCatalog.updateNoticeDismissed) {
+        if (!pluginCatalog.checking && pluginCatalog.updates.isNotEmpty() && !pluginCatalog.updateNoticeDismissed) {
+            val count = pluginCatalog.updates.size
+            val result = snack.showSnackbar("$count plugin ${if (count == 1) "update" else "updates"} available",
+                actionLabel = "View plugins", withDismissAction = true, duration = SnackbarDuration.Long)
+            model.dismissPluginUpdateNotice()
+            if (result == SnackbarResult.ActionPerformed) {
+                expanded = false; settingsEq = false; hiddenFiles = false; collectionId = null; plugins = true
+            }
+        }
+    }
     // Jumping to an artist or album closes the player and every other overlay first.
     fun openTrackCollection(track: Track, artist: Boolean) {
         val target = if (artist) artistCollection(track.artist, state.tracks) else albumCollection(track, state.tracks)
@@ -479,7 +491,8 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
         var equalizer by rememberSaveable { mutableStateOf(false) }
         var showingLyrics by rememberSaveable { mutableStateOf(false) }
         val pluginConfig by model.plugins.collectAsStateWithLifecycle()
-        val lyricsEnabled = model.pluginManifests.any { it.type == PluginType.LYRICS && it.id in pluginConfig.enabled }
+        val pluginCatalog by model.pluginCatalog.collectAsStateWithLifecycle()
+        val lyricsEnabled = pluginCatalog.installed.any { it.manifest.type == PluginType.LYRICS && it.manifest.id in pluginConfig.enabled }
         LaunchedEffect(lyricsEnabled) { if (!lyricsEnabled) showingLyrics = false }
         var addPlaylist by remember { mutableStateOf(false) }
         var devices by remember { mutableStateOf(false) }

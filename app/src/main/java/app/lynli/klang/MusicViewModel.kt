@@ -30,6 +30,10 @@ import app.lynli.klang.playback.skipPlaybackTrack
 import app.lynli.klang.playback.withPlaybackSource
 import app.lynli.klang.plugins.PluginRegistry
 import app.lynli.klang.plugins.PluginStore
+import app.lynli.klang.plugins.PluginCatalog
+import app.lynli.klang.plugins.PluginCandidate
+import app.lynli.klang.plugins.PluginDownload
+import app.lynli.klang.plugins.GitHubPluginRepo
 import app.lynli.klang.update.UpdateInfo
 import app.lynli.klang.update.Updater
 import app.lynli.klang.lyrics.LyricsQuery
@@ -46,6 +50,8 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 data class MusicState(
     val tracks: List<Track> = emptyList(), val loading: Boolean = true,
@@ -72,8 +78,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("klang", 0)
     private val playlistStore = PlaylistStore(application)
     private val pluginRegistry = PluginRegistry(application)
-    private val pluginStore = PluginStore(application, pluginRegistry.manifests)
-    val pluginManifests = pluginRegistry.manifests
+    private val pluginStore = PluginStore(application) { pluginRegistry.manifests }
+    private val pluginDownload = PluginDownload()
+    private val mutablePluginCatalog = MutableStateFlow(PluginCatalog(installed = pluginRegistry.entries))
+    val pluginCatalog = mutablePluginCatalog.asStateFlow()
+    val pluginManifests get() = mutablePluginCatalog.value.installed.map { it.manifest }
     private val mutablePlugins = MutableStateFlow(pluginStore.read())
     val plugins = mutablePlugins.asStateFlow()
     private val lyricsRepository = LyricsRepository(application, pluginRegistry)
@@ -126,6 +135,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             }.onFailure { message("Playback connection failed. Reopen Klang to try again.") }
         }, ContextCompat.getMainExecutor(application))
         refresh()
+        checkPluginUpdates()
         viewModelScope.launch {
             try {
                 // A previous update's APK is no longer needed once this version runs.
@@ -244,6 +254,76 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun pluginSetting(id: String, key: String, value: String) {
         mutablePlugins.value = pluginStore.setting(id, key, value)
         if (key == "cacheLyrics" && value == "false") viewModelScope.launch { lyricsRepository.clearCache(id) }
+    }
+    suspend fun inspectPlugin(link: String): PluginCandidate = requireNotNull(pluginDownload.latest(GitHubPluginRepo.parse(link)))
+    fun clearPluginError() { mutablePluginCatalog.update { it.copy(error = null) } }
+    fun dismissPluginUpdateNotice() { mutablePluginCatalog.update { it.copy(updateNoticeDismissed = true) } }
+    fun installPlugin(candidate: PluginCandidate) {
+        if (mutablePluginCatalog.value.busyId != null) return
+        mutablePluginCatalog.update { it.copy(busyId = candidate.manifest.id, error = null) }
+        viewModelScope.launch {
+            try {
+                val existing = pluginRegistry.entries.find { it.manifest.id == candidate.manifest.id }
+                // Preserve the previous enabled state when updating. New plugins need a user toggle.
+                val enabled = existing != null && existing.manifest.id in mutablePlugins.value.enabled
+                withContext(Dispatchers.IO) { pluginRegistry.install(candidate) }
+                mutablePlugins.value = pluginStore.enable(candidate.manifest.id, enabled)
+                mutablePluginCatalog.update { it.copy(installed = pluginRegistry.entries, updates = it.updates - candidate.manifest.id) }
+                retryLyrics()
+                message(if (existing == null) "${candidate.manifest.name} installed" else "${candidate.manifest.name} updated")
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { mutablePluginCatalog.update { it.copy(error = error.message ?: "Couldn't install this plugin.") } }
+            finally { mutablePluginCatalog.update { it.copy(busyId = null) } }
+        }
+    }
+    fun uninstallPlugin(id: String) {
+        if (mutablePluginCatalog.value.busyId != null) return
+        mutablePluginCatalog.update { it.copy(busyId = id, error = null) }
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { pluginRegistry.uninstall(id) }
+                pluginStore.remove(id)
+                mutablePlugins.value = pluginStore.read()
+                mutablePluginCatalog.update { it.copy(installed = pluginRegistry.entries, updates = it.updates - id) }
+                retryLyrics()
+                // Disabling first cancels the in-flight lookup before deleting its cache.
+                lyricsRepository.clearCache(id)
+                message("Plugin uninstalled")
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { mutablePluginCatalog.update { it.copy(error = "Couldn't uninstall this plugin.") } }
+            finally { mutablePluginCatalog.update { it.copy(busyId = null) } }
+        }
+    }
+    fun checkPluginUpdates() {
+        if (mutablePluginCatalog.value.checking) return
+        mutablePluginCatalog.update { it.copy(checking = true, error = null) }
+        viewModelScope.launch {
+            var failures = 0
+            try {
+                for (entry in pluginRegistry.entries) {
+                    val repo = entry.repository ?: continue
+                    try {
+                        val candidate = pluginDownload.latest(repo, entry.manifest.version)
+                        if (candidate == null) {
+                            mutablePluginCatalog.update { it.copy(updates = it.updates - entry.manifest.id) }
+                            continue
+                        }
+                        require(candidate.manifest.id == entry.manifest.id) { "Plugin ID changed in this release" }
+                        mutablePluginCatalog.update { catalog ->
+                            val current = catalog.installed.find { it.manifest.id == entry.manifest.id }
+                            if (current != null && app.lynli.klang.plugins.PluginVersion.parse(candidate.manifest.version) >
+                                app.lynli.klang.plugins.PluginVersion.parse(current.manifest.version))
+                                catalog.copy(updates = catalog.updates + (entry.manifest.id to candidate))
+                            else catalog.copy(updates = catalog.updates - entry.manifest.id)
+                        }
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (error: Exception) { failures++ }
+                }
+            } finally {
+                mutablePluginCatalog.update { it.copy(checking = false, checked = true,
+                    error = if (failures > 0) "Couldn't check $failures plugin ${if (failures == 1) "repository" else "repositories"}. Try again when online." else it.error) }
+            }
+        }
     }
     fun shuffle() { controller?.let { it.shuffleModeEnabled = !it.shuffleModeEnabled } }
     fun repeat() { controller?.let { it.repeatMode = when (it.repeatMode) {
