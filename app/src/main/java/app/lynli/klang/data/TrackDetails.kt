@@ -16,12 +16,9 @@ data class TrackDetails(
     val quality: String?
         get() {
             if (mimeType?.startsWith("audio/") == true && mimeType in LOSSLESS_MIME) return "Lossless"
-            val kbps = bitrateKbps ?: return null
-            return when {
-                kbps >= 256 -> "High"
-                kbps >= 160 -> "Standard"
-                else -> "Low"
-            }
+            // Bitrate alone cannot measure audible quality across codecs or source masters.
+            return if (format in setOf("OPUS", "MP3", "AAC", "M4A", "OGG") ||
+                mimeType in setOf("audio/opus", "audio/mpeg", "audio/mp4", "audio/aac", "audio/ogg")) "Lossy" else null
         }
 
     private companion object {
@@ -32,6 +29,9 @@ data class TrackDetails(
 
 internal fun formatLabel(mimeType: String?, filename: String?): String? {
     val mime = mimeType?.lowercase()
+    // Ogg is the container; the .opus suffix identifies the audio codec.
+    if (mime in listOf(null, "audio/ogg", "application/ogg", "audio/opus") &&
+        filename?.substringAfterLast('.')?.equals("opus", true) == true) return "OPUS"
     val fromMime = when (mime) {
         "audio/mpeg", "audio/mp3" -> "MP3"
         "audio/mp4", "audio/m4a", "audio/x-m4a" -> "M4A"

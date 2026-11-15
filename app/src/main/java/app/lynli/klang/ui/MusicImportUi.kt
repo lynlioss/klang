@@ -256,6 +256,7 @@ private fun ImportBatchCard(batch: ImportBatch, controller: ImportController) {
                             }
                             Text(entry.error ?: buildString {
                                 append(entry.phase.label)
+                                entry.audioFormat?.let { append(" · $it") }
                                 entry.speed?.takeIf { entry.phase == ImportPhase.DOWNLOADING }?.let { append(" · $it") }
                                 if (entry.phase == ImportPhase.DOWNLOADING && entry.etaSeconds >= 0) append(" · ${entry.etaSeconds}s left")
                             }, Modifier.padding(start = 26.dp, top = 2.dp), style = MaterialTheme.typography.bodySmall,

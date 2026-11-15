@@ -9,6 +9,11 @@ internal fun tagInfo(info: JSONObject, song: ImportSong) {
     info.put("artist", song.artist.ifBlank { "Unknown artist" })
     info.put("artists", JSONArray(listOf(song.artist.ifBlank { "Unknown artist" })))
     if (song.album.isNotBlank()) info.put("album", song.album)
+    else {
+        info.remove("album")
+        // Explicitly clear any container album inherited from the source.
+        info.put("meta_album", "")
+    }
     song.date?.let {
         info.put("release_date", it.replace("-", "").take(8))
         info.put("meta_date", it)

@@ -17,6 +17,18 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 class ImportHttpTest {
+    @Test fun catalogPostUsesJsonAndReturnsMetadata() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody("{\"contents\":[]}"))
+            assertEquals("{\"contents\":[]}", ImportHttp.postJson(server.url("/search").toString(), "{\"query\":\"ELEMENT.\"}"))
+            val request = server.takeRequest()
+            assertEquals("POST", request.method)
+            assertEquals("application/json; charset=utf-8", request.getHeader("Content-Type"))
+            assertEquals("https://music.youtube.com", request.getHeader("Origin"))
+            assertEquals("{\"query\":\"ELEMENT.\"}", request.body.readUtf8())
+        }
+    }
+
     @Test fun acceptsMetadataAndReportsServiceErrors() = runBlocking {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setBody("song metadata"))

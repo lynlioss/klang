@@ -86,7 +86,8 @@ internal class ImportStore private constructor(context: Context) {
     fun retry(batchId: String) {
         publish(mutable.value.map { if (it.id != batchId) it else it.copy(entries = it.entries.map { entry ->
             if (entry.phase in listOf(ImportPhase.FAILED, ImportPhase.CANCELLED)) entry.copy(
-                phase = ImportPhase.QUEUED, progress = 0f, error = null, speed = null, etaSeconds = -1) else entry
+                phase = ImportPhase.QUEUED, progress = 0f, error = null, speed = null, etaSeconds = -1,
+                audioFormat = null, recording = null) else entry
         }) }, true)
         schedule()
     }

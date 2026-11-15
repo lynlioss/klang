@@ -38,6 +38,8 @@ class MusicImportWorker(context: Context, params: WorkerParameters) : CoroutineW
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         store.recover()
+        // One unique worker owns this cache. Remove leftovers from a previous process death.
+        File(applicationContext.cacheDir, "music-imports").deleteRecursively()
         if (store.batches.value.none { it.pending }) return@withContext Result.success()
         try {
             setForeground(notification())
@@ -105,36 +107,59 @@ class MusicImportWorker(context: Context, params: WorkerParameters) : CoroutineW
         val directory = File(applicationContext.cacheDir, "music-imports/$batchId/$index").apply { mkdirs() }
         try {
             val previous = store.batches.value.flatMap { it.entries }.firstOrNull {
-                it.song.sourceId == entry.song.sourceId && it.phase == ImportPhase.COMPLETE && it.uri != null &&
+                it.song.sourceId == entry.song.sourceId && it.importRevision >= IMPORT_REVISION &&
+                    it.phase == ImportPhase.COMPLETE && it.uri != null &&
                     runCatching { applicationContext.contentResolver.openFileDescriptor(Uri.parse(it.uri), "r")?.use { true } == true }.getOrDefault(false)
             }
             if (previous != null) {
+                store.updateEntry(batchId, index) { it.copy(song = previous.song, recording = previous.recording,
+                    audioFormat = previous.audioFormat, importRevision = previous.importRevision) }
                 store.complete(batchId, index, requireNotNull(previous.uri))
                 return
             }
             store.updateEntry(batchId, index) { it.copy(phase = ImportPhase.MATCHING) }
-            val song = kotlinx.coroutines.withTimeout(45_000) { SpotifyMetadata.enrich(entry.song) }
-            currentCoroutineContext().ensureActive()
-            checkNotCancelled(batchId, index)
-            store.updateEntry(batchId, index) { it.copy(song = song) }
-            val info = runInterruptible {
-                if (song.spotify) {
-                    val results = ImportEngine.info("ytsearch5:${song.artist} ${song.title} official audio", processId, flat = true)
-                    val candidate = results.optJSONArray("entries")?.objects().orEmpty()
-                        .map { it to recordingScore(song, it) }.maxByOrNull { it.second }
-                    require(candidate != null && candidate.second >= .72) {
-                        "No close recording match found. Import the exact song using its YouTube Music link."
+            val (song, catalog) = kotlinx.coroutines.withTimeout(45_000) {
+                coroutineScope {
+                    val metadata = async {
+                        kotlinx.coroutines.withTimeoutOrNull(6_000) { SpotifyMetadata.enrich(entry.song) } ?: entry.song
                     }
-                    val id = candidate.first.getString("id")
-                    val full = ImportEngine.info("https://music.youtube.com/watch?v=$id", processId)
-                    require(recordingScore(song, full) >= .72) { "The recording didn't match this song. Use its YouTube Music link." }
-                    full
-                } else ImportEngine.info(song.url, processId)
+                    val matches = async { if (entry.song.spotify) YouTubeCatalog.searchOrEmpty(entry.song) else emptyList() }
+                    metadata.await() to matches.await()
+                }
             }
             currentCoroutineContext().ensureActive()
             checkNotCancelled(batchId, index)
-            val metadata = if (song.spotify) song else youtubeSong(info, info.getString("id"))
-            store.updateEntry(batchId, index) { it.copy(song = metadata, recording = info.stringOrNull("webpage_url"), phase = ImportPhase.DOWNLOADING) }
+            store.updateEntry(batchId, index) { it.copy(song = song) }
+            val info = kotlinx.coroutines.withTimeout(120_000) {
+                if (song.spotify) {
+                    findRecording(song, catalog, searchVideos = {
+                        checkNotCancelled(batchId, index)
+                        runInterruptible {
+                            ImportEngine.info("ytsearch10:${song.artist} ${song.title} official audio", processId, flat = true)
+                                .optJSONArray("entries")?.objects().orEmpty()
+                        }
+                    }, extract = { url ->
+                        checkNotCancelled(batchId, index)
+                        runInterruptible { ImportEngine.info(url, processId) }
+                    })
+                } else runInterruptible { ImportEngine.info(song.url, processId) }
+            }
+            currentCoroutineContext().ensureActive()
+            checkNotCancelled(batchId, index)
+            val metadata = if (song.spotify) song.copy(album = song.album.ifBlank { info.optString("album") },
+                artwork = song.artwork ?: thumbnail(info))
+            else {
+                val linked = youtubeSong(info, info.getString("id"))
+                if (linked.album.isBlank() && linked.artist.isNotBlank()) {
+                    catalogMetadata(linked, YouTubeCatalog.searchOrEmpty(linked))
+                } else linked
+            }
+            currentCoroutineContext().ensureActive()
+            checkNotCancelled(batchId, index)
+            val audioFormat = selectOriginalAudio(info)
+            store.updateEntry(batchId, index) { it.copy(song = metadata, recording = song.url.takeUnless { song.spotify }
+                ?: info.stringOrNull("webpage_url"), audioFormat = audioFormat.description,
+                importRevision = IMPORT_REVISION, phase = ImportPhase.DOWNLOADING) }
             tagInfo(info, metadata)
             val infoFile = File(directory, "source.json").apply { writeText(info.toString()) }
             val request = ImportEngine.request().apply {
@@ -142,7 +167,7 @@ class MusicImportWorker(context: Context, params: WorkerParameters) : CoroutineW
                 addOption("--load-info-json", infoFile.absolutePath)
                 addOption("--no-playlist")
                 // Only codecs that ExtractAudio can stream-copy. Unsupported audio fails rather than transcoding.
-                addOption("-f", ORIGINAL_AUDIO_FORMAT)
+                addOption("-f", audioFormat.id)
                 addOption("--postprocessor-args", STREAM_COPY_ARGUMENTS)
                 addOption("--extract-audio")
                 addOption("--audio-format", "best")
@@ -150,6 +175,8 @@ class MusicImportWorker(context: Context, params: WorkerParameters) : CoroutineW
                 addOption("--embed-thumbnail")
                 addOption("--convert-thumbnails", "jpg")
                 addOption("--concurrent-fragments", 8)
+                // yt-dlp also chunks direct HTTP streams; fragment concurrency is for DASH/HLS only.
+                addOption("--http-chunk-size", "1M")
                 addOption("--fragment-retries", 5)
                 addOption("--abort-on-unavailable-fragments")
                 addOption("--newline")
@@ -183,10 +210,9 @@ class MusicImportWorker(context: Context, params: WorkerParameters) : CoroutineW
                 val track = repository.importDownload(audio)
                 store.complete(batchId, index, track.id)
             }
-            directory.deleteRecursively()
         } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
             store.updateEntry(batchId, index) { it.copy(phase = ImportPhase.FAILED,
-                error = "Spotify took too long to read this song. Try again.", speed = null, etaSeconds = -1) }
+                error = "Finding this recording took too long. Try again.", speed = null, etaSeconds = -1) }
         } catch (error: LinkageError) {
             store.updateEntry(batchId, index) { it.copy(phase = ImportPhase.FAILED,
                 error = importError(ImportEngineException(error)), speed = null, etaSeconds = -1) }
@@ -194,10 +220,14 @@ class MusicImportWorker(context: Context, params: WorkerParameters) : CoroutineW
             ImportEngine.stop(processId)
             throw cancelled
         } catch (error: Exception) {
+            android.util.Log.e("KlangImport", "Couldn't import ${entry.song.sourceId}", error)
             store.updateEntry(batchId, index) {
                 if (it.phase == ImportPhase.QUEUED) it else it.copy(phase = ImportPhase.FAILED,
                     error = importError(error), speed = null, etaSeconds = -1)
             }
+        } finally {
+            // Failed attempts must not accumulate audio, artwork or extractor JSON in app storage.
+            directory.deleteRecursively()
         }
     }
 
@@ -233,5 +263,8 @@ class MusicImportWorker(context: Context, params: WorkerParameters) : CoroutineW
         return ForegroundInfo(71, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
     }
 
-    companion object { private const val CHANNEL = "music_imports" }
+    companion object {
+        private const val CHANNEL = "music_imports"
+        private const val IMPORT_REVISION = 1
+    }
 }

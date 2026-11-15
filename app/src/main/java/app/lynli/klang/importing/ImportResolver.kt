@@ -78,13 +78,25 @@ internal class ImportResolver(private val context: Context) {
     }
 }
 
-internal fun youtubeSong(json: JSONObject, id: String): ImportSong = ImportSong(
-    "youtube:$id", "https://music.youtube.com/watch?v=$id",
-    json.stringOrNull("track") ?: json.stringOrNull("title") ?: "Untitled song",
-    json.stringOrNull("artist") ?: json.stringOrNull("uploader")?.removeSuffix(" - Topic").orEmpty(),
-    json.stringOrNull("album").orEmpty(), (json.optDouble("duration", 0.0) * 1000).toLong(),
-    thumbnail(json), json.stringOrNull("release_date"), json.optInt("track_number"), json.optInt("disc_number"),
-)
+internal fun youtubeSong(json: JSONObject, id: String): ImportSong {
+    val artist = json.stringOrNull("artist") ?: json.stringOrNull("uploader")?.removeSuffix(" - Topic")
+        ?: json.stringOrNull("channel")?.removeSuffix(" - Topic").orEmpty()
+    val raw = json.stringOrNull("title") ?: "Untitled song"
+    // Strip only known video presentation text; preserve recording/version names.
+    val title = json.stringOrNull("track") ?: cleanVideoTitle(raw, artist)
+    return ImportSong("youtube:$id", "https://music.youtube.com/watch?v=$id", title, artist,
+        json.stringOrNull("album").orEmpty(), (json.optDouble("duration", 0.0) * 1000).toLong(),
+        thumbnail(json), json.stringOrNull("release_date"), json.optInt("track_number"), json.optInt("disc_number"))
+}
+
+internal fun cleanVideoTitle(title: String, artist: String): String {
+    var result = title.trim()
+    if (artist.isNotBlank()) {
+        result = result.replace(Regex("^${Regex.escape(artist)}\\s*[-–—:]\\s*", RegexOption.IGNORE_CASE), "")
+    }
+    return result.replace(Regex("\\s*(?:\\(|\\[)(?:official\\s+)?(?:audio|music video|video|lyric video|lyrics)(?:\\)|\\])\\s*$",
+        RegexOption.IGNORE_CASE), "").trim().ifBlank { title }
+}
 
 internal fun thumbnail(json: JSONObject): String? = json.optJSONArray("thumbnails")?.objects()
     ?.maxByOrNull { it.optLong("width", 0) * it.optLong("height", 0) }?.stringOrNull("url")
@@ -132,10 +144,15 @@ internal object SpotifyMetadata {
 
     suspend fun enrich(song: ImportSong): ImportSong {
         if (!song.spotify || (song.album.isNotBlank() && song.artwork != null)) return song
-        val entity = publicEntity(getText(song.url), song.sourceId)
-            ?: throw IllegalArgumentException("Spotify couldn't provide the song's album and artwork. Try again later.")
-        val rich = parsePublicTrack(entity)
-        return rich.copy(date = rich.date ?: song.date, durationMs = rich.durationMs.takeIf { it > 0 } ?: song.durationMs)
+        // Spotify's embed is enough to match/download. Album enrichment is optional, never a gate.
+        val rich = try {
+            publicEntity(getText(song.url), song.sourceId)?.let(::parsePublicTrack)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) { null } ?: return song
+        return song.copy(album = rich.album.ifBlank { song.album }, artwork = rich.artwork ?: song.artwork,
+            date = rich.date ?: song.date, trackNumber = rich.trackNumber, discNumber = rich.discNumber,
+            durationMs = rich.durationMs.takeIf { it > 0 } ?: song.durationMs, explicit = rich.explicit ?: song.explicit)
     }
 
     private suspend fun fullPlaylist(id: String, token: String, total: Int): List<ImportSong> {
@@ -181,7 +198,8 @@ internal object SpotifyMetadata {
         return ImportSong(uri, "https://open.spotify.com/track/${uri.substringAfterLast(':')}",
             json.stringOrNull("title") ?: json.optString("name"), artist, durationMs = json.optLong("duration"),
             artwork = image(json.optJSONObject("visualIdentity")),
-            date = json.optJSONObject("releaseDate")?.stringOrNull("isoString")?.take(10), spotify = true)
+            date = json.optJSONObject("releaseDate")?.stringOrNull("isoString")?.take(10), spotify = true,
+            explicit = if (json.isNull("isExplicit")) null else json.optBoolean("isExplicit"))
     }
 
     internal fun parsePublicTrack(json: JSONObject): ImportSong {
@@ -193,7 +211,8 @@ internal object SpotifyMetadata {
             }.orEmpty(), album?.stringOrNull("name").orEmpty(),
             json.optJSONObject("duration")?.optLong("totalMilliseconds") ?: 0,
             image(album?.optJSONObject("coverArt")), album?.optJSONObject("date")?.stringOrNull("isoString")?.take(10),
-            json.optInt("trackNumber"), json.optInt("discNumber"), spotify = true)
+            json.optInt("trackNumber"), json.optInt("discNumber"), spotify = true,
+            explicit = json.path("contentRating")?.stringOrNull("label")?.let { it == "EXPLICIT" })
     }
 
     private fun parseApiTrack(json: JSONObject): ImportSong {
@@ -202,7 +221,8 @@ internal object SpotifyMetadata {
             json.getString("name"), json.getJSONArray("artists").objects().joinToString(", ") { it.getString("name") },
             album?.stringOrNull("name").orEmpty(), json.optLong("duration_ms"),
             album?.optJSONArray("images")?.objects()?.maxByOrNull { it.optInt("width") }?.stringOrNull("url"),
-            album?.stringOrNull("release_date"), json.optInt("track_number"), json.optInt("disc_number"), true)
+            album?.stringOrNull("release_date"), json.optInt("track_number"), json.optInt("disc_number"), true,
+            if (json.isNull("explicit")) null else json.optBoolean("explicit"))
     }
 
     private fun image(json: JSONObject?): String? {
@@ -215,23 +235,35 @@ internal suspend fun getText(url: String, bearer: String? = null): String = Impo
 
 /** Match duration, artist, title and version; reject ambiguous covers/live recordings. */
 internal fun recordingScore(song: ImportSong, candidate: JSONObject): Double {
-    fun words(value: String) = value.lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
+    fun words(value: String) = value.lowercase(java.util.Locale.ROOT).replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
         .split(' ').filter { it.isNotBlank() }.toSet()
-    val title = candidate.optString("title")
-    val text = "$title ${candidate.optString("uploader")} ${candidate.optString("artist")}".lowercase()
-    val expectedTitle = words(song.title)
+    val title = candidate.stringOrNull("track") ?: candidate.optString("title")
+    val artists = candidate.optJSONArray("artists")?.let { list ->
+        (0 until list.length()).joinToString(" ") { index ->
+            list.optJSONObject(index)?.optString("name") ?: list.optString(index)
+        }
+    }.orEmpty()
+    val structuredArtist = candidate.stringOrNull("artist") ?: artists.takeIf { it.isNotBlank() }
+    val credits = structuredArtist ?: "${candidate.optString("channel")} ${candidate.optString("uploader")}"
+    val text = "$title $credits".lowercase(java.util.Locale.ROOT)
+    fun baseTitle(value: String) = value.replace(Regex("\\s*(?:\\(|\\[)(?:feat\\.?|ft\\.?|featuring)\\s+[^)\\]]+(?:\\)|\\])",
+        RegexOption.IGNORE_CASE), "")
+    val expectedTitle = words(baseTitle(song.title))
     val expectedArtist = words(song.artist.substringBefore(','))
     if (expectedTitle.isEmpty() || expectedArtist.isEmpty()) return 0.0
-    val actual = words(text)
-    val titleMatch = expectedTitle.intersect(actual).size.toDouble() / expectedTitle.size
-    val artistMatch = expectedArtist.intersect(actual).size.toDouble() / expectedArtist.size
-    if (titleMatch < .65 || artistMatch < .5) return 0.0
+    val actualTitle = words(baseTitle(cleanVideoTitle(title, song.artist)))
+    val titleMatch = expectedTitle.intersect(actualTitle).size.toDouble() / expectedTitle.size
+    val artistMatch = expectedArtist.intersect(words(if (structuredArtist != null) credits else text)).size.toDouble() / expectedArtist.size
+    if (titleMatch < .8 || artistMatch < .8) return 0.0
+    if (candidate.optBoolean("catalog") && actualTitle != expectedTitle) return 0.0
+    if (song.explicit != null && !candidate.isNull("explicit") && song.explicit != candidate.optBoolean("explicit")) return 0.0
     val duration = candidate.optDouble("duration", 0.0) * 1000
     val delta = abs(duration - song.durationMs)
     if (song.durationMs > 0 && duration > 0 && delta > maxOf(12_000.0, song.durationMs * .08)) return 0.0
-    val versions = listOf("live", "cover", "remix", "karaoke", "instrumental", "sped", "slowed", "nightcore")
-    if (versions.any { it in words(title) && it !in words(song.title) }) return 0.0
+    val versions = listOf("live", "cover", "remix", "karaoke", "instrumental", "sped", "slowed", "nightcore",
+        "acoustic", "clean", "radio", "demo", "extended", "tribute", "version", "edit")
+    if (versions.any { (it in actualTitle) != (it in expectedTitle) }) return 0.0
     val durationMatch = if (song.durationMs > 0 && duration > 0) (1 - delta / 15_000).coerceIn(0.0, 1.0) else .3
-    val official = if (text.contains("topic") || text.contains("official audio")) .05 else 0.0
+    val official = if (candidate.optBoolean("catalog") || text.contains("topic") || text.contains("official audio")) .05 else 0.0
     return titleMatch * .45 + artistMatch * .3 + durationMatch * .2 + official
 }

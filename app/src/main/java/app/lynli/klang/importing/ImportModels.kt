@@ -56,10 +56,9 @@ internal data class ImportSong(
     val sourceId: String, val url: String, val title: String, val artist: String = "",
     val album: String = "", val durationMs: Long = 0, val artwork: String? = null,
     val date: String? = null, val trackNumber: Int = 0, val discNumber: Int = 0,
-    val spotify: Boolean = false,
+    val spotify: Boolean = false, val explicit: Boolean? = null,
 )
 
-internal const val ORIGINAL_AUDIO_FORMAT = "bestaudio[acodec~='^(opus|vorbis|mp4a[.].*|aac|flac|mp3)$']"
 internal const val STREAM_COPY_ARGUMENTS = "ExtractAudio+ffmpeg_o:-c:a copy"
 
 internal data class ImportPreview(
@@ -79,6 +78,8 @@ internal data class ImportEntry(
     val song: ImportSong, val phase: ImportPhase = ImportPhase.QUEUED,
     val progress: Float = 0f, val speed: String? = null, val etaSeconds: Long = -1,
     val error: String? = null, val uri: String? = null, val recording: String? = null,
+    val audioFormat: String? = null,
+    val importRevision: Int = 0,
 )
 
 internal data class ImportBatch(
@@ -103,6 +104,8 @@ internal object ImportCodec {
                 put("song", songJson(entry.song)); put("phase", entry.phase.name); put("progress", entry.progress)
                 put("speed", entry.speed); put("eta", entry.etaSeconds); put("error", entry.error)
                 put("uri", entry.uri); put("recording", entry.recording)
+                put("audioFormat", entry.audioFormat)
+                put("importRevision", entry.importRevision)
             }) } })
         }) }
     }.toString()
@@ -113,7 +116,7 @@ internal object ImportCodec {
                 ImportEntry(readSong(entry.getJSONObject("song")), ImportPhase.valueOf(entry.getString("phase")),
                     entry.optDouble("progress", 0.0).toFloat().coerceIn(0f, 1f), entry.stringOrNull("speed"),
                     entry.optLong("eta", -1), entry.stringOrNull("error"), entry.stringOrNull("uri"),
-                    entry.stringOrNull("recording"))
+                    entry.stringOrNull("recording"), entry.stringOrNull("audioFormat"), entry.optInt("importRevision"))
             }, batch.stringOrNull("playlistId"), batch.getLong("created"))
     }
 
@@ -121,11 +124,12 @@ internal object ImportCodec {
         put("id", song.sourceId); put("url", song.url); put("title", song.title); put("artist", song.artist)
         put("album", song.album); put("duration", song.durationMs); put("artwork", song.artwork)
         put("date", song.date); put("track", song.trackNumber); put("disc", song.discNumber); put("spotify", song.spotify)
+        put("explicit", song.explicit)
     }
     private fun readSong(json: JSONObject) = ImportSong(json.getString("id"), json.getString("url"),
         json.getString("title"), json.optString("artist"), json.optString("album"), json.optLong("duration"),
         json.stringOrNull("artwork"), json.stringOrNull("date"), json.optInt("track"), json.optInt("disc"),
-        json.optBoolean("spotify"))
+        json.optBoolean("spotify"), if (json.isNull("explicit")) null else json.optBoolean("explicit"))
 }
 
 internal fun JSONArray.objects(): List<JSONObject> = (0 until length()).mapNotNull { optJSONObject(it) }

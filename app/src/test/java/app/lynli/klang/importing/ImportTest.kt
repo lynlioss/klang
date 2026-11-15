@@ -12,13 +12,6 @@ class ImportTest {
         "Never Gonna Give You Up", "Rick Astley", "Whenever You Need Somebody", 213_000,
         "https://example.com/cover.jpg", "1987-11-12", 1, 1, true)
 
-    @Test fun outputPolicyUsesOriginalCodecAndStreamCopy() {
-        assertTrue(ORIGINAL_AUDIO_FORMAT.startsWith("bestaudio["))
-        assertTrue(ORIGINAL_AUDIO_FORMAT.contains("opus"))
-        assertTrue(ORIGINAL_AUDIO_FORMAT.contains("mp4a"))
-        assertEquals("ExtractAudio+ffmpeg_o:-c:a copy", STREAM_COPY_ARGUMENTS)
-    }
-
     @Test fun canonicalizesSharedLinksWithoutTracking() {
         val link = ImportLink.parse(" https://open.spotify.com/intl-de/track/$spotifyId?si=tracking ")
         assertEquals(song.url, link.url)
@@ -43,7 +36,8 @@ class ImportTest {
     }
 
     @Test fun journalPreservesMetadataOrderAndFailures() {
-        val first = ImportEntry(song, ImportPhase.COMPLETE, 1f, uri = "content://media/external/audio/media/3")
+        val first = ImportEntry(song.copy(explicit = false), ImportPhase.COMPLETE, 1f,
+            uri = "content://media/external/audio/media/3", audioFormat = "OPUS · 140 kbps", importRevision = 1)
         val second = ImportEntry(song.copy(sourceId = "other"), ImportPhase.FAILED, error = "Network unavailable")
         val batch = ImportBatch("batch", "Playlist", ImportSource.SPOTIFY, listOf(first, second), "playlist", 10)
         assertEquals(listOf(batch), ImportCodec.decode(ImportCodec.encode(listOf(batch))))
@@ -62,6 +56,33 @@ class ImportTest {
         assertEquals(0.0, recordingScore(song, candidate(song.title, "Cover Artist")), 0.0)
         assertEquals(0.0, recordingScore(song, candidate(song.title, duration = 350)), 0.0)
         assertTrue(recordingScore(song.copy(title = song.title + " (Live)"), candidate(song.title + " (Live)")) >= .72)
+    }
+
+    @Test fun flatSearchChannelAndStructuredArtistsBothMatch() {
+        val element = song.copy(title = "ELEMENT.", artist = "Kendrick Lamar", durationMs = 209_000)
+        val flat = JSONObject().put("title", "ELEMENT.").put("channel", "Kendrick Lamar - Topic").put("duration", 209)
+        assertTrue(recordingScore(element, flat) >= .8)
+        assertEquals(0.0, recordingScore(element, flat.put("channel", "Someone else")), 0.0)
+        flat.remove("channel")
+        flat.put("artists", JSONArray(listOf("Kendrick Lamar")))
+        assertTrue(recordingScore(element, flat) >= .8)
+        assertEquals(0.0, recordingScore(element, flat.put("title", "DNA.")), 0.0)
+    }
+
+    @Test fun cleansOnlyPresentationTextFromYouTubeTitles() {
+        assertEquals("hey now", cleanVideoTitle("Kendrick Lamar - hey now (Official Audio)", "Kendrick Lamar"))
+        assertEquals("hey now (Live)", cleanVideoTitle("Kendrick Lamar - hey now (Live)", "Kendrick Lamar"))
+        assertEquals("Artist - hey now", cleanVideoTitle("Artist - hey now", "Other Artist"))
+        val info = JSONObject().put("title", "Kendrick Lamar - hey now (Official Audio)")
+            .put("uploader", "Kendrick Lamar").put("duration", 217)
+        assertEquals("hey now", youtubeSong(info, "9PumlOWjXMM").title)
+    }
+
+    @Test fun unknownAlbumDoesNotInheritSourceContainerTag() {
+        val info = JSONObject().put("album", "Klang")
+        tagInfo(info, song.copy(album = ""))
+        assertFalse(info.has("album"))
+        assertEquals("", info.getString("meta_album"))
     }
 
     @Test fun engineInitializationErrorsHaveAnActionableMessage() {

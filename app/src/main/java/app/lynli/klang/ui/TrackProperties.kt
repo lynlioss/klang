@@ -153,7 +153,7 @@ private fun PropertyList(track: Track, details: TrackDetails?) {
     val timerIcon = ImageVector.vectorResource(R.drawable.timer)
     val entries = buildList<Triple<ImageVector, String, String>> {
         add(Triple(timerIcon, "Duration", time(details?.durationMs ?: track.durationMs)))
-        add(Triple(Icons.Rounded.Star, "Quality", details?.quality ?: "—"))
+        add(Triple(Icons.Rounded.Star, "Encoding", details?.quality ?: "—"))
         add(Triple(Icons.Rounded.MusicNote, "Format", details?.format ?: "—"))
         add(Triple(Icons.Rounded.GraphicEq, "Bitrate", details?.bitrateKbps
             ?.let { "${NumberFormat.getIntegerInstance().format(it)} kbps" } ?: "—"))
