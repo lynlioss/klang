@@ -32,17 +32,17 @@ class PluginDownload {
         val actual = MessageDigest.getInstance("SHA-256").digest(source.toByteArray()).joinToString("") { "%02x".format(it) }
         require(actual.equals(checksum, ignoreCase = true)) { "Plugin download failed its checksum check" }
         val manifest = PluginManifest.parse(source)
-        require(manifest.lyrics != null || manifest.musicImport != null) { "This release does not define a provider" }
+        require(manifest.lyrics != null || manifest.musicImport != null || manifest.extension != null) { "This release does not define a provider" }
         require(manifest.repository == repo.url) { "The plugin repository does not match this link" }
         require(release.getString("tag_name") == "v${manifest.version}") { "The release tag must match the plugin version" }
-        val apk = if (manifest.musicImport != null) url(asset("plugin.apk")) else null
+        val apk = if (manifest.musicImport != null || manifest.extension != null) url(asset("plugin.apk")) else null
         val apkChecksum = if (apk != null) get(url(asset("plugin.apk.sha256")), 256).trim().split(Regex("\\s+")).first()
             .also { require(it.matches(Regex("[a-fA-F0-9]{64}"))) { "Invalid plugin APK checksum" } } else null
         PluginCandidate(manifest, repo, source, httpsUrl(release.getString("html_url")), apk, apkChecksum)
     }
     suspend fun downloadApk(context: android.content.Context, candidate: PluginCandidate): java.io.File =
         runInterruptible(Dispatchers.IO) {
-            val expectedPackage = requireNotNull(candidate.manifest.musicImport).packageName
+            val expectedPackage = requireNotNull(candidate.manifest.musicImport?.packageName ?: candidate.manifest.extension?.packageName)
             val directory = java.io.File(context.cacheDir, "updates/plugins").apply { mkdirs() }
             directory.listFiles()?.forEach { it.delete() }
             val file = java.io.File(directory, "${candidate.manifest.id}-${candidate.manifest.version}.apk")

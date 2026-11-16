@@ -76,6 +76,7 @@ private val Effects = spring<Float>(dampingRatio = 1f, stiffness = 800f)
 @Composable
 fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit, onImport: () -> Unit,
     importRequest: Int = 0, incomingMusicLink: String? = null) {
+    ExtensionPanel(state)
     var destination by rememberSaveable { mutableIntStateOf(0) }
     var addingMusic by rememberSaveable { mutableStateOf(false) }
     var creatingImportPlaylist by rememberSaveable { mutableStateOf(false) }
@@ -523,6 +524,7 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
         var showingLyrics by rememberSaveable { mutableStateOf(false) }
         val pluginConfig by model.plugins.collectAsStateWithLifecycle()
         val pluginCatalog by model.pluginCatalog.collectAsStateWithLifecycle()
+        val extensionActions by app.lynli.klang.plugins.ExtensionRuntime.actions.collectAsStateWithLifecycle()
         val lyricsEnabled = pluginCatalog.installed.any { it.manifest.type == PluginType.LYRICS && it.manifest.id in pluginConfig.enabled }
         LaunchedEffect(lyricsEnabled) { if (!lyricsEnabled) showingLyrics = false }
         var addPlaylist by remember { mutableStateOf(false) }
@@ -562,6 +564,11 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
                                         containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                                         DropdownMenuItem(text = { Text("Queue") }, onClick = { overflow = false; queue = true },
                                             leadingIcon = { Icon(Icons.AutoMirrored.Rounded.QueueMusic, null) })
+                                        extensionActions.forEach { (id, action) ->
+                                            DropdownMenuItem(text = { Text(action.label) },
+                                                onClick = { overflow = false; app.lynli.klang.plugins.ExtensionRuntime.open(id) },
+                                                leadingIcon = { Icon(extensionIcon(action.icon), null) })
+                                        }
                                         HorizontalDivider(Modifier.padding(vertical = 4.dp))
                                         DropdownMenuItem(text = { Text("Properties") }, onClick = { overflow = false; props = true },
                                             leadingIcon = { Icon(Icons.Rounded.Info, null) })
@@ -602,7 +609,7 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
                                 if (!short) Text(track.album, Modifier.padding(top = 2.dp), style = MaterialTheme.typography.bodySmall,
                                     color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                            FavoriteButton(track, state, model, colors.onSurface)
+                            if (!ExtensionTrackAction(track.id)) FavoriteButton(track, state, model, colors.onSurface)
                         }
                         Spacer(Modifier.height(spacing))
                         Surface(shape = RoundedCornerShape(28.dp), color = colors.surfaceContainerHigh.copy(alpha = 0.75f)) {
@@ -729,6 +736,7 @@ internal fun ExpressiveSeekbar(state: MusicState, model: MusicViewModel, progres
             IconToggleButton(state.shuffle, { model.shuffle() }) {
                 Icon(Icons.Rounded.Shuffle, "Shuffle", tint = if (state.shuffle) primary else MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            ExtensionNowPlayingBadge()
             IconButton(model::repeat) {
                 Icon(if (state.repeat == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
                     "Repeat ${when(state.repeat) { Player.REPEAT_MODE_ONE -> "one"; Player.REPEAT_MODE_ALL -> "all"; else -> "off" }}",

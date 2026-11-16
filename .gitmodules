@@ -1,0 +1,3 @@
+[submodule "klang-jam"]
+	path = klang-jam
+	url = https://github.com/lynlioss/klang-jam.git

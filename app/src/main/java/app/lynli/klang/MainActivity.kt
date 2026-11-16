@@ -36,6 +36,7 @@ class MainActivity : ComponentActivity() {
     private var incomingMusicLink by mutableStateOf<String?>(null)
 
     private fun receiveImport(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_VIEW) intent.data?.let { app.lynli.klang.plugins.ExtensionRuntime.openLink(it.toString()) }
         val shared = if (intent?.action == Intent.ACTION_SEND) intent.getStringExtra(Intent.EXTRA_TEXT) else null
         val link = shared?.let { text ->
             Regex("[A-Za-z][A-Za-z0-9+.-]*:[^\\s]+")

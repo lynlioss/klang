@@ -53,6 +53,7 @@ class PlaybackService : MediaSessionService() {
     private val discoveryCallback = object : MediaRouter2.RouteCallback() {
         override fun onRoutesUpdated(routes: List<MediaRoute2Info>) { updateEqRoute() }
     }
+    private lateinit var extensions: app.lynli.klang.plugins.ExtensionRuntime
     private var session: MediaSession? = null
     private lateinit var player: ExoPlayer
     private val handler = Handler(Looper.getMainLooper())
@@ -123,7 +124,8 @@ class PlaybackService : MediaSessionService() {
         }
         val intent = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        session = MediaSession.Builder(this, player).setSessionActivity(intent).build()
+        extensions = app.lynli.klang.plugins.ExtensionRuntime(this, player)
+        session = MediaSession.Builder(this, app.lynli.klang.plugins.ExtensionPlayer(player, extensions)).setSessionActivity(intent).build()
         restoreQueue()
         player.addListener(object : Player.Listener {
             override fun onEvents(player: Player, events: Player.Events) { saveQueue(); updateEqRoute() }
@@ -150,6 +152,9 @@ class PlaybackService : MediaSessionService() {
     }
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = session
     private fun saveQueue() {
+        if (::extensions.isInitialized && extensions.ownsPlayback) return
+        if (player.currentMediaItem?.localConfiguration?.uri?.scheme == "file" &&
+            player.currentMediaItem?.localConfiguration?.uri?.path?.startsWith(java.io.File(cacheDir, "extensions").path) == true) return
         val items = JSONArray()
         for (i in 0 until player.mediaItemCount) {
             val item = player.getMediaItemAt(i)
@@ -186,6 +191,7 @@ class PlaybackService : MediaSessionService() {
         handler.removeCallbacks(save)
         router.unregisterControllerCallback(routeCallback)
         router.unregisterRouteCallback(discoveryCallback)
+        extensions.close()
         saveQueue(); session?.release(); player.release()
         audioTrack = null
         PlaybackOutput.update(emptyList())

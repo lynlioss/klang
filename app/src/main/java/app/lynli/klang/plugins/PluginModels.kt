@@ -4,9 +4,13 @@ import org.json.JSONObject
 import java.net.URI
 import java.util.Locale
 
-enum class PluginType(val key: String, val label: String) { LYRICS("lyrics", "Lyrics"), IMPORT("musicImport", "Music downloads") }
+enum class PluginType(val key: String, val label: String) { LYRICS("lyrics", "Lyrics"), IMPORT("musicImport", "Music downloads"), EXTENSION("extension", "Extensions") }
 
 data class MusicImportPluginSpec(val packageName: String, val service: String, val hosts: Set<String>, val schemes: Set<String>)
+
+data class ExtensionAction(val id: String, val label: String, val icon: String)
+data class ExtensionPluginSpec(val packageName: String, val service: String, val capabilities: Set<String>,
+    val actions: List<ExtensionAction>, val hosts: Set<String>, val schemes: Set<String>)
 
 data class PluginButton(val label: String, val url: String, val icon: String)
 
@@ -44,6 +48,7 @@ data class PluginManifest(
     val defaultEnabled: Boolean = false, val apiVersion: Int = 1, val repository: String? = null,
     val lyrics: LyricsPluginSpec? = null,
     val musicImport: MusicImportPluginSpec? = null,
+    val extension: ExtensionPluginSpec? = null,
 ) {
     companion object {
         const val API_VERSION = 1
@@ -53,7 +58,7 @@ data class PluginManifest(
             val api = json.optInt("apiVersion", 1)
             require(api == API_VERSION) { "This plugin needs a different Klang plugin API" }
             val typeKey = json.getString("type")
-            require(typeKey in setOf("lyrics", "musicImport")) { "Unsupported plugin type" }
+            require(typeKey in setOf("lyrics", "musicImport", "extension")) { "Unsupported plugin type" }
             val id = json.getString("id")
             require(id.matches(Regex("[a-z][a-z0-9._-]{0,79}"))) { "Invalid plugin ID" }
             val version = json.getString("version")
@@ -145,13 +150,37 @@ data class PluginManifest(
                     require(it.schemes.all { scheme -> scheme.matches(Regex("[a-z][a-z0-9+.-]*")) })
                 }
             }
+            val extension = json.optJSONObject("extension")?.let { spec ->
+                val pkg = spec.getString("package")
+                val service = spec.getString("service")
+                require(pkg.matches(Regex("[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+")))
+                require(service.startsWith("$pkg.") && service.matches(Regex("[a-zA-Z0-9_.]+")))
+                fun strings(key: String) = spec.optJSONArray(key)?.let { a ->
+                    (0 until a.length()).map { a.getString(it).lowercase(Locale.ROOT) }.toSet()
+                }.orEmpty().also { require(it.size <= 30) }
+                val caps = strings("capabilities")
+                require(caps.all { it in setOf("ui.nowPlaying", "ui.panel", "playback.observe", "playback.control", "audio.read", "audio.receive", "links" ).map(String::lowercase) })
+                val actions = spec.optJSONArray("nowPlayingActions")?.let { a ->
+                    require(a.length() <= 8)
+                    (0 until a.length()).map { a.getJSONObject(it).let { action ->
+                        ExtensionAction(action.getString("id").also { require(it.matches(Regex("[a-z][a-z0-9_-]{0,63}"))) },
+                            action.getString("label").also { require(it.isNotBlank() && it.length <= 40) }, action.optString("icon", "extension"))
+                    } }
+                }.orEmpty()
+                require(actions.distinctBy { it.id }.size == actions.size)
+                ExtensionPluginSpec(pkg, service, caps, actions, strings("hosts"), strings("schemes")).also {
+                    require(it.hosts.all { host -> host.matches(Regex("[a-z0-9.-]+")) })
+                    require(it.schemes.all { scheme -> scheme.matches(Regex("[a-z][a-z0-9+.-]*")) })
+                }
+            }
+            require(typeKey != "extension" || extension != null) { "Extensions must define a service" }
             require(typeKey != "musicImport" || importer != null) { "Download plugins must define a service" }
             return PluginManifest(id, json.getString("name").also { require(it.isNotBlank() && it.length <= 100) }, version,
                 PluginType.entries.first { it.key == json.getString("type") }, json.getString("author"),
                 json.getString("summary"), json.getString("description"), json.optString("privacy"),
                 json.optJSONArray("features")?.let { a -> (0 until a.length()).map(a::getString) }.orEmpty(),
                 buttons, settings, json.optBoolean("defaultEnabled", false), api,
-                json.optString("repository").takeIf { it.isNotBlank() }?.let { GitHubPluginRepo.parse(it).url }, spec, importer)
+                json.optString("repository").takeIf { it.isNotBlank() }?.let { GitHubPluginRepo.parse(it).url }, spec, importer, extension)
         }
     }
 }

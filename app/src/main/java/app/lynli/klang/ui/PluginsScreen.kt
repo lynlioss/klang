@@ -148,7 +148,7 @@ private fun PluginList(catalog: PluginCatalog, config: PluginConfiguration, mode
 @Composable
 private fun PluginGlyph(plugin: PluginManifest, modifier: Modifier = Modifier) {
     if (plugin.id == "lrclib") Icon(painterResource(R.drawable.lrclib), "LRCLIB logo", modifier, tint = Color.Unspecified)
-    else Icon(if (plugin.musicImport != null) Icons.Rounded.Download else ImageVector.vectorResource(R.drawable.lyrics), null, modifier, tint = MaterialTheme.colorScheme.primary)
+    else Icon(if (plugin.extension != null) Icons.Rounded.GraphicEq else if (plugin.musicImport != null) Icons.Rounded.Download else ImageVector.vectorResource(R.drawable.lyrics), null, modifier, tint = MaterialTheme.colorScheme.primary)
 }
 
 @Composable

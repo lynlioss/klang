@@ -58,6 +58,18 @@ class PluginManifestTest {
         assertFalse(config.boolean(manifest, "cacheLyrics"))
         assertEquals(-500, config.integer(manifest, "timingOffset"))
     }
+    @Test fun extensionsStayOnApi1AndRejectUndeclaredCapabilitiesAndBadServices() {
+        val json = JSONObject(File("src/test/resources/plugins/extension.json").readText())
+        val manifest = PluginManifest.parse(json.toString())
+        assertEquals(1, manifest.apiVersion)
+        assertEquals(PluginType.EXTENSION, manifest.type)
+        assertFalse(manifest.defaultEnabled)
+        assertEquals("Jam", manifest.extension!!.actions.single().label)
+        json.getJSONObject("extension").put("capabilities", JSONArray(listOf("filesystem.all")))
+        assertThrows(IllegalArgumentException::class.java) { PluginManifest.parse(json.toString()) }
+        json.getJSONObject("extension").put("capabilities", JSONArray(listOf("audio.read"))).put("service", "other.Service")
+        assertThrows(IllegalArgumentException::class.java) { PluginManifest.parse(json.toString()) }
+    }
     @Test fun api1MusicProvidersDeclareAServiceAndSupportedLinks() {
         val json = JSONObject(File("src/main/assets/plugins/lrclib.json").readText())
         json.put("apiVersion", 1).put("type", "musicImport")

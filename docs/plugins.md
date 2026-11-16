@@ -106,3 +106,41 @@ then returns file type and final metadata. Large metadata responses use a pipe
 to avoid Binder size limits. The host owns duplicate checks, queue order,
 foreground scheduling and atomic file publication. Providers own source-specific
 links, metadata requests, matching and audio downloading.
+
+## Native extensions (Plugin API 1)
+
+API 1 also accepts `type: "extension"`. Extensions use independently installed
+Android services under their own UID; API 1 is not renamed or replaced. A manifest
+adds an `extension` object with `package`, fully qualified `service`,
+`capabilities`, `nowPlayingActions`, `hosts` and `schemes`. The exported service
+advertises `io.github.lynlioss.klang.EXTENSION_V1` and embeds its manifest in the
+`klang.plugin` metadata resource. Releases use the same APK/checksum installer as
+music providers. Extensions are opt-in and must be enabled explicitly.
+
+Capabilities are `ui.nowPlaying`, `ui.panel`, `playback.observe`,
+`playback.control`, `audio.read`, `audio.receive` and `links`. Unknown capabilities
+are rejected. The host validates the service UID and a per-connection token on
+all incoming Binder messages. Network code and business logic run in the plugin.
+See [Klang Jam](https://github.com/lynlioss/klang-jam) and its
+[API.md](https://github.com/lynlioss/klang-jam/blob/main/API.md) for the protocol.
+
+Klang provides a native, bounded panel renderer using current Material color
+roles, expressive typography, springs and loading indicators. Plugins describe
+text, hero, field, button, toggle, member, progress and error nodes and receive
+user actions. They can contribute a Now Playing menu action, animated center
+pill and contextual track action. The host owns native layout and accessibility;
+plugins own the complete screen content and state. No HTML or downloaded classes
+execute inside Klang.
+
+Audio access is descriptor-based and limited to the current/next queue item.
+Received audio is bounded, hashed and validated by container and MediaExtractor
+before becoming playable. Output paths are host-generated. Saving to the library
+is atomic and requires a user action. Cleanup restores the receiver's previous
+paused queue and removes temporary audio. Playback services own extension
+connections so sessions continue while the app is backgrounded.
+
+`klang:` routes are dispatched to installed/enabled plugins declaring that scheme.
+Verified HTTPS domains must appear in the Android manifest and serve matching
+`assetlinks.json`; Android cannot add verified app domains dynamically. A web
+fallback can open a generic custom-scheme plugin link for new domains. A Jam
+invite opens a review panel; joining still requires a user action.

@@ -26,7 +26,8 @@ internal fun RecommendedPluginsScreen(model: MusicViewModel, complete: (() -> Un
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             LazyColumn(Modifier.weight(1f).padding(top = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 listOf(Triple("music-import", "Music Import", "Songs, albums, EPs and playlists from music links."),
-                    Triple("lrclib", "LRCLIB", "Synchronized lyrics for your music.")).forEach { (id, title, subtitle) ->
+                    Triple("lrclib", "LRCLIB", "Synchronized lyrics for your music."),
+                    Triple("klang-jam", "Jam", "Listen together with up to four people. Share a code and bring your music.")).forEach { (id, title, subtitle) ->
                     item(key = id) {
                         Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                             Column(Modifier.fillMaxWidth().padding(20.dp)) {
@@ -37,7 +38,7 @@ internal fun RecommendedPluginsScreen(model: MusicViewModel, complete: (() -> Un
                                 val enabled = id in config.enabled
                                 Button({
                                     if (installed) model.enablePlugin(id, true)
-                                    else model.installRecommendedPlugin("https://github.com/lynlioss/${if (id == "music-import") "music-import-klang" else "lrclib-klang"}")
+                                    else model.installRecommendedPlugin("https://github.com/lynlioss/${when (id) { "music-import" -> "music-import-klang"; "klang-jam" -> "klang-jam"; else -> "lrclib-klang" }}")
                                 }, enabled = !enabled && catalog.busyId == null, modifier = Modifier.padding(top = 16.dp)) {
                                     if (catalog.busyId == id || catalog.busyId == "recommended") LoadingIndicator(Modifier.size(24.dp))
                                     else Text(if (enabled) "Added" else if (installed) "Enable" else "Install")

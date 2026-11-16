@@ -303,6 +303,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             mutablePlugins.value = pluginStore.enable(it.manifest.id, true)
         }
         mutablePluginCatalog.update { it.copy(installed = pluginRegistry.entries) }
+        app.lynli.klang.plugins.ExtensionRuntime.active?.reload()
     }
     fun completeOnboarding() {
         if (mutableState.value.onboardingComplete) return
@@ -385,9 +386,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun lyricsOpened() { lyricsViewers.update { it + 1 } }
     fun lyricsClosed() { lyricsViewers.update { (it - 1).coerceAtLeast(0) } }
     fun retryLyrics() { lyricsRetry.update { it + 1 } }
-    fun enablePlugin(id: String, enabled: Boolean) { mutablePlugins.value = pluginStore.enable(id, enabled) }
+    fun enablePlugin(id: String, enabled: Boolean) { mutablePlugins.value = pluginStore.enable(id, enabled); app.lynli.klang.plugins.ExtensionRuntime.active?.reload() }
     fun pluginSetting(id: String, key: String, value: String) {
         mutablePlugins.value = pluginStore.setting(id, key, value)
+        app.lynli.klang.plugins.ExtensionRuntime.active?.reload()
         if (key == "cacheLyrics" && value == "false") viewModelScope.launch { lyricsRepository.clearCache(id) }
     }
     suspend fun inspectPlugin(link: String): PluginCandidate = requireNotNull(pluginDownload.latest(GitHubPluginRepo.parse(link)))
@@ -412,7 +414,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 val existing = pluginRegistry.entries.find { it.manifest.id == candidate.manifest.id }
                 // Preserve the previous enabled state when updating. New plugins need a user toggle.
                 val enabled = enable || existing != null && existing.manifest.id in mutablePlugins.value.enabled
-                if (candidate.manifest.musicImport != null) {
+                if (candidate.manifest.musicImport != null || candidate.manifest.extension != null) {
                     val existingRepository = pluginRegistry.entries.find { it.manifest.id == candidate.manifest.id }?.repository
                     require(existingRepository == null || existingRepository == candidate.repository) { "This plugin ID belongs to another repository." }
                     val apk = pluginDownload.downloadApk(getApplication(), candidate)
@@ -442,6 +444,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 withContext(Dispatchers.IO) { pluginRegistry.uninstall(id) }
                 pluginStore.remove(id)
+                app.lynli.klang.plugins.ExtensionRuntime.active?.reload()
                 mutablePlugins.value = pluginStore.read()
                 mutablePluginCatalog.update { it.copy(installed = pluginRegistry.entries, updates = it.updates - id) }
                 retryLyrics()
@@ -595,7 +598,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
     private fun track(item: MediaItem): Track = mutableState.value.tracks.find { it.id == item.mediaId }
         ?: mutableState.value.hiddenTracks.find { it.id == item.mediaId }
-        ?: Track(Uri.parse(item.mediaId), item.mediaMetadata.title?.toString() ?: "Untitled",
+        ?: Track(app.lynli.klang.plugins.ExtensionRuntime.active?.audioUri(item.mediaId) ?: Uri.parse(item.mediaId), item.mediaMetadata.title?.toString() ?: "Untitled",
             item.mediaMetadata.artist?.toString() ?: "Unknown artist", item.mediaMetadata.albumTitle?.toString() ?: "Unknown album", 0)
     private fun syncPlayer() {
         val player = controller ?: return
