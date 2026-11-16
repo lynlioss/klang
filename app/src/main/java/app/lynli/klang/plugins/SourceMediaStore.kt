@@ -78,7 +78,7 @@ internal class SourceMediaStore(private val context: Context) {
         val key = identity(providerId, sourceId)
         read(key)?.let { write(key, it.put("offlineUri", uri)) }
         val indexKey = "offline:$providerId"
-        val ids = read(indexKey)?.optJSONArray("ids")?.strings().orEmpty()
+        val ids = offlineIds(providerId)
         write(indexKey, JSONObject().put("ids", JSONArray((ids + sourceId).distinct().takeLast(10_000))))
         offlineChecks.remove(key)
         mutableChanges.value++
@@ -101,7 +101,7 @@ internal class SourceMediaStore(private val context: Context) {
         val ids = items.distinctBy { it.getString("id") }.map { item ->
             val value = JSONObject(item.toString()).put("accountRevision", revision)
             if (value.optString("kind") == "track") track(plugin, value)
-            else write("entity:${plugin.id}:${value.getString("id")}", value)
+            else write("entity:${plugin.id}:$kind:${value.getString("id")}", value)
             value.getString("id")
         }
         // Chunk membership so large liked-song libraries stay within the per-file metadata bound.
@@ -124,7 +124,7 @@ internal class SourceMediaStore(private val context: Context) {
         val favorites = providerIds.flatMap { providerId -> libraryIds(providerId, "track").map { identity(providerId, it) } }.toSet()
         val offline = providerIds.flatMap { providerId -> offlineIds(providerId).map { identity(providerId, it) } }.filter { offlineUri(it) != null }
         fun entities(kind: String) = providerIds.flatMap { providerId -> libraryIds(providerId, kind).mapNotNull { id ->
-            read("entity:$providerId:$id")?.let { sourceCollection(providerId, it) }
+            read("entity:$providerId:$kind:$id")?.let { sourceCollection(providerId, it) }
         } }
         return SourceLibrary(tracks = (favorites + offline).mapNotNull(::lookup), favorites = favorites,
             collections = listOf("album", "playlist", "artist", "folder").flatMap(::entities).distinctBy { it.identity }, home = entities("home"))

@@ -229,9 +229,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val ids = (snapshot.playlists.flatMap { it.trackIds } + favoriteOverrides.filterValues { it }.keys).distinct()
         val combined = withContext(Dispatchers.IO) {
             val retained = ids.mapNotNull(musicSources::storedTrack).filter { track ->
-                track.providerId in enabled && (track.offline || runCatching {
+                track.offline || track.providerId in enabled && runCatching {
                     org.json.JSONObject(track.sourcePayload.orEmpty()).optString("accountRevision") == musicSources.accountRevision(requireNotNull(track.providerId))
-                }.getOrDefault(false))
+                }.getOrDefault(false)
             }
             mergeMusicEntries(deviceTracks, library.tracks + retained, Track::id, musicSources::offlineDeviceId)
         }
@@ -346,7 +346,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         mutableState.update { it.copy(recommendedPluginsSeen = true) }
     }
     fun refreshPluginServices() {
-        val previous = pluginRegistry.entries.map { it.manifest.id }.toSet()
+        val previousEntries = pluginRegistry.entries.map { it.manifest }
+        val previous = previousEntries.map { it.id }.toSet()
         pluginRegistry.discoverServices()
         mutablePlugins.value = pluginStore.read()
         pluginRegistry.entries.filter { it.manifest.id !in previous && it.manifest.defaultEnabled }.forEach {
@@ -354,7 +355,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
         mutablePluginCatalog.update { it.copy(installed = pluginRegistry.entries) }
         app.lynli.klang.plugins.ExtensionRuntime.active?.reload()
-        SourceStreams.get(getApplication()).invalidate()
+        if (previousEntries != pluginRegistry.entries.map { it.manifest }) SourceStreams.get(getApplication()).invalidate()
         musicSources.resumed()
     }
     fun completeOnboarding() {
@@ -468,6 +469,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun enablePlugin(id: String, enabled: Boolean) {
         mutablePlugins.value = pluginStore.enable(id, enabled)
         app.lynli.klang.plugins.ExtensionRuntime.active?.reload()
+        SourceStreams.get(getApplication()).invalidate()
         musicSources.resumed()
     }
     fun pluginSetting(id: String, key: String, value: String) {
@@ -595,7 +597,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             favoriteJobs[track.id] = viewModelScope.launch {
                 try {
                     musicSources.call(track.providerId, if (value) "library.save" else "library.remove",
-                        org.json.JSONObject().put("ids", org.json.JSONArray().put(track.sourceId)))
+                        org.json.JSONObject().put("ids", org.json.JSONArray().put(track.sourceId)).apply {
+                            track.sourcePayload?.let { payload -> org.json.JSONObject(payload).optString("accountRevision")
+                                .takeIf { it.isNotBlank() }?.let { put("accountRevision", it) } }
+                        })
                     musicSources.requestSync()
                 } catch (cancelled: CancellationException) { throw cancelled } catch (e: Exception) {
                     favoriteOverrides.remove(track.id)
@@ -650,7 +655,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun addToPlaylist(id: String, tracks: List<Track>) {
         editPlaylist(id) { it.add(tracks.map(Track::id)) }
-        viewModelScope.launch { musicSources.reloadLibrary() }
     }
     fun removeFromPlaylist(id: String, trackId: String) { editPlaylist(id) { it.remove(trackId) } }
     fun reorderPlaylist(id: String, orderedIds: List<String>) { editPlaylist(id) { it.reorder(orderedIds) } }
@@ -670,6 +674,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private fun updatePlaylists(edit: (List<SavedPlaylist>) -> List<SavedPlaylist>) {
         val playlists = playlistStore.update(edit)
         mutableState.update { it.copy(playlists = playlists) }
+        viewModelScope.launch { applySourceLibrary(musicSources.library.value) }
     }
     fun theme(value: String) { prefs.edit().putString("theme", value).apply(); mutableState.update { it.copy(theme = value) } }
     fun coverColor(value: Boolean) { prefs.edit().putBoolean("contentColors", value).apply(); mutableState.update { it.copy(coverColor = value) } }

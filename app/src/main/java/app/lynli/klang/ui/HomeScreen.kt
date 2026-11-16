@@ -59,7 +59,7 @@ internal fun SourceCollection.collection() = MusicCollection(identity, title, su
 
 @Composable
 internal fun CollectionCover(collection: MusicCollection, modifier: Modifier, large: Boolean = false) {
-    if (collection.source != null) Artwork(Track(android.net.Uri.EMPTY, collection.title, collection.subtitle, "", 0,
+    if (collection.source != null) Artwork(Track(android.net.Uri.parse(collection.id), collection.title, collection.subtitle, "", 0,
         artworkUrl = collection.source.artwork), modifier, large = large)
     else PlaylistArtwork(collection.coverFile, collection.tracks.firstOrNull(), modifier, large = large)
 }

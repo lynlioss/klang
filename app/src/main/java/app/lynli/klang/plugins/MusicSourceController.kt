@@ -20,13 +20,14 @@ internal class MusicSourceController(private val context: Context, private val s
     val changes = store.changes
     private val accountLock = Mutex()
     private val accounts = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, JSONObject>>()
+    private val playbackRevisions = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val mutableLibrary = MutableStateFlow(SourceLibrary())
     val library = mutableLibrary.asStateFlow()
     private val mutableRefresh = MutableStateFlow(0L)
     val refreshes = mutableRefresh.asStateFlow()
     private val mutableResume = MutableStateFlow(0L)
     val resumes = mutableResume.asStateFlow()
-    fun resumed() { accounts.clear(); SourceStreams.get(context).invalidate(); mutableResume.value++; requestSync() }
+    fun resumed() { accounts.clear(); mutableResume.value++; requestSync() }
     private val mutableDestination = MutableStateFlow<SourceDestination?>(null)
     val destination = mutableDestination.asStateFlow()
     fun entries() = providers().filter { it.manifest.musicSource != null }
@@ -44,6 +45,10 @@ internal class MusicSourceController(private val context: Context, private val s
         result.optString("revision").takeIf { it.isNotBlank() }?.let { revision -> withContext(Dispatchers.IO) {
             if (store.acceptAccount(plugin.manifest.id, revision)) SourceStreams.get(context).invalidate()
         } }
+        result.optString("playbackRevision").takeIf { it.isNotBlank() }?.let { revision ->
+            val previous = playbackRevisions.put(plugin.manifest.id, revision)
+            if (previous != null && previous != revision) SourceStreams.get(context).invalidate()
+        }
         accounts[plugin.manifest.id] = System.currentTimeMillis() to result
         result
     }

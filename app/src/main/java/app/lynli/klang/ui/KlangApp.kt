@@ -358,7 +358,7 @@ private fun SearchScreen(state: MusicState, model: MusicViewModel, import: () ->
     val found = remember(local, remote, filter) {
         if (filter !in listOf(0, 1, 5)) emptyList() else (local + remote?.tracks.orEmpty()).distinctBy { it.id }
     }
-    val collections = remember(state.tracks, state.sourceCollections, remote, query, filter) {
+    val collections = remember(state.tracks, state.sourceCollections, state.playlists, remote, query, filter) {
         if (query.isBlank() || filter in listOf(1, 5)) emptyList() else {
             val native = (albumCollections(state.tracks) + artistCollections(state.tracks) +
                 musicCollections(state).filter { it.editableId != null } + state.sourceCollections.map { it.collection() })
