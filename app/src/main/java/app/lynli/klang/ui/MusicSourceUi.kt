@@ -190,14 +190,14 @@ internal fun MusicSourceScreen(destination: SourceDestination, state: MusicState
                     DropdownMenu(menu, { menu = false }, shape = KlangMenuShape) {
                         DropdownMenuItem(text = { Text("Refresh") }, leadingIcon = { Icon(Icons.Rounded.Refresh, null) }, onClick = { menu = false; refresh++ })
                         entity?.optString("url")?.takeIf { it.startsWith("https://") }?.let { url ->
-                            DropdownMenuItem(text = { Text("Copy ${spec.linkLabel} link") }, leadingIcon = { Icon(Icons.Rounded.Link, null) }, onClick = { menu = false; copyMusicLink(context, spec.linkLabel, url) })
+                            DropdownMenuItem(text = { Text("Copy ${spec.linkLabel} link") }, leadingIcon = { Icon(painterResource(R.drawable.link), null) }, onClick = { menu = false; copyMusicLink(context, spec.linkLabel, url) })
                         }
                         if (entity?.optString("kind") in setOf("album", "artist") && "library.write" in spec.capabilities) {
                             val artist = entity?.optString("kind") == "artist"
                             DropdownMenuItem(text = { Text(if (artist) "Follow artist" else "Save album") }, leadingIcon = { Icon(Icons.Rounded.FavoriteBorder, null) }, onClick = {
                                 menu = false; change("library.save", JSONObject().put("ids", JSONArray().put(entityId)))
                             })
-                            DropdownMenuItem(text = { Text(if (artist) "Unfollow artist" else "Remove saved album") }, leadingIcon = { Icon(Icons.Rounded.RemoveCircleOutline, null) }, onClick = {
+                            DropdownMenuItem(text = { Text(if (artist) "Unfollow artist" else "Remove saved album") }, leadingIcon = { Icon(Icons.Rounded.Close, null) }, onClick = {
                                 menu = false; change("library.remove", JSONObject().put("ids", JSONArray().put(entityId)))
                             })
                         }
@@ -205,13 +205,13 @@ internal fun MusicSourceScreen(destination: SourceDestination, state: MusicState
                             if (entity.optBoolean("owned") && "playlist.edit" in spec.capabilities)
                                 DropdownMenuItem(text = { Text("Edit playlist") }, leadingIcon = { Icon(Icons.Rounded.Edit, null) }, onClick = { menu = false; edit = true })
                             if (entity.optBoolean("owned") && "playlist.cover" in spec.capabilities)
-                                DropdownMenuItem(text = { Text("Change cover") }, leadingIcon = { Icon(Icons.Rounded.Photo, null) }, onClick = { menu = false; coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
+                                DropdownMenuItem(text = { Text("Change cover") }, leadingIcon = { Icon(painterResource(R.drawable.photo), null) }, onClick = { menu = false; coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
                             if ("playlist.follow" in spec.capabilities) {
-                                DropdownMenuItem(text = { Text("Save playlist") }, leadingIcon = { Icon(Icons.Rounded.LibraryAdd, null) }, onClick = { menu = false; change("playlist.follow", JSONObject().put("id", entityId)) })
-                                DropdownMenuItem(text = { Text(if (entity.optBoolean("owned")) "Remove from your library" else "Unfollow playlist") }, leadingIcon = { Icon(Icons.Rounded.RemoveCircleOutline, null) }, onClick = { menu = false; change("playlist.unfollow", JSONObject().put("id", entityId)) })
+                                DropdownMenuItem(text = { Text("Save playlist") }, leadingIcon = { Icon(painterResource(R.drawable.playlist_add), null) }, onClick = { menu = false; change("playlist.follow", JSONObject().put("id", entityId)) })
+                                DropdownMenuItem(text = { Text(if (entity.optBoolean("owned")) "Remove from your library" else "Unfollow playlist") }, leadingIcon = { Icon(Icons.Rounded.Close, null) }, onClick = { menu = false; change("playlist.unfollow", JSONObject().put("id", entityId)) })
                             }
                             if ("playlist.create" in spec.capabilities)
-                                DropdownMenuItem(text = { Text("Copy to a new playlist") }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) }, onClick = { menu = false; copying = true; create = true })
+                                DropdownMenuItem(text = { Text("Copy to a new playlist") }, leadingIcon = { Icon(painterResource(R.drawable.content_copy), null) }, onClick = { menu = false; copying = true; create = true })
                         }
                     }
                 }
@@ -326,7 +326,7 @@ private fun SourceTrackRow(item: JSONObject, track: Track, model: MusicViewModel
     val uid = item.optString("uid").takeIf { it.isNotBlank() && it != "null" }
     TrackRow(track, state, model, play, enabled = item.optBoolean("available", true)) { close ->
         item.optString("albumId").takeIf { it.isNotBlank() && it != "null" }?.let { id ->
-            DropdownMenuItem(text = { Text("Go to album") }, leadingIcon = { Icon(Icons.Rounded.Album, null) },
+            DropdownMenuItem(text = { Text("Go to album") }, leadingIcon = { Icon(painterResource(R.drawable.album), null) },
                 onClick = { close(); go(id) })
         }
         item.optJSONArray("artists")?.jsonObjects().orEmpty().forEach { artist ->
@@ -337,13 +337,13 @@ private fun SourceTrackRow(item: JSONObject, track: Track, model: MusicViewModel
         }
         if (playlist != null && uid != null && "playlist.items" in spec.capabilities) {
             HorizontalDivider()
-            DropdownMenuItem(text = { Text("Remove from playlist") }, leadingIcon = { Icon(Icons.Rounded.PlaylistRemove, null) },
+            DropdownMenuItem(text = { Text("Remove from playlist") }, leadingIcon = { Icon(Icons.Rounded.Delete, null) },
                 onClick = { close(); change("playlist.remove", JSONObject().put("id", playlist.getString("id"))
                     .put("items", JSONArray().put(JSONObject().put("id", track.sourceId).put("uid", uid)))) })
-            DropdownMenuItem(text = { Text("Move up") }, leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null) },
+            DropdownMenuItem(text = { Text("Move up") }, leadingIcon = { Icon(Icons.Rounded.KeyboardArrowUp, null) },
                 enabled = canUp && !moveBefore.isNullOrBlank(), onClick = { close(); change("playlist.move", JSONObject()
                     .put("id", playlist.getString("id")).put("uids", JSONArray().put(uid)).put("beforeUid", moveBefore)) })
-            DropdownMenuItem(text = { Text("Move down") }, leadingIcon = { Icon(Icons.Rounded.ArrowDownward, null) },
+            DropdownMenuItem(text = { Text("Move down") }, leadingIcon = { Icon(Icons.Rounded.KeyboardArrowDown, null) },
                 enabled = canDown, onClick = { close(); change("playlist.move", JSONObject()
                     .put("id", playlist.getString("id")).put("uids", JSONArray().put(uid)).put("beforeUid", moveAfter)) })
         }

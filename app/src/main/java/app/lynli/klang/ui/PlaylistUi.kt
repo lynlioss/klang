@@ -148,7 +148,7 @@ internal fun AddToPlaylistDialog(track: Track, state: MusicState, model: MusicVi
                 Spacer(Modifier.width(8.dp)); Text("New Klang playlist", fontWeight = FontWeight.Bold)
             }
             if (providerId != null) TextButton({ sourceCreate = true }, Modifier.fillMaxWidth()) {
-                Icon(Icons.Rounded.PlaylistAdd, null); Spacer(Modifier.width(8.dp)); Text("New ${track.sourceLabel} playlist")
+                Icon(painterResource(R.drawable.playlist_add), null); Spacer(Modifier.width(8.dp)); Text("New ${track.sourceLabel} playlist")
             }
             Spacer(Modifier.height(16.dp))
             if (submitting) LoadingIndicator()

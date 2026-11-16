@@ -465,7 +465,7 @@ private fun LibraryScreen(state: MusicState, model: MusicViewModel, settings: ()
                 "playlist.create" in requireNotNull(it.manifest.musicSource).capabilities
             }.forEach { source ->
                 FilledTonalButton({ createSource = source.manifest.id }, Modifier.padding(bottom = 12.dp)) {
-                    Icon(Icons.Rounded.PlaylistAdd, null); Spacer(Modifier.width(8.dp))
+                    Icon(painterResource(R.drawable.playlist_add), null); Spacer(Modifier.width(8.dp))
                     Text("New ${source.manifest.musicSource?.linkLabel} playlist")
                 }
             }
@@ -586,11 +586,11 @@ internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, pl
                     track.shareUrl?.let { url ->
                         DropdownMenuItem(text = { Text("Copy ${track.sourceLabel} link") },
                             onClick = { menu = false; copyMusicLink(context, track.sourceLabel, url) },
-                            leadingIcon = { Icon(Icons.Rounded.Link, null) })
+                            leadingIcon = { Icon(painterResource(R.drawable.link), null) })
                     }
                     if (track.providerId != null) DropdownMenuItem(text = { Text(if (track.offline) "Available offline" else "Download") },
                         enabled = !track.offline, onClick = { menu = false; model.musicSources.download(listOf(track)) },
-                        leadingIcon = { Icon(if (track.offline) Icons.Rounded.OfflinePin else Icons.Rounded.Download, null) })
+                        leadingIcon = { Icon(if (track.offline) Icons.Rounded.Check else Icons.Rounded.Download, null) })
                     extraActions { menu = false }
                     DropdownMenuItem(text = { Text("Properties") }, onClick = { menu = false; properties = true },
                         leadingIcon = { Icon(Icons.Rounded.Info, null) })
@@ -696,11 +696,11 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
                                         track.shareUrl?.let { url ->
                                             DropdownMenuItem(text = { Text("Copy ${track.sourceLabel} link") }, onClick = {
                                                 overflow = false; copyMusicLink(context, track.sourceLabel, url)
-                                            }, leadingIcon = { Icon(Icons.Rounded.Link, null) })
+                                            }, leadingIcon = { Icon(painterResource(R.drawable.link), null) })
                                         }
                                         if (track.providerId != null) DropdownMenuItem(text = { Text(if (track.offline) "Available offline" else "Download") },
                                             enabled = !track.offline, onClick = { overflow = false; model.musicSources.download(listOf(track)) },
-                                            leadingIcon = { Icon(if (track.offline) Icons.Rounded.OfflinePin else Icons.Rounded.Download, null) })
+                                            leadingIcon = { Icon(if (track.offline) Icons.Rounded.Check else Icons.Rounded.Download, null) })
                                         HorizontalDivider(Modifier.padding(vertical = 4.dp))
                                         DropdownMenuItem(text = { Text("Properties") }, onClick = { overflow = false; props = true },
                                             leadingIcon = { Icon(Icons.Rounded.Info, null) })
