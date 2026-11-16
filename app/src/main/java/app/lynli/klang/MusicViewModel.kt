@@ -24,6 +24,7 @@ import app.lynli.klang.data.SavedPlaylist
 import app.lynli.klang.data.PlaylistCovers
 import app.lynli.klang.data.audioFileIds
 import app.lynli.klang.data.mergeMusicEntries
+import app.lynli.klang.data.retainSourceSong
 import app.lynli.klang.plugins.SourceCollection
 import app.lynli.klang.plugins.SourceConnection
 import app.lynli.klang.plugins.SourceStreams
@@ -226,18 +227,18 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun applySourceLibrary(library: SourceLibrary) {
         val snapshot = mutableState.value
         val enabled = musicSources.entries().map { it.manifest.id }.toSet()
-        val ids = (snapshot.playlists.flatMap { it.trackIds } + favoriteOverrides.filterValues { it }.keys).distinct()
+        val savedFavorites = prefs.getStringSet("favorites", emptySet()).orEmpty().toSet()
+        val ids = (snapshot.playlists.flatMap { it.trackIds } + savedFavorites + favoriteOverrides.filterValues { it }.keys).distinct()
         val combined = withContext(Dispatchers.IO) {
             val retained = ids.mapNotNull(musicSources::storedTrack).filter { track ->
-                track.offline || track.providerId in enabled && runCatching {
-                    org.json.JSONObject(track.sourcePayload.orEmpty()).optString("accountRevision") == musicSources.accountRevision(requireNotNull(track.providerId))
-                }.getOrDefault(false)
+                retainSourceSong(track.offline, track.providerId in enabled,
+                    runCatching { org.json.JSONObject(track.sourcePayload.orEmpty()).optString("accountRevision") }.getOrNull(),
+                    track.providerId?.let(musicSources::accountRevision))
             }
             mergeMusicEntries(deviceTracks, library.tracks + retained, Track::id, musicSources::offlineDeviceId)
         }
         favoriteOverrides.entries.removeAll { (id, value) -> favoriteJobs[id]?.isActive != true && (id in library.favorites) == value }
-        val localFavorites = prefs.getStringSet("favorites", emptySet()).orEmpty().filterNot { it.startsWith("klang-source:") }.toSet()
-        val favorites = (localFavorites + library.favorites + favoriteOverrides.filterValues { it }.keys) - favoriteOverrides.filterValues { !it }.keys
+        val favorites = (savedFavorites + library.favorites + favoriteOverrides.filterValues { it }.keys) - favoriteOverrides.filterValues { !it }.keys
         mutableState.update { state -> state.copy(tracks = combined.filterNot { it.id in state.hiddenIds },
             hiddenTracks = combined.filter { it.id in state.hiddenIds }, favorites = favorites,
             sourceCollections = library.collections, sourceHome = library.home,
@@ -591,6 +592,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (track.providerId != null && track.sourceId != null && musicSources.entries().any {
                 it.manifest.id == track.providerId && "library.write" in requireNotNull(it.manifest.musicSource).capabilities }) {
             val value = track.id !in mutableState.value.favorites
+            // Migrate favorites created before source synchronization to provider-backed likes.
+            prefs.edit().putStringSet("favorites", prefs.getStringSet("favorites", emptySet()).orEmpty() - track.id).apply()
             favoriteOverrides[track.id] = value
             favoriteJobs[track.id]?.cancel()
             mutableState.update { it.copy(favorites = if (value) it.favorites + track.id else it.favorites - track.id) }

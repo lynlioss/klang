@@ -7,3 +7,7 @@ internal fun <T> mergeMusicEntries(device: List<T>, sources: List<T>, identity: 
     val downloaded = sourceEntries.mapNotNull(offlineDeviceId).flatMap(::audioFileIds).toSet()
     return (device.filterNot { identity(it) in downloaded } + sourceEntries).distinctBy(identity)
 }
+
+/** Private account membership cannot carry into another account; owned offline audio can. */
+internal fun retainSourceSong(offline: Boolean, enabled: Boolean, itemRevision: String?, currentRevision: String?): Boolean =
+    offline || enabled && !itemRevision.isNullOrBlank() && itemRevision == currentRevision

@@ -159,7 +159,7 @@ internal class MusicSourceController(private val context: Context, private val s
                 requestSync()
             }
             if (read) withContext(Dispatchers.IO) {
-                val revision = result.optString("accountRevision")
+                val revision = result.optString("accountRevision").ifBlank { store.accountRevision(id).orEmpty() }
                 result.optJSONArray("items")?.objects().orEmpty().forEach { item ->
                     if (revision.isNotBlank()) item.put("accountRevision", revision)
                     if (item.optString("kind") == "track") store.track(plugin.manifest, item)

@@ -24,4 +24,11 @@ class UnifiedLibraryTest {
         val other = Entry("klang-source://two/song")
         assertEquals(listOf(first, other), merge(emptyList(), listOf(first, first, other)))
     }
+    @Test fun changingAccountsDropsOnlineMembershipButKeepsOwnedOfflineFiles() {
+        assertTrue(retainSourceSong(false, true, "account-a", "account-a"))
+        assertFalse(retainSourceSong(false, true, "account-a", "account-b"))
+        assertFalse(retainSourceSong(false, false, "account-a", "account-a"))
+        assertFalse(retainSourceSong(false, true, null, "account-a"))
+        assertTrue(retainSourceSong(true, false, "account-a", "account-b"))
+    }
 }
