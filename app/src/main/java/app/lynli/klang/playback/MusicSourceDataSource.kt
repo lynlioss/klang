@@ -57,11 +57,14 @@ internal fun sourceFactory(context: Context, cacheAudio: Boolean): DataSource.Fa
 }
 
 /** A rejected/expired URL is refreshed once at the same byte position, including after a seek. */
-internal fun <T> openResolvedStream(resolve: (Boolean) -> T, open: (T) -> Long, close: () -> Unit): Long {
+internal fun <T> openResolvedStream(resolve: (Boolean) -> T, open: (T) -> Long, close: () -> Unit,
+    refreshable: (IOException) -> Boolean = { it is HttpDataSource.InvalidResponseCodeException && sourceResponseNeedsRefresh(it.responseCode) }): Long {
     try { return open(resolve(false)) }
-    catch (error: HttpDataSource.InvalidResponseCodeException) {
-        if (error.responseCode !in setOf(401, 403, 404, 410)) throw error
+    catch (error: IOException) {
+        if (!refreshable(error)) throw error
         close()
         return open(resolve(true))
     }
 }
+
+internal fun sourceResponseNeedsRefresh(code: Int): Boolean = code in setOf(401, 403, 404, 410)

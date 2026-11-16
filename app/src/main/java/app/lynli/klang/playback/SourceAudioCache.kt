@@ -51,7 +51,7 @@ internal class SourceAudioCache private constructor(private val context: Context
                             val spec = DataSpec.Builder().setUri(url).setKey(key).setHttpRequestHeaders(headers).setLength(PREFIX_BYTES).build()
                             val reader = factory(sourceFactory(context, cacheAudio = false)).createDataSource()
                             synchronized(this@SourceAudioCache) { readers[id] = reader }
-                            try { runInterruptible { cacheAudioPrefix(reader, spec, PREFIX_BYTES) } }
+                            try { runInterruptible { cacheAudioPrefix({ reader.open(spec) }, reader::read, reader::close, PREFIX_BYTES) } }
                             finally { synchronized(this@SourceAudioCache) { readers.remove(id) } }
                         }
                         synchronized(this@SourceAudioCache) {
@@ -82,16 +82,16 @@ internal class SourceAudioCache private constructor(private val context: Context
 }
 
 /** A failed bounded range must never be retried as an unbounded speculative download. */
-internal fun cacheAudioPrefix(source: DataSource, spec: DataSpec, maximumBytes: Long) {
+internal fun cacheAudioPrefix(open: () -> Unit, read: (ByteArray, Int, Int) -> Int, close: () -> Unit, maximumBytes: Long) {
     try {
-        source.open(spec)
+        open()
         val buffer = ByteArray(16 * 1024)
         var remaining = maximumBytes
         while (remaining > 0 && !Thread.currentThread().isInterrupted) {
-            val read = source.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
-            if (read < 0) break
-            if (read == 0) throw java.io.IOException("The stream returned no audio bytes.")
-            remaining -= read
+            val count = read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+            if (count < 0) break
+            if (count == 0) throw java.io.IOException("The stream returned no audio bytes.")
+            remaining -= count
         }
-    } finally { source.close() }
+    } finally { close() }
 }
