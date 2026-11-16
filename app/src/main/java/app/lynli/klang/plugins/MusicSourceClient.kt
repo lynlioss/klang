@@ -60,7 +60,7 @@ internal object MusicSourceClient {
         try {
             bound = context.bindService(Intent(MUSIC_SOURCE_ACTION).setComponent(ComponentName(spec.packageName, spec.service)), connection, Context.BIND_AUTO_CREATE)
             require(bound) { "Install and enable this music source in Plugins." }
-            withTimeout(if (operation == "stream.resolve") 330_000L else 90_000L) { result.await() }
+            withTimeout(if (operation == "stream.resolve") 60_000L else 90_000L) { result.await() }
         } finally {
             if (!result.isCompleted || result.isCancelled) runCatching { remote?.send(Message.obtain(null, 3).apply {
                 replyTo = reply; data = Bundle().apply { putString("token", token) }

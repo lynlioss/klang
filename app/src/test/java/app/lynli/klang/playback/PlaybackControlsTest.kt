@@ -16,6 +16,7 @@ class PlaybackControlsTest {
         val items = mutableListOf(current!!)
         var playing = false
         var playWhenReady = false
+        var state = Player.STATE_READY
         var hasPrevious = true
         var hasNext = true
         var metadata: MediaMetadata? = null
@@ -25,12 +26,13 @@ class PlaybackControlsTest {
                 "getCurrentMediaItem" -> current
                 "isPlaying" -> playing
                 "getPlayWhenReady" -> playWhenReady
+                "getPlaybackState" -> state
                 "getCurrentPosition" -> 80_000L
                 "getMediaItemCount" -> items.size
                 "getMediaItemAt" -> items[args!![0] as Int]
                 "hasPreviousMediaItem" -> hasPrevious
                 "hasNextMediaItem" -> hasNext
-                "seekToPreviousMediaItem", "seekToNextMediaItem", "stop" -> { commands += method.name; null }
+                "seekToPreviousMediaItem", "seekToNextMediaItem", "stop", "prepare", "play", "pause", "seekToDefaultPosition" -> { commands += method.name; null }
                 "clearMediaItems" -> { commands += method.name; items.clear(); current = null; null }
                 "removeMediaItem" -> {
                     val index = args!![0] as Int
@@ -118,5 +120,18 @@ class PlaybackControlsTest {
         val playback = Playback()
         assertFalse(playback.player.removeDeletedAudio("other"))
         assertTrue(playback.commands.isEmpty())
+    }
+    @Test fun oneTapPreparesErroredPlaybackEvenWhenPlayWhenReadyWasRetained() {
+        val playback = Playback().apply { state = Player.STATE_IDLE; playWhenReady = true }
+        playback.player.togglePlayback()
+        assertEquals(listOf("prepare", "play"), playback.commands)
+    }
+    @Test fun pauseDuringBufferingDoesNotRestartResolutionAndResumeKeepsIt() {
+        val playback = Playback().apply { state = Player.STATE_BUFFERING; playWhenReady = true }
+        playback.player.togglePlayback()
+        assertEquals(listOf("pause"), playback.commands)
+        playback.commands.clear(); playback.playWhenReady = false
+        playback.player.togglePlayback()
+        assertEquals(listOf("play"), playback.commands)
     }
 }

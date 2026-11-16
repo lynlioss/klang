@@ -91,8 +91,17 @@ as device files. Album, artist and playlist entities use native collection cards
 Plugins return opaque IDs and bounded pages; the host retains account-scoped library
 membership and preserves duplicate playlist occurrences. Playback starts from the
 visible page while the remaining queue loads in the background. Temporary HTTPS
-streams resolve on Media3's loader thread and are prepared for likely next tracks.
-The player shows expressive loading feedback while preparing or buffering. Downloads reuse the `musicImport`
+streams resolve on Media3's loader thread. Visible songs prepare with two background
+workers; the next four queue links follow shuffle/repeat order. Preparation yields
+while the current song buffers, and page changes retain useful in-flight requests.
+A 96 MiB evictable audio cache reuses received bytes. Upcoming songs may prefetch
+at most 192 KiB after playback is ready. Optional stream `cacheKey` identifies the
+exact encoded recording so refreshed signed URLs can safely reuse those bytes;
+keys are hashed with account, playback settings and plugin version. Optional
+`args.refresh: true` requests a fresh URL after rejection. Rejected URLs refresh
+once at the original byte position, and transient failures have bounded recovery
+that preserves queue, position and user pauses. Source resolution has a 60-second
+timeout. The player shows expressive loading feedback while preparing or buffering. Downloads reuse the `musicImport`
 contract and host-owned queue, duplicate checks and MediaStore publication.
 Persistent source identities prefer downloaded files for offline playback after
 restarting Klang, without showing a duplicate device row. `accounts.connected`

@@ -135,7 +135,7 @@ internal fun MusicSourceScreen(destination: SourceDestination, state: MusicState
             page = load(0)
             tracks = page?.optJSONArray("items")?.jsonObjects().orEmpty().filter { it.optString("kind") == "track" }
                 .associate { item -> item.getString("id") to controller.track(plugin.id, item) }
-            controller.prepare(tracks.values.toList().take(2))
+            controller.prepare(tracks.values.toList())
         } catch (e: CancellationException) { throw e } catch (e: Exception) { error = e.message } finally { loading = false }
     }
     LaunchedEffect(offlineChanges) {

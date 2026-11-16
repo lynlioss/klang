@@ -26,4 +26,13 @@ class StreamCacheTest {
         cache.clear()
         assertNull(cache.get("song:account-a:youtube", 0))
     }
+    @Test fun audioCacheIdentityTracksAccountAndEncodingInsteadOfTemporaryUrl() {
+        val first = org.json.JSONObject().put("url", "https://audio.test/file?expire=100").put("cacheKey", "recording:251:version1")
+        val refreshed = org.json.JSONObject(first.toString()).put("url", "https://audio.test/file?expire=200")
+        assertEquals(sourceAudioKey("song|account-a", first), sourceAudioKey("song|account-a", refreshed))
+        assertNotEquals(sourceAudioKey("song|account-a", first), sourceAudioKey("song|account-b", first))
+        assertNotEquals(sourceAudioKey("song|account-a", first), sourceAudioKey("song|account-a", org.json.JSONObject(first.toString()).put("cacheKey", "recording:140:version1")))
+        first.remove("cacheKey"); refreshed.remove("cacheKey")
+        assertNotEquals(sourceAudioKey("song|account-a", first), sourceAudioKey("song|account-a", refreshed))
+    }
 }

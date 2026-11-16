@@ -49,6 +49,7 @@ internal class MusicSourceController(private val context: Context, private val s
             val previous = playbackRevisions.put(plugin.manifest.id, revision)
             if (previous != null && previous != revision) SourceStreams.get(context).invalidate()
         }
+        SourceStreams.get(context).observeAccount(plugin.manifest.id, result)
         accounts[plugin.manifest.id] = System.currentTimeMillis() to result
         result
     }

@@ -37,6 +37,7 @@ import app.lynli.klang.playback.dismissPausedPlayback
 import app.lynli.klang.playback.playbackSourceOrNull
 import app.lynli.klang.playback.removeDeletedAudio
 import app.lynli.klang.playback.skipPlaybackTrack
+import app.lynli.klang.playback.togglePlayback
 import app.lynli.klang.playback.withPlaybackSource
 import app.lynli.klang.plugins.PluginRegistry
 import app.lynli.klang.plugins.PluginStore
@@ -408,6 +409,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             sourceId?.let { putString(PLAYBACK_SOURCE_KEY, it) }
         }).build())
         val start = collectionPlaybackStart(tracks.size, index, sourceId, shuffled)
+        SourceStreams.get(getApplication()).buffering(true)
         player.setMediaItems(tracks.map { it.mediaItem().withPlaybackSource(sourceId) }, start.index, 0)
         player.shuffleModeEnabled = start.shuffle
         player.prepare(); player.play(); syncPlayer()
@@ -453,7 +455,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         else play(tracks, sourceId = sourceId)
     }
     fun togglePlay() {
-        controller?.let { if (it.playWhenReady) it.pause() else { if (it.playbackState == Player.STATE_IDLE) it.prepare(); if (it.playbackState == Player.STATE_ENDED) it.seekToDefaultPosition(); it.play() } }
+        controller?.togglePlayback()
     }
     fun next() { controller?.seekToNextMediaItem() }
     fun previous() { controller?.let { if (it.currentPosition > 3000) it.seekTo(0) else it.seekToPreviousMediaItem() } }

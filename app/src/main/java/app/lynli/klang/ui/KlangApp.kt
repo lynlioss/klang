@@ -348,7 +348,7 @@ private fun SearchScreen(state: MusicState, model: MusicViewModel, import: () ->
         try {
             kotlinx.coroutines.delay(250)
             remote = model.musicSources.search(query.trim(), kinds[filter])
-            model.musicSources.prepare(remote?.tracks.orEmpty().take(2))
+            model.musicSources.prepare(remote?.tracks.orEmpty())
         } finally { searching = false }
     }
     val local = remember(state.tracks, state.favorites, query, filter) {
@@ -432,7 +432,7 @@ private fun LibraryScreen(state: MusicState, model: MusicViewModel, settings: ()
         musicCollections(state).filter { it.mix || it.favorites || it.editableId != null || it.source?.kind in setOf("playlist", "folder") }
     }
     var createSource by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(tracks.take(2).map { it.id }) { model.musicSources.prepare(tracks.take(2)) }
+    LaunchedEffect(tracks.filter { it.providerId != null }.take(12).map { it.id }) { model.musicSources.prepare(tracks) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = bottom)) {
         item {
             PageTitle("Library") {
@@ -545,6 +545,7 @@ internal fun EmptyLibrary(import: () -> Unit) {
 @Composable
 internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, play: () -> Unit, modifier: Modifier = Modifier,
     enabled: Boolean = true, extraActions: @Composable ColumnScope.(() -> Unit) -> Unit = {}) {
+    LaunchedEffect(track.id, enabled) { if (enabled && track.providerId != null) model.musicSources.prepare(listOf(track)) }
     var menu by remember { mutableStateOf(false) }
     var addToPlaylist by remember { mutableStateOf(false) }
     var properties by remember { mutableStateOf(false) }

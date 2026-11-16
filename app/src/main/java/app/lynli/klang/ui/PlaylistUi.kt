@@ -286,6 +286,7 @@ internal fun PlaylistTrackPicker(collection: MusicCollection, state: MusicState,
 @Composable
 internal fun PlaylistTrackRow(track: Track, index: Int, collection: MusicCollection, state: MusicState,
     model: MusicViewModel, modifier: Modifier = Modifier, openPlayer: () -> Unit = {}, lifted: Boolean = false) {
+    LaunchedEffect(track.id) { if (track.providerId != null) model.musicSources.prepare(listOf(track)) }
     var menu by remember { mutableStateOf(false) }
     var properties by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (lifted) 1.025f else 1f, spring(0.6f, 800f), label = "Lift song")

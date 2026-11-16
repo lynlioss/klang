@@ -95,6 +95,7 @@ dependencies {
     implementation("androidx.compose.material3:material3:1.5.0-rc01")
     implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.media3:media3-exoplayer:1.11.1")
+    implementation("androidx.media3:media3-database:1.11.1")
     implementation("androidx.media3:media3-session:1.11.1")
     implementation("com.materialkolor:material-kolor:4.1.1")
     implementation("org.yaml:snakeyaml:2.6")

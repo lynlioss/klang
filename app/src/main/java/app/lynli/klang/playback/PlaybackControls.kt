@@ -4,6 +4,17 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import app.lynli.klang.data.audioFileIds
 
+/** An errored player may retain playWhenReady. One tap must prepare it instead of only pausing it. */
+internal fun Player.togglePlayback() {
+    if (playbackState == Player.STATE_IDLE && currentMediaItem != null) {
+        prepare(); play()
+    } else if (playWhenReady) pause()
+    else {
+        if (playbackState == Player.STATE_ENDED) seekToDefaultPosition()
+        play()
+    }
+}
+
 /** Native adjacent-item commands respect shuffle/repeat and preserve the paused/playing state. */
 internal fun Player.skipPlaybackTrack(expectedTrackId: String, forward: Boolean): Boolean {
     if (currentMediaItem?.mediaId != expectedTrackId) return false

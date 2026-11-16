@@ -103,7 +103,7 @@ internal fun HomeScreen(state: MusicState, model: MusicViewModel, collections: L
     val mix = collections.first { it.mix }
     val recentPlaylists = state.playlists.filter { it.lastPlayedAt > 0 }.sortedByDescending { it.lastPlayedAt }
         .take(8).mapNotNull { playlist -> collections.find { it.editableId == playlist.id } }
-    LaunchedEffect(state.tracks.take(2).map { it.id }) { model.musicSources.prepare(state.tracks.take(2)) }
+    LaunchedEffect(state.tracks.filter { it.providerId != null }.take(12).map { it.id }) { model.musicSources.prepare(state.tracks) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = bottom)) {
         item {
             Column(Modifier.padding(horizontal = 24.dp)) {
@@ -238,7 +238,7 @@ internal fun CollectionScreen(collection: MusicCollection, state: MusicState, mo
         }
         return
     }
-    LaunchedEffect(collection.id) { model.musicSources.prepare(collection.tracks.take(2)) }
+    LaunchedEffect(collection.id) { model.musicSources.prepare(collection.tracks) }
     var menu by remember { mutableStateOf(false) }
     var rename by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
