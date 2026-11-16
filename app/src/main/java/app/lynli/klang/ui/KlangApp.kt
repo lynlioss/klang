@@ -839,7 +839,7 @@ private fun SettingsIconAction(icon: AppIcon, title: String, click: () -> Unit) 
     Surface(Modifier.fillMaxWidth().padding(bottom = 4.dp).clip(MaterialTheme.shapes.medium).clickable(onClick = click),
         shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Image(painterResource(if (icon == AppIcon.Dark) R.drawable.app_icon_dark else R.drawable.app_icon_light),
+            Image(painterResource(icon.preview),
                 null, Modifier.size(24.dp).clip(CircleShape))
             Text(title, Modifier.padding(start = 16.dp), style = MaterialTheme.typography.titleMedium)
         }

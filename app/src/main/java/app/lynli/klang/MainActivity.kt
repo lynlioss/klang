@@ -28,6 +28,12 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         app.lynli.klang.importing.DownloadNotifications.appVisible = true
     }
+    override fun onResume() {
+        super.onResume()
+        // Fresh installs launch through LauncherActivity once. Retire it now that
+        // the real task is on screen so only the chosen icon alias remains.
+        AppIconSwitcher.retireLauncher(this)
+    }
     override fun onStop() {
         app.lynli.klang.importing.DownloadNotifications.appVisible = false
         super.onStop()

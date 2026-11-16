@@ -41,11 +41,13 @@
         <!-- HTTPS intent filters must list domains at install time. Custom-scheme
              routes support any plugin without host updates. -->
         <!-- Verified HTTPS activation requires the site's assetlinks.json. -->
-        <!-- Launcher entries per app icon. Only one is enabled at a time; the
-             app toggles them so the home screen icon changes without a restart. -->
+        <!-- Launcher entries per app icon. Selectable aliases are disabled by
+             default so the app can switch between them without Android removing
+             the running task. Add a new icon by declaring another disabled alias
+             here and a matching entry in AppIcon.kt. -->
         <activity-alias android:name=".LauncherLight" android:targetActivity=".MainActivity"
             android:label="Klang" android:icon="@mipmap/ic_launcher_light" android:roundIcon="@mipmap/ic_launcher_light"
-            android:enabled="true" android:exported="true">
+            android:enabled="false" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -59,6 +61,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity-alias>
+        <!-- Fresh installs need one enabled launcher entry. Keeping it separate
+             from the selectable aliases means retiring it cannot close the task
+             the user is already looking at. -->
+        <activity android:name=".LauncherActivity"
+            android:label="Klang" android:icon="@mipmap/ic_launcher_light" android:roundIcon="@mipmap/ic_launcher_light"
+            android:enabled="true" android:exported="true" android:noHistory="true" android:excludeFromRecents="true"
+            android:taskAffinity="app.lynli.klang.launcher" android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
         <service android:name=".playback.PlaybackService" android:foregroundServiceType="mediaPlayback" android:exported="true">
             <intent-filter><action android:name="androidx.media3.session.MediaSessionService" /></intent-filter>
         </service>
