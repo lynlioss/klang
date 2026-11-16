@@ -335,6 +335,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun play(tracks: List<Track>, index: Int? = null, shuffled: Boolean = false, sourceId: String? = null) {
         if (tracks.isEmpty()) return
+        val jamStart = collectionPlaybackStart(tracks.size, index, sourceId, shuffled)
+        val jamOffset = (jamStart.index - 16).coerceIn(0, (tracks.size - 32).coerceAtLeast(0))
+        if (app.lynli.klang.plugins.ExtensionRuntime.active?.routeSelection(tracks.drop(jamOffset).take(32).map { it.mediaItem() }, "replace", jamStart.index - jamOffset) == true) {
+            app.lynli.klang.plugins.ExtensionRuntime.active?.routeControl("shuffle", org.json.JSONObject().put("enabled", jamStart.shuffle))
+            return
+        }
         val player = controller ?: return message("Connecting to playback…")
         player.setPlaylistMetadata(MediaMetadata.Builder().setExtras(Bundle().apply {
             sourceId?.let { putString(PLAYBACK_SOURCE_KEY, it) }
@@ -493,6 +499,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL; Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE; else -> Player.REPEAT_MODE_OFF
     } } }
     fun playNext(track: Track) {
+        if (app.lynli.klang.plugins.ExtensionRuntime.active?.routeSelection(listOf(track.mediaItem()), "next") == true) return
         controller?.let {
             if (it.mediaItemCount == 0) { play(listOf(track)); return }
             it.addMediaItem(it.currentMediaItemIndex + 1,

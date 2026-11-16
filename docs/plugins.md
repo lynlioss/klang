@@ -140,7 +140,7 @@ pill and contextual track action. The host owns native layout and accessibility;
 plugins own the complete screen content and state. No HTML or downloaded classes
 execute inside Klang.
 
-Audio access is descriptor-based and limited to the current/next queue item.
+Audio access is descriptor-based and limited to explicitly selected or native queued audio. Selection controls contain opaque session grants, so extensions can share a member’s local songs without receiving filesystem paths. `audio.register` maps a selected reference to its audio hash; `playback.queue` reconciles unique entry keys while preserving current playback and prepared successors. Queue and playback requests return a fresh playback snapshot, and observation includes queue/index, actual next index, advancement and speed. Plugin API 1 keeps its name and version.
 Received audio is bounded, hashed and validated by container and MediaExtractor
 before becoming playable. Output paths are host-generated. Saving to the library
 is atomic and requires a user action. Cleanup restores the receiver's previous

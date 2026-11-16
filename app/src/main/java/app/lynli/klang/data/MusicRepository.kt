@@ -30,7 +30,7 @@ data class Track(
     val id: String get() = uri.toString()
     fun mediaItem(): MediaItem = MediaItem.Builder().setMediaId(id).setUri(uri)
         .setMediaMetadata(MediaMetadata.Builder().setTitle(title).setArtist(artist)
-            .setAlbumTitle(album).build()).build()
+            .setAlbumTitle(album).setExtras(android.os.Bundle().apply { putLong("durationMs", durationMs) }).build()).build()
 }
 
 class MusicRepository(private val context: Context) {

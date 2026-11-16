@@ -26,6 +26,7 @@ class ExtensionRuntime(private val context: Context, private val player: Player)
     private val localAudio = mutableMapOf<String, MutableMap<String, Uri>>()
     private val userActions = mutableMapOf<String, Long>()
     private val receipts = mutableMapOf<String, Deferred<File>>()
+    private val selections = mutableMapOf<String, MutableMap<String, MediaItem>>()
     private var beforeExtension: Pair<List<MediaItem>, Pair<Int, Long>>? = null
     private var playbackOwner: String? = null
     init {
@@ -65,7 +66,7 @@ class ExtensionRuntime(private val context: Context, private val player: Player)
             beforeExtension = null; playbackOwner = null
         }
         receipts.keys.filter { it.startsWith("$id:") }.forEach { receipts.remove(it)?.cancel() }
-        audio.remove(id); localAudio.remove(id); userActions.remove(id)
+        audio.remove(id); localAudio.remove(id); userActions.remove(id); selections.remove(id)
         val retired = File(root, "removed-${UUID.randomUUID()}")
         val directory = File(root, id)
         if (directory.exists() && directory.renameTo(retired)) scope.launch(Dispatchers.IO) { retired.deleteRecursively() }
@@ -97,7 +98,31 @@ class ExtensionRuntime(private val context: Context, private val player: Player)
         action(owner.key, "control", payload.put("operation", operation))
         return true
     }
-    fun audioUri(trackId: String): Uri? = audio.values.firstNotNullOfOrNull { it[trackId]?.let(Uri::fromFile) }
+    /** Grant only audio explicitly selected by the user, without exposing arbitrary file access. */
+    fun routeSelection(items: List<MediaItem>, mode: String, index: Int = 0, end: Int = index + 1, positionMs: Long = 0): Boolean {
+        val owner = mutableStates.value.entries.firstOrNull { it.value.optBoolean("interceptControls") } ?: return false
+        if (items.size > 32) {
+            action(owner.key, "control", JSONObject().put("operation", "queue_error").put("message", "Choose up to 32 songs at a time"))
+            return true
+        }
+        val grants = selections.getOrPut(owner.key) { linkedMapOf() }
+        val tracks = JSONArray()
+        items.forEach { item ->
+            val key = UUID.randomUUID().toString()
+            grants[key] = item
+            tracks.put(extensionMetadata(item).put("id", key))
+        }
+        while (grants.size > 128) grants.remove(grants.keys.first())
+        userActions[owner.key] = SystemClock.elapsedRealtime()
+        action(owner.key, "control", JSONObject().put("operation", "queue").put("mode", mode)
+            .put("index", index).put("end", end).put("positionMs", positionMs).put("tracks", tracks))
+        return true
+    }
+    fun audioUri(trackId: String): Uri? = player.currentTimeline.let {
+        (0 until player.mediaItemCount).map(player::getMediaItemAt).firstOrNull { item -> item.mediaId == trackId }
+            ?.takeIf { item -> item.mediaMetadata.extras?.containsKey("extensionHash") == true }
+            ?.localConfiguration?.uri?.takeUnless { uri -> uri.scheme == "klang-pending" }
+    } ?: audio.values.firstNotNullOfOrNull { it[trackId]?.let(Uri::fromFile) }
         ?: localAudio.values.firstNotNullOfOrNull { it[trackId] }
     val ownsPlayback: Boolean get() = playbackOwner != null
     fun close() {
@@ -167,16 +192,20 @@ class ExtensionRuntime(private val context: Context, private val player: Player)
                 data = Bundle().apply { putString("token", token); putString("json", json.toString()); fd?.let { putParcelable("audio", it) } }
             }) }
         }
-        fun snapshot() {
-            if ("playback.observe".lowercase() !in spec.capabilities) return
-            fun metadata(item: MediaItem): JSONObject = JSONObject().put("id", item.mediaId)
-                .put("title", item.mediaMetadata.title?.toString().orEmpty()).put("artist", item.mediaMetadata.artist?.toString().orEmpty())
-                .put("album", item.mediaMetadata.albumTitle?.toString().orEmpty())
+        private fun playbackSnapshot(): JSONObject {
             val json = JSONObject().put("positionMs", player.currentPosition.coerceAtLeast(0)).put("durationMs", player.duration.coerceAtLeast(0))
                 .put("playing", player.playWhenReady).put("ready", player.playbackState == Player.STATE_READY)
+                .put("advancing", player.isPlaying).put("speed", player.playbackParameters.speed.toDouble())
+                .put("queueIndex", player.currentMediaItemIndex).put("nextIndex", player.nextMediaItemIndex)
+                .put("queue", JSONArray((0 until minOf(player.mediaItemCount, 32)).map { extensionMetadata(player.getMediaItemAt(it)) }))
                 .put("elapsedMs", SystemClock.elapsedRealtime()).put("shuffle", player.shuffleModeEnabled).put("repeat", player.repeatMode)
-            player.currentMediaItem?.let { json.put("track", metadata(it)) }
-            if (player.nextMediaItemIndex in 0 until player.mediaItemCount) json.put("next", metadata(player.getMediaItemAt(player.nextMediaItemIndex)))
+            player.currentMediaItem?.let { json.put("track", extensionMetadata(it)) }
+            if (player.nextMediaItemIndex in 0 until player.mediaItemCount) json.put("next", extensionMetadata(player.getMediaItemAt(player.nextMediaItemIndex)))
+            return json
+        }
+        fun snapshot() {
+            if ("playback.observe" !in spec.capabilities) return
+            val json = playbackSnapshot()
             val text = json.toString()
             if (text != lastSnapshot) { send(3, json); lastSnapshot = text }
         }
@@ -184,7 +213,58 @@ class ExtensionRuntime(private val context: Context, private val player: Player)
             val requestId = json.getString("requestId").also { require(it.length <= 100) }
             val result = JSONObject().put("requestId", requestId)
             fun capability(name: String) { require(name.lowercase() in spec.capabilities) { "Capability $name was not declared" } }
+            fun selected(reference: String): MediaItem? = selections[id]?.get(reference)
+                ?: (0 until player.mediaItemCount).map(player::getMediaItemAt).firstOrNull { it.mediaId == reference }
+            fun item(track: JSONObject): MediaItem {
+                val hash = track.optString("sha256")
+                require(hash.isBlank() || hash.matches(Regex("[a-f0-9]{64}")))
+                val key = track.getString("key").also { require(it.length in 1..100) }
+                val local = track.optString("localRef").takeIf { it.isNotBlank() }?.let(::selected)
+                val uri = local?.localConfiguration?.uri ?: audio[id]?.get(hash)?.let(Uri::fromFile) ?: localAudio[id]?.get(hash)
+                    ?: Uri.parse("klang-pending://audio/$key")
+                if (local != null) require(uri.scheme == "content" && (uri.authority == "media" || context.contentResolver.getType(uri)?.startsWith("audio/") == true) ||
+                    uri.scheme == "file" && audio[id]?.values?.any { Uri.fromFile(it) == uri } == true) { "Only selected audio is allowed" }
+                return MediaItem.Builder().setMediaId(key).setUri(uri).setMediaMetadata(MediaMetadata.Builder()
+                    .setTitle(track.optString("title").take(200)).setArtist(track.optString("artist").take(200)).setAlbumTitle(track.optString("album").take(200))
+                    .setExtras(Bundle().apply { putString("extensionHash", hash); putLong("durationMs", track.optLong("durationMs")) }).build()).build()
+            }
             when (json.getString("operation")) {
+                "audio.register" -> {
+                    capability("audio.read")
+                    val hash = json.getString("sha256").also { require(it.matches(Regex("[a-f0-9]{64}"))) }
+                    val local = requireNotNull(selected(json.getString("localRef")))
+                    val uri = requireNotNull(local.localConfiguration?.uri)
+                    require(uri.scheme == "content" && (uri.authority == "media" || context.contentResolver.getType(uri)?.startsWith("audio/") == true))
+                    localAudio.getOrPut(id) { mutableMapOf() }[hash] = uri
+                    send(12, result)
+                }
+                "playback.queue" -> {
+                    capability("playback.control")
+                    require(playbackOwner == null || playbackOwner == id)
+                    val tracks = json.getJSONArray("tracks").also { require(it.length() in 0..32) }
+                    if (playbackOwner == null) {
+                        val grants = selections.getOrPut(id) { linkedMapOf() }
+                        for (index in 0 until minOf(player.mediaItemCount, 32)) {
+                            val selectedItem = player.getMediaItemAt(index)
+                            grants[selectedItem.mediaId] = selectedItem
+                        }
+                    }
+                    val items = (0 until tracks.length()).map { item(tracks.getJSONObject(it)) }
+                    require(items.map { it.mediaId }.distinct().size == items.size)
+                    if (playbackOwner == null) {
+                        beforeExtension = (0 until player.mediaItemCount).map(player::getMediaItemAt) to (player.currentMediaItemIndex to player.currentPosition)
+                        playbackOwner = id
+                    }
+                    reconcileExtensionQueue(player, items)
+                    val nextKey = json.optString("nextKey")
+                    val successor = items.indexOfFirst { it.mediaId == nextKey }
+                    if (player is androidx.media3.exoplayer.ExoPlayer && successor >= 0 && player.currentMediaItemIndex in items.indices) {
+                        val order = listOf(player.currentMediaItemIndex, successor).distinct() + items.indices.filter { it != player.currentMediaItemIndex && it != successor }
+                        player.setShuffleOrder(androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder(order.toIntArray(), 0L))
+                    }
+                    json.optInt("index", -1).takeIf { it in items.indices && it != player.currentMediaItemIndex }?.let { player.seekToDefaultPosition(it) }
+                    send(12, result.put("snapshot", playbackSnapshot())); snapshot()
+                }
                 "audio.find" -> {
                     capability("audio.receive")
                     val hash = json.getString("sha256").also { require(it.matches(Regex("[a-f0-9]{64}"))) }
@@ -220,9 +300,7 @@ class ExtensionRuntime(private val context: Context, private val player: Player)
                 "audio.read" -> {
                     capability("audio.read")
                     val trackId = json.getString("trackId")
-                    // No arbitrary URI/file reads: a plugin may only share the current or next item.
-                    val allowed = listOfNotNull(player.currentMediaItem, player.nextMediaItemIndex.takeIf { it in 0 until player.mediaItemCount }?.let(player::getMediaItemAt))
-                    val item = allowed.firstOrNull { it.mediaId == trackId } ?: error("Audio is outside the playback queue")
+                    val item = selected(trackId) ?: error("Audio was not selected or queued by the user")
                     val uri = item.localConfiguration?.uri ?: Uri.parse(trackId)
                     require(uri.scheme == "content" && (uri.authority == "media" || context.contentResolver.getType(uri)?.startsWith("audio/") == true) ||
                         uri.scheme == "file" && audio[id]?.values?.any { Uri.fromFile(it) == uri } == true)
@@ -294,17 +372,22 @@ class ExtensionRuntime(private val context: Context, private val player: Player)
                 "audio.release" -> {
                     capability("audio.receive")
                     val keep = json.optJSONArray("keep")?.let { a -> (0 until a.length()).map { a.getString(it) }.toSet() }.orEmpty()
-                    audio[id]?.keys?.toList()?.filter { hash -> hash !in keep && hash != player.currentMediaItem?.mediaId }?.forEach { hash ->
+                    audio[id]?.keys?.toList()?.filter { hash -> hash !in keep && hash != player.currentMediaItem?.mediaMetadata?.extras?.getString("extensionHash") }?.forEach { hash ->
                         audio[id]?.remove(hash)?.let { file -> scope.launch(Dispatchers.IO) { file.delete() } }
                     }
-                    localAudio[id]?.keys?.toList()?.filter { it !in keep && it != player.currentMediaItem?.mediaId }?.forEach { localAudio[id]?.remove(it) }
+                    localAudio[id]?.keys?.toList()?.filter { it !in keep && it != player.currentMediaItem?.mediaMetadata?.extras?.getString("extensionHash") }?.forEach { localAudio[id]?.remove(it) }
                     send(12, result)
                 }
                 "playback.apply" -> {
                     capability("playback.control")
                     require(playbackOwner == null || playbackOwner == id) { "Another extension owns playback" }
                     val hash = json.optString("sha256")
-                    if (hash.isNotBlank()) {
+                    val key = json.optString("key")
+                    if (key.isNotBlank()) {
+                        val index = (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).mediaId == key } ?: error("Track is outside the extension queue")
+                        require(player.getMediaItemAt(index).localConfiguration?.uri?.scheme != "klang-pending") { "Audio is not ready" }
+                        if (player.currentMediaItemIndex != index) player.seekToDefaultPosition(index)
+                    } else if (hash.isNotBlank()) {
                         val file = audio[id]?.get(hash)
                         val uri = file?.let(Uri::fromFile) ?: localAudio[id]?.get(hash) ?: error("Audio is not ready")
                         if (playbackOwner == null) {
@@ -317,22 +400,23 @@ class ExtensionRuntime(private val context: Context, private val player: Player)
                             player.prepare()
                         }
                     }
-                    json.optLong("positionMs", -1).takeIf { it >= 0 }?.let(player::seekTo)
-                    if (json.has("speed")) player.setPlaybackSpeed(json.getDouble("speed").toFloat().coerceIn(0.97f, 1.03f))
-                    if (json.has("playing")) player.playWhenReady = json.getBoolean("playing")
-                    send(12, result.put("positionMs", player.currentPosition).put("elapsedMs", SystemClock.elapsedRealtime()).put("playing", player.playWhenReady)); snapshot()
+                    json.optLong("positionMs", -1).takeIf { it >= 0 && kotlin.math.abs(it - player.currentPosition) > 30 }?.let(player::seekTo)
+                    if (json.has("speed")) json.getDouble("speed").toFloat().coerceIn(0.97f, 1.03f).takeIf { it != player.playbackParameters.speed }?.let(player::setPlaybackSpeed)
+                    if (json.has("playing") && player.playWhenReady != json.getBoolean("playing")) player.playWhenReady = json.getBoolean("playing")
+                    if (player.playbackState == Player.STATE_IDLE) player.prepare()
+                    send(12, result.put("snapshot", playbackSnapshot())); snapshot()
                 }
                 "playback.command" -> {
                     capability("playback.control")
                     when (json.getString("command")) {
-                        "play" -> { player.prepare(); player.play() }; "pause" -> player.pause()
+                        "play" -> { if (player.playbackState == Player.STATE_IDLE) player.prepare(); player.play() }; "pause" -> player.pause()
                         "next" -> player.seekToNextMediaItem(); "previous" -> player.seekToPreviousMediaItem()
                         "seek" -> player.seekTo(json.getLong("positionMs").coerceAtLeast(0))
                         "shuffle" -> player.shuffleModeEnabled = json.getBoolean("enabled")
                         "repeat" -> player.repeatMode = json.getInt("mode").also { require(it in 0..2) }
                         else -> error("Unsupported playback command")
                     }
-                    send(12, result.put("positionMs", player.currentPosition).put("elapsedMs", SystemClock.elapsedRealtime()).put("playing", player.playWhenReady)); snapshot()
+                    send(12, result.put("snapshot", playbackSnapshot())); snapshot()
                 }
                 "session.clear" -> { cleanup(id); send(12, result) }
                 else -> error("Unsupported extension operation")
@@ -341,6 +425,10 @@ class ExtensionRuntime(private val context: Context, private val player: Player)
         fun close() { send(4, JSONObject()); remote = null; if (bound) runCatching { context.unbindService(this) }; bound = false }
     }
     companion object {
+        private fun extensionMetadata(item: MediaItem): JSONObject = JSONObject().put("id", item.mediaId)
+            .put("title", item.mediaMetadata.title?.toString().orEmpty().take(100)).put("artist", item.mediaMetadata.artist?.toString().orEmpty().take(100))
+            .put("album", item.mediaMetadata.albumTitle?.toString().orEmpty().take(100)).put("durationMs", item.mediaMetadata.extras?.getLong("durationMs") ?: 0)
+            .put("sha256", item.mediaMetadata.extras?.getString("extensionHash").orEmpty())
         const val MAX_AUDIO_BYTES = 256 * 1024 * 1024L
         var active: ExtensionRuntime? = null; private set
         private var pendingLink: String? = null
@@ -388,32 +476,32 @@ class ExtensionPlayer(player: Player, private val runtime: ExtensionRuntime) : F
     override fun pause() { if (!runtime.routeControl("pause")) super.pause() }
     override fun setPlayWhenReady(playWhenReady: Boolean) { if (!runtime.routeControl(if (playWhenReady) "play" else "pause")) super.setPlayWhenReady(playWhenReady) }
     override fun seekTo(positionMs: Long) { if (!runtime.routeControl("seek", JSONObject().put("positionMs", positionMs))) super.seekTo(positionMs) }
-    override fun seekTo(mediaItemIndex: Int, positionMs: Long) { if (!runtime.routeControl("seek", JSONObject().put("positionMs", positionMs))) super.seekTo(mediaItemIndex, positionMs) }
+    override fun seekTo(mediaItemIndex: Int, positionMs: Long) { if (!runtime.routeControl("queue", JSONObject().put("mode", "jump").put("index", mediaItemIndex).put("positionMs", positionMs))) super.seekTo(mediaItemIndex, positionMs) }
     override fun seekToNextMediaItem() { if (!runtime.routeControl("next")) super.seekToNextMediaItem() }
     override fun seekToPreviousMediaItem() { if (!runtime.routeControl("previous")) super.seekToPreviousMediaItem() }
     override fun seekToNext() { if (!runtime.routeControl("next")) super.seekToNext() }
     override fun seekToPrevious() { if (!runtime.routeControl("previous")) super.seekToPrevious() }
     override fun seekToDefaultPosition() { if (!runtime.routeControl("seek", JSONObject().put("positionMs", 0))) super.seekToDefaultPosition() }
-    override fun seekToDefaultPosition(mediaItemIndex: Int) { if (!runtime.routeControl("next")) super.seekToDefaultPosition(mediaItemIndex) }
+    override fun seekToDefaultPosition(mediaItemIndex: Int) { if (!runtime.routeControl("queue", JSONObject().put("mode", "jump").put("index", mediaItemIndex))) super.seekToDefaultPosition(mediaItemIndex) }
     override fun setShuffleModeEnabled(shuffleModeEnabled: Boolean) { if (!runtime.routeControl("shuffle", JSONObject().put("enabled", shuffleModeEnabled))) super.setShuffleModeEnabled(shuffleModeEnabled) }
     override fun setRepeatMode(repeatMode: Int) { if (!runtime.routeControl("repeat", JSONObject().put("mode", repeatMode))) super.setRepeatMode(repeatMode) }
-    override fun setMediaItems(mediaItems: List<MediaItem>) { if (!runtime.routeControl("queue")) super.setMediaItems(mediaItems) }
-    override fun setMediaItems(mediaItems: List<MediaItem>, resetPosition: Boolean) { if (!runtime.routeControl("queue")) super.setMediaItems(mediaItems, resetPosition) }
-    override fun setMediaItem(mediaItem: MediaItem) { if (!runtime.routeControl("queue")) super.setMediaItem(mediaItem) }
-    override fun setMediaItem(mediaItem: MediaItem, startPositionMs: Long) { if (!runtime.routeControl("queue")) super.setMediaItem(mediaItem, startPositionMs) }
-    override fun setMediaItem(mediaItem: MediaItem, resetPosition: Boolean) { if (!runtime.routeControl("queue")) super.setMediaItem(mediaItem, resetPosition) }
-    override fun addMediaItem(mediaItem: MediaItem) { if (!runtime.routeControl("queue")) super.addMediaItem(mediaItem) }
-    override fun addMediaItem(index: Int, mediaItem: MediaItem) { if (!runtime.routeControl("queue")) super.addMediaItem(index, mediaItem) }
-    override fun addMediaItems(mediaItems: List<MediaItem>) { if (!runtime.routeControl("queue")) super.addMediaItems(mediaItems) }
-    override fun moveMediaItem(currentIndex: Int, newIndex: Int) { if (!runtime.routeControl("queue")) super.moveMediaItem(currentIndex, newIndex) }
-    override fun moveMediaItems(fromIndex: Int, toIndex: Int, newIndex: Int) { if (!runtime.routeControl("queue")) super.moveMediaItems(fromIndex, toIndex, newIndex) }
-    override fun replaceMediaItem(index: Int, mediaItem: MediaItem) { if (!runtime.routeControl("queue")) super.replaceMediaItem(index, mediaItem) }
-    override fun replaceMediaItems(fromIndex: Int, toIndex: Int, mediaItems: List<MediaItem>) { if (!runtime.routeControl("queue")) super.replaceMediaItems(fromIndex, toIndex, mediaItems) }
-    override fun removeMediaItem(index: Int) { if (!runtime.routeControl("queue")) super.removeMediaItem(index) }
-    override fun clearMediaItems() { if (!runtime.routeControl("queue")) super.clearMediaItems() }
+    override fun setMediaItems(mediaItems: List<MediaItem>) { if (!runtime.routeSelection(mediaItems, "replace")) super.setMediaItems(mediaItems) }
+    override fun setMediaItems(mediaItems: List<MediaItem>, resetPosition: Boolean) { if (!runtime.routeSelection(mediaItems, "replace")) super.setMediaItems(mediaItems, resetPosition) }
+    override fun setMediaItem(mediaItem: MediaItem) { if (!runtime.routeSelection(listOf(mediaItem), "replace")) super.setMediaItem(mediaItem) }
+    override fun setMediaItem(mediaItem: MediaItem, startPositionMs: Long) { if (!runtime.routeSelection(listOf(mediaItem), "replace", positionMs = startPositionMs)) super.setMediaItem(mediaItem, startPositionMs) }
+    override fun setMediaItem(mediaItem: MediaItem, resetPosition: Boolean) { if (!runtime.routeSelection(listOf(mediaItem), "replace")) super.setMediaItem(mediaItem, resetPosition) }
+    override fun addMediaItem(mediaItem: MediaItem) { if (!runtime.routeSelection(listOf(mediaItem), "append")) super.addMediaItem(mediaItem) }
+    override fun addMediaItem(index: Int, mediaItem: MediaItem) { if (!runtime.routeSelection(listOf(mediaItem), "insert", index)) super.addMediaItem(index, mediaItem) }
+    override fun addMediaItems(mediaItems: List<MediaItem>) { if (!runtime.routeSelection(mediaItems, "append")) super.addMediaItems(mediaItems) }
+    override fun moveMediaItem(currentIndex: Int, newIndex: Int) { if (!runtime.routeControl("queue", JSONObject().put("mode", "move").put("index", currentIndex).put("to", newIndex))) super.moveMediaItem(currentIndex, newIndex) }
+    override fun moveMediaItems(fromIndex: Int, toIndex: Int, newIndex: Int) { if (!runtime.routeControl("queue", JSONObject().put("mode", "move").put("index", fromIndex).put("end", toIndex).put("to", newIndex))) super.moveMediaItems(fromIndex, toIndex, newIndex) }
+    override fun replaceMediaItem(index: Int, mediaItem: MediaItem) { if (!runtime.routeSelection(listOf(mediaItem), "replace_range", index)) super.replaceMediaItem(index, mediaItem) }
+    override fun replaceMediaItems(fromIndex: Int, toIndex: Int, mediaItems: List<MediaItem>) { if (!runtime.routeSelection(mediaItems, "replace_range", fromIndex, toIndex)) super.replaceMediaItems(fromIndex, toIndex, mediaItems) }
+    override fun removeMediaItem(index: Int) { if (!runtime.routeControl("queue", JSONObject().put("mode", "remove").put("index", index))) super.removeMediaItem(index) }
+    override fun clearMediaItems() { if (!runtime.routeControl("queue", JSONObject().put("mode", "clear"))) super.clearMediaItems() }
     override fun seekBack() { if (!runtime.routeControl("seek", JSONObject().put("positionMs", (currentPosition - seekBackIncrement).coerceAtLeast(0)))) super.seekBack() }
     override fun seekForward() { if (!runtime.routeControl("seek", JSONObject().put("positionMs", currentPosition + seekForwardIncrement))) super.seekForward() }
-    override fun setMediaItems(mediaItems: List<MediaItem>, startIndex: Int, startPositionMs: Long) { if (!runtime.routeControl("queue")) super.setMediaItems(mediaItems, startIndex, startPositionMs) }
-    override fun addMediaItems(index: Int, mediaItems: List<MediaItem>) { if (!runtime.routeControl("queue")) super.addMediaItems(index, mediaItems) }
-    override fun removeMediaItems(fromIndex: Int, toIndex: Int) { if (!runtime.routeControl("queue")) super.removeMediaItems(fromIndex, toIndex) }
+    override fun setMediaItems(mediaItems: List<MediaItem>, startIndex: Int, startPositionMs: Long) { if (!runtime.routeSelection(mediaItems, "replace", startIndex, positionMs = startPositionMs)) super.setMediaItems(mediaItems, startIndex, startPositionMs) }
+    override fun addMediaItems(index: Int, mediaItems: List<MediaItem>) { if (!runtime.routeSelection(mediaItems, "insert", index)) super.addMediaItems(index, mediaItems) }
+    override fun removeMediaItems(fromIndex: Int, toIndex: Int) { if (!runtime.routeControl("queue", JSONObject().put("mode", "remove").put("index", fromIndex).put("end", toIndex))) super.removeMediaItems(fromIndex, toIndex) }
 }
