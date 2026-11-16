@@ -69,4 +69,23 @@ class StreamRequestsTest {
             preparation.clear()
         } } finally { scope.cancel() }
     }
+    @Test fun bufferingKeepsTappedSongsPreparationAndYieldsOtherWorkers() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        try { withTimeout(5_000) {
+            val started = mutableListOf<String>()
+            val cancelled = mutableListOf<String>()
+            val preparation = StreamPreparation(scope, { id ->
+                started += id
+                try { awaitCancellation() } finally { cancelled += id }
+            })
+            preparation.offer(listOf("tapped", "other"))
+            preparation.pause(true, keep = "tapped")
+            assertEquals(listOf("other"), cancelled)
+            preparation.offer(listOf("later"))
+            assertEquals(listOf("tapped", "other"), started)
+            preparation.pause(false)
+            assertEquals(listOf("tapped", "other", "other"), started)
+            preparation.clear()
+        } } finally { scope.cancel() }
+    }
 }

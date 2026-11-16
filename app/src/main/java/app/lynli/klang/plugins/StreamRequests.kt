@@ -66,7 +66,15 @@ internal class StreamPreparation(private val scope: CoroutineScope, private val 
         pump()
     }
 
-    @Synchronized fun pause(value: Boolean) { paused = value; if (!paused) pump() }
+    @Synchronized fun pause(value: Boolean, keep: String? = null) {
+        paused = value
+        if (paused) {
+            active.filterKeys { it != keep }.toList().forEach { (id, job) ->
+                waiting.add(id)
+                job.cancel()
+            }
+        } else pump()
+    }
     @Synchronized fun clear() {
         waiting.clear(); failed.clear()
         val jobs = active.values.toList(); active.clear(); jobs.forEach { it.cancel() }

@@ -170,7 +170,7 @@ class PlaybackService : MediaSessionService() {
     private fun prepareUpcoming() {
         val streams = app.lynli.klang.plugins.SourceStreams.get(this)
         val buffering = player.playbackState == Player.STATE_BUFFERING && player.playWhenReady
-        streams.buffering(buffering)
+        streams.buffering(buffering, player.currentMediaItem?.mediaId)
         if (buffering || !player.playWhenReady) { SourceAudioCache.get(this).cancelPreparation(); return }
         if (player.playbackState != Player.STATE_READY || System.currentTimeMillis() - lastPreparation < 10_000) return
         lastPreparation = System.currentTimeMillis()

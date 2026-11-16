@@ -409,7 +409,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             sourceId?.let { putString(PLAYBACK_SOURCE_KEY, it) }
         }).build())
         val start = collectionPlaybackStart(tracks.size, index, sourceId, shuffled)
-        SourceStreams.get(getApplication()).buffering(true)
+        SourceStreams.get(getApplication()).buffering(true, tracks[start.index].id)
         player.setMediaItems(tracks.map { it.mediaItem().withPlaybackSource(sourceId) }, start.index, 0)
         player.shuffleModeEnabled = start.shuffle
         player.prepare(); player.play(); syncPlayer()

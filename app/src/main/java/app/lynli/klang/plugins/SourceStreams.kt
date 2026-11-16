@@ -58,7 +58,7 @@ internal class SourceStreams private constructor(private val context: Context) {
     fun prepareIdentities(ids: List<String>) {
         preparation.offer(ids.filter { it.startsWith("klang-source:") && store.offlineUri(it) == null }.take(4), priority = true)
     }
-    fun buffering(value: Boolean) = preparation.pause(value)
+    fun buffering(value: Boolean, current: String? = null) = preparation.pause(value, keep = current)
     @Synchronized fun reject(identity: String) {
         rejected.add(identity)
         requests.invalidate("$identity|")
