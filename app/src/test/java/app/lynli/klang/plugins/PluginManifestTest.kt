@@ -84,4 +84,19 @@ class PluginManifestTest {
         json.getJSONObject("musicImport").put("service", "another.package.Service")
         assertThrows(IllegalArgumentException::class.java) { PluginManifest.parse(json.toString()) }
     }
+    @Test fun sourcesExtendApi1WithSeparateAccountsStreamingAndDownloadService() {
+        val json = JSONObject(File("src/test/resources/plugins/music-source.json").readText())
+        val manifest = PluginManifest.parse(json.toString())
+        assertEquals(1, manifest.apiVersion)
+        assertEquals(PluginType.SOURCE, manifest.type)
+        assertEquals("Spotify Integration", manifest.name)
+        assertFalse(manifest.defaultEnabled)
+        assertEquals(manifest.musicImport!!.service, manifest.musicSource!!.service)
+        assertTrue("stream.resolve" in manifest.musicSource.capabilities)
+        assertTrue("offline.download" in manifest.musicSource.capabilities)
+        json.getJSONObject("musicSource").put("capabilities", JSONArray(listOf("filesystem.all")))
+        assertThrows(IllegalArgumentException::class.java) { PluginManifest.parse(json.toString()) }
+        json.getJSONObject("musicSource").put("capabilities", JSONArray(listOf("accounts"))).put("settingsActivity", "other.Activity")
+        assertThrows(IllegalArgumentException::class.java) { PluginManifest.parse(json.toString()) }
+    }
 }

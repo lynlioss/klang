@@ -39,9 +39,13 @@ internal class ImportController(private val context: Context, private val scope:
         mutable.value = mutable.value.copy(starting = true, error = null)
         return try {
             val songs = preview.songs.filterIndexed { index, _ -> index in selected }
+            val source = providers().firstOrNull { it.manifest.id == preview.providerId && it.manifest.musicSource != null }
+            val media = app.lynli.klang.plugins.SourceMediaStore.get(context)
             val tracks = MusicRepository(context).tracks()
             val entries = songs.distinctBy { it.sourceId }.map { song ->
+                if (source != null) withContext(Dispatchers.IO) { media.track(source.manifest, org.json.JSONObject(song.payload)) }
                 val duplicate = duplicateRecording(song, tracks)
+                if (source != null && duplicate != null) media.markOffline(source.manifest.id, song.sourceId, duplicate.id)
                 ImportEntry(song, if (duplicate == null) ImportPhase.QUEUED else ImportPhase.DUPLICATE, duplicateUri = duplicate?.id)
             }
             store.enqueue(preview, entries)

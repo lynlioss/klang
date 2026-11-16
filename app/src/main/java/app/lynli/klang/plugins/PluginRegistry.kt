@@ -68,7 +68,7 @@ class PluginRegistry(private val context: Context) {
         return providers
     }
     @Synchronized fun discoverServices() {
-        val discovered = (listOf(MUSIC_IMPORT_ACTION, EXTENSION_ACTION).flatMap { action -> context.packageManager.queryIntentServices(android.content.Intent(action),
+        val discovered = (listOf(MUSIC_IMPORT_ACTION, EXTENSION_ACTION, MUSIC_SOURCE_ACTION).flatMap { action -> context.packageManager.queryIntentServices(android.content.Intent(action),
             android.content.pm.PackageManager.GET_META_DATA) }).mapNotNull { match -> runCatching {
             val service = match.serviceInfo
             require(service.exported && service.enabled && service.applicationInfo.enabled)
@@ -76,14 +76,14 @@ class PluginRegistry(private val context: Context) {
             val source = context.packageManager.getResourcesForApplication(service.packageName)
                 .openRawResource(resource).bufferedReader().use { it.readText() }
             val manifest = PluginManifest.parse(source)
-            val packageName = manifest.musicImport?.packageName ?: manifest.extension?.packageName
-            val serviceName = manifest.musicImport?.service ?: manifest.extension?.service
+            val packageName = manifest.musicSource?.packageName ?: manifest.musicImport?.packageName ?: manifest.extension?.packageName
+            val serviceName = manifest.musicSource?.service ?: manifest.musicImport?.service ?: manifest.extension?.service
             require(manifest.apiVersion == PluginManifest.API_VERSION && manifest.repository != null)
             require(packageName == service.packageName && serviceName == service.name)
             InstalledPlugin(manifest, manifest.repository?.let(GitHubPluginRepo::parse), source, false)
         }.getOrNull() }.filter { it.manifest.id !in removed }
         val existingRepositories = installed.associate { it.manifest.id to it.repository }
-        installed = (installed.filter { it.manifest.musicImport == null && it.manifest.extension == null } + discovered.filter {
+        installed = (installed.filter { it.manifest.musicImport == null && it.manifest.extension == null && it.manifest.musicSource == null } + discovered.filter {
             existingRepositories[it.manifest.id]?.let { repo -> repo == it.repository } != false
         }).distinctBy { it.manifest.id }
     }
@@ -125,6 +125,8 @@ class PluginRegistry(private val context: Context) {
 }
 
 const val EXTENSION_ACTION = "io.github.lynlioss.klang.EXTENSION_V1"
+
+const val MUSIC_SOURCE_ACTION = "io.github.lynlioss.klang.MUSIC_SOURCE_V1"
 
 const val MUSIC_IMPORT_ACTION = "io.github.lynlioss.klang.MUSIC_IMPORT_V1"
 

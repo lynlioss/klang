@@ -148,6 +148,7 @@ private fun PluginList(catalog: PluginCatalog, config: PluginConfiguration, mode
 @Composable
 private fun PluginGlyph(plugin: PluginManifest, modifier: Modifier = Modifier) {
     if (plugin.id == "lrclib") Icon(painterResource(R.drawable.lrclib), "LRCLIB logo", modifier, tint = Color.Unspecified)
+    else if (plugin.musicSource?.badge == "spotify") Icon(painterResource(R.drawable.spotify), null, modifier, tint = MaterialTheme.colorScheme.primary)
     else Icon(if (plugin.extension != null) Icons.Rounded.GraphicEq else if (plugin.musicImport != null) Icons.Rounded.Download else ImageVector.vectorResource(R.drawable.lyrics), null, modifier, tint = MaterialTheme.colorScheme.primary)
 }
 
@@ -247,6 +248,17 @@ private fun PluginOverview(plugin: PluginManifest, config: PluginConfiguration, 
             if (linkError) Text("Couldn't open this link. Check that a browser is installed.",
                 Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = colors.error)
         }
+        plugin.musicSource?.settingsActivity?.let { activity -> item {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            FilledTonalButton({
+                runCatching { context.startActivity(android.content.Intent().putExtra("klang.theme", context.getSharedPreferences("klang", android.content.Context.MODE_PRIVATE).getString("theme", "system"))
+                    .putExtra("klang.dynamicColor", context.getSharedPreferences("klang", android.content.Context.MODE_PRIVATE).getBoolean("dynamicColor", false)).setComponent(
+                    android.content.ComponentName(requireNotNull(plugin.musicSource).packageName, activity))) }
+                    .onFailure { linkError = true }
+            }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Rounded.Person, null); Spacer(Modifier.width(ButtonDefaults.IconSpacing)); Text("Accounts & playback settings")
+            }
+        } }
         if (plugin.settings.isNotEmpty()) item {
             Text("Your preferences", style = MaterialTheme.typography.titleLargeEmphasized)
         }

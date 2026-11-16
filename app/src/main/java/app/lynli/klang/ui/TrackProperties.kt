@@ -132,7 +132,7 @@ internal fun TrackPropertiesSheet(track: Track, state: MusicState, model: MusicV
                         horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
                         verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         val buttonHeight = ButtonDefaults.MediumContainerHeight
-                        TextButton(onClick = { close(deleteSong = true) }, enabled = !closing,
+                        TextButton(onClick = { close(deleteSong = true) }, enabled = !closing && track.providerId == null,
                             modifier = Modifier.heightIn(min = buttonHeight),
                             shapes = ButtonDefaults.shapesFor(buttonHeight),
                             colors = ButtonDefaults.textButtonColors(contentColor = colors.error)) {

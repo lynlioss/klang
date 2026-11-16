@@ -12,6 +12,7 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
     <queries>
+        <intent><action android:name="io.github.lynlioss.klang.MUSIC_SOURCE_V1" /></intent>
         <intent><action android:name="io.github.lynlioss.klang.MUSIC_IMPORT_V1" /></intent>
         <intent><action android:name="io.github.lynlioss.klang.EXTENSION_V1" /></intent>
     </queries>

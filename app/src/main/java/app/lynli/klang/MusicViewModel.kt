@@ -97,6 +97,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     val pluginManifests get() = mutablePluginCatalog.value.installed.map { it.manifest }
     private val mutablePlugins = MutableStateFlow(pluginStore.read())
     val plugins = mutablePlugins.asStateFlow()
+    internal val musicSources = app.lynli.klang.plugins.MusicSourceController(application, viewModelScope, {
+        pluginRegistry.entries.filter { it.manifest.id in mutablePlugins.value.enabled }
+    }, ::message)
     internal val musicImports = app.lynli.klang.importing.ImportController(application, viewModelScope) {
         pluginRegistry.entries.filter { it.manifest.musicImport != null && it.manifest.id in mutablePlugins.value.enabled }
     }
@@ -138,6 +141,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     init {
+        viewModelScope.launch {
+            musicSources.changes.collect {
+                val current = mutableState.value.current
+                if (current?.providerId != null) musicSources.storedTrack(current.id)?.let { fresh ->
+                    mutableState.update { state -> if (state.current?.id == fresh.id) state.copy(current = fresh) else state }
+                }
+            }
+        }
         viewModelScope.launch {
             var completedIds = emptySet<String>()
             var importPlaylistIds = emptySet<String>()
@@ -420,7 +431,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 val existing = pluginRegistry.entries.find { it.manifest.id == candidate.manifest.id }
                 // Preserve the previous enabled state when updating. New plugins need a user toggle.
                 val enabled = enable || existing != null && existing.manifest.id in mutablePlugins.value.enabled
-                if (candidate.manifest.musicImport != null || candidate.manifest.extension != null) {
+                if (candidate.manifest.musicImport != null || candidate.manifest.extension != null || candidate.manifest.musicSource != null) {
                     val existingRepository = pluginRegistry.entries.find { it.manifest.id == candidate.manifest.id }?.repository
                     require(existingRepository == null || existingRepository == candidate.repository) { "This plugin ID belongs to another repository." }
                     val apk = pluginDownload.downloadApk(getApplication(), candidate)
@@ -605,6 +616,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
     private fun track(item: MediaItem): Track = mutableState.value.tracks.find { it.id == item.mediaId }
         ?: mutableState.value.hiddenTracks.find { it.id == item.mediaId }
+        ?: musicSources.storedTrack(item.mediaId)
         ?: Track(app.lynli.klang.plugins.ExtensionRuntime.active?.audioUri(item.mediaId) ?: Uri.parse(item.mediaId), item.mediaMetadata.title?.toString() ?: "Untitled",
             item.mediaMetadata.artist?.toString() ?: "Unknown artist", item.mediaMetadata.albumTitle?.toString() ?: "Unknown album", 0)
     private fun syncPlayer() {

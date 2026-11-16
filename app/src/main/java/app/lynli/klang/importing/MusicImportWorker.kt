@@ -70,6 +70,7 @@ class MusicImportWorker(context: Context, params: WorkerParameters) : CoroutineW
             store.updateEntry(batchId, index) { it.copy(phase = ImportPhase.MATCHING) }
             if (!entry.allowDuplicate) {
                 duplicateRecording(entry.song, repository.tracks())?.let { duplicate ->
+                    app.lynli.klang.plugins.SourceMediaStore.get(applicationContext).markOffline(batch.providerId, entry.song.sourceId, duplicate.id)
                     store.updateEntry(batchId, index) { it.copy(phase = ImportPhase.DUPLICATE, duplicateUri = duplicate.id) }
                     return
                 }
@@ -97,13 +98,19 @@ class MusicImportWorker(context: Context, params: WorkerParameters) : CoroutineW
             publicationLock.withLock {
                 if (!entry.allowDuplicate) {
                     duplicateRecording(metadata, repository.tracks())?.let { duplicate ->
+                        app.lynli.klang.plugins.SourceMediaStore.get(applicationContext).markOffline(batch.providerId, entry.song.sourceId, duplicate.id)
                         store.updateEntry(batchId, index) { it.copy(song = metadata, phase = ImportPhase.DUPLICATE, duplicateUri = duplicate.id) }
                         return@withLock
                     }
                 }
                 store.updateEntry(batchId, index) { it.copy(song = metadata, recording = result.stringOrNull("recording")) }
                 if (!store.beginSaving(batchId, index)) return@withLock
-                withContext(NonCancellable) { val track = repository.importDownload(audio); store.complete(batchId, index, track.id) }
+                withContext(NonCancellable) {
+                    val track = repository.importDownload(audio)
+                    if (provider.manifest.musicSource != null) app.lynli.klang.plugins.SourceMediaStore.get(applicationContext)
+                        .markOffline(batch.providerId, entry.song.sourceId, track.id)
+                    store.complete(batchId, index, track.id)
+                }
             }
         } catch (timeout: TimeoutCancellationException) {
             ImportProviderClient.stop(process)

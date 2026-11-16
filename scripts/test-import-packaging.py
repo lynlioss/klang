@@ -17,7 +17,7 @@ class ImportPackagingTest(unittest.TestCase):
             with zipfile.ZipFile(apk, 'a') as archive: archive.writestr('lib/arm64-v8a/libpython.so', 'data')
             with self.assertRaisesRegex(AssertionError, 'Optional download runtime'): guard.verify_apk(apk)
     def test_service_manifests_must_not_be_bundled(self):
-        for plugin_type in ('extension', 'musicImport'):
+        for plugin_type in ('extension', 'musicImport', 'musicSource'):
             with self.subTest(plugin_type=plugin_type), tempfile.TemporaryDirectory() as folder:
                 apk = Path(folder) / 'app.apk'
                 with zipfile.ZipFile(apk, 'w') as archive:

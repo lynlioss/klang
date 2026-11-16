@@ -112,7 +112,8 @@ class PlaybackService : MediaSessionService() {
                 }
             }
         }
-        player = ExoPlayer.Builder(this, renderers).build().apply {
+        player = ExoPlayer.Builder(this, renderers).setMediaSourceFactory(
+            androidx.media3.exoplayer.source.DefaultMediaSourceFactory(musicSourceDataSource(this))).build().apply {
             // Offload/passthrough would bypass PCM effects; keep all music in the processing chain.
             trackSelectionParameters = trackSelectionParameters.buildUpon().setAudioOffloadPreferences(
                 TrackSelectionParameters.AudioOffloadPreferences.Builder().setAudioOffloadMode(
@@ -172,8 +173,9 @@ class PlaybackService : MediaSessionService() {
             val array = JSONArray(prefs.getString("queue", "[]"))
             val source = prefs.getString("source", null)
             val items = (0 until array.length()).map { i -> array.getJSONObject(i).let {
-                Track(Uri.parse(it.getString("uri")), it.optString("title"), it.optString("artist"),
-                    it.optString("album"), 0).mediaItem().withPlaybackSource(source)
+                (app.lynli.klang.plugins.SourceMediaStore.get(this).lookup(it.getString("uri")) ?:
+                    Track(Uri.parse(it.getString("uri")), it.optString("title"), it.optString("artist"),
+                    it.optString("album"), 0)).mediaItem().withPlaybackSource(source)
             }}
             if (items.isNotEmpty()) {
                 player.setPlaylistMetadata(MediaMetadata.Builder().setExtras(Bundle().apply {

@@ -72,7 +72,17 @@ internal object ArtworkStore {
             }
             val decoded = runCatching {
                 val retriever = MediaMetadataRetriever()
-                val bytes = try { retriever.setDataSource(context, track.uri); retriever.embeddedPicture }
+                val bytes = try {
+                    if (track.artworkUrl != null) {
+                        val connection = java.net.URI(track.artworkUrl).toURL().openConnection() as java.net.HttpURLConnection
+                        try {
+                            connection.connectTimeout = 10_000; connection.readTimeout = 15_000
+                            connection.instanceFollowRedirects = false
+                            require(connection.responseCode in 200..299)
+                            connection.inputStream.use { input -> input.readNBytes(8 * 1024 * 1024 + 1).also { require(it.size <= 8 * 1024 * 1024) } }
+                        } finally { connection.disconnect() }
+                    } else { retriever.setDataSource(context, track.uri); retriever.embeddedPicture }
+                }
                     finally { retriever.release() }
                 bytes?.let {
                     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }

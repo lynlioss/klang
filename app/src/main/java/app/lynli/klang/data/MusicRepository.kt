@@ -26,11 +26,20 @@ data class Track(
     val durationMs: Long,
     val added: Long = 0,
     val albumArtist: String = "",
+    val providerId: String? = null,
+    val sourceId: String? = null,
+    val sourceBadge: String = "device",
+    val sourceLabel: String = "On Device",
+    val shareUrl: String? = null,
+    val artworkUrl: String? = null,
+    val sourcePayload: String? = null,
+    val offline: Boolean = true,
 ) {
     val id: String get() = uri.toString()
     fun mediaItem(): MediaItem = MediaItem.Builder().setMediaId(id).setUri(uri)
         .setMediaMetadata(MediaMetadata.Builder().setTitle(title).setArtist(artist)
-            .setAlbumTitle(album).setExtras(android.os.Bundle().apply { putLong("durationMs", durationMs) }).build()).build()
+            .setAlbumTitle(album).setArtworkUri(artworkUrl?.let(Uri::parse))
+            .setExtras(android.os.Bundle().apply { putLong("durationMs", durationMs) }).build()).build()
 }
 
 class MusicRepository(private val context: Context) {
@@ -80,6 +89,11 @@ class MusicRepository(private val context: Context) {
 
     /** Reads technical metadata for the properties sheet. Missing values stay null. */
     suspend fun details(track: Track): TrackDetails = withContext(Dispatchers.IO) {
+        if (track.providerId != null) {
+            val local = app.lynli.klang.plugins.SourceMediaStore.get(context).offlineUri(track.id)
+            if (local != null) return@withContext details(track.copy(uri = local, providerId = null))
+            return@withContext TrackDetails(track.durationMs, null, null, null, null, null, track.sourceLabel)
+        }
         var displayName: String? = null
         var relativePath: String? = null
         var size: Long? = null

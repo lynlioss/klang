@@ -125,6 +125,14 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
     }
     // Jumping to an artist or album closes the player and every other overlay first.
     fun openTrackCollection(track: Track, artist: Boolean) {
+        if (track.providerId != null && track.sourcePayload != null) {
+            val item = org.json.JSONObject(track.sourcePayload)
+            val target = if (artist) item.optJSONArray("artists")?.optJSONObject(0)?.optString("id") else item.optString("albumId")
+            if (!target.isNullOrBlank() && target != "null") {
+                expanded = false; model.musicSources.open(track.providerId, target)
+            }
+            return
+        }
         val target = if (artist) artistCollection(track.artist, state.tracks) else albumCollection(track, state.tracks)
         if (target != null) { expanded = false; settings = false; collectionId = target.id }
     }
@@ -217,6 +225,7 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
                 exit = slideOutHorizontally(spring(0.8f, 200f)) { it } + fadeOut(Effects)) {
                 HiddenAudioScreen(state, model) { hiddenFiles = false }
             }
+            MusicSourceOverlay(state, model) { expanded = true }
             AnimatedVisibility(expanded && state.current != null,
                 enter = slideInVertically(spring(0.8f, 200f)) { it } + fadeIn(Effects),
                 exit = slideOutVertically(spring(0.8f, 200f)) { it } + fadeOut(Effects)) {
@@ -328,6 +337,7 @@ private fun SearchScreen(state: MusicState, model: MusicViewModel, import: () ->
     }
     Column(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
         PageTitle("Search")
+        MusicSourceChips(model, "search", Modifier.padding(bottom = 12.dp))
         TextField(query, { query = it }, Modifier.fillMaxWidth(), shape = CircleShape, singleLine = true,
             placeholder = { Text("Songs, artists, albums") }, leadingIcon = { Icon(Icons.Rounded.Search, null) },
             trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear search") } },
@@ -370,6 +380,7 @@ private fun LibraryScreen(state: MusicState, model: MusicViewModel, settings: ()
                 DownloadStatusButton(model.musicImports, downloads)
                 UtilityIconButton(settings) { Icon(Icons.Rounded.Settings, "Settings") }
             }
+            MusicSourceChips(model, "library", Modifier.padding(bottom = 12.dp))
             ChoiceGroup(listOf("Songs", "Albums", "Playlists"), filter) { filter = it }
             Row(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(if (filter == 1) "${albumCollections(tracks).size} albums" else if (filter == 2) "${state.playlists.size + 2} playlists" else "${tracks.size} songs",
@@ -468,6 +479,7 @@ internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, pl
     var menu by remember { mutableStateOf(false) }
     var addToPlaylist by remember { mutableStateOf(false) }
     var properties by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
     val active = state.current?.id == track.id
     val fill by animateColorAsState(if (active) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
         spring(1f, 3800f), label = "Track selection")
@@ -479,8 +491,11 @@ internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, pl
             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                 Text(track.title, style = MaterialTheme.typography.titleMedium, fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, color = content)
-                Text(track.artist, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    color = if (active) content else MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    SourceBadge(track)
+                    Text(track.artist, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        color = if (active) content else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             if (active && state.playing) PlayingIndicator(content)
             else Text(time(track.durationMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -495,13 +510,22 @@ internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, pl
                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.QueueMusic, null) })
                     DropdownMenuItem(text = { Text("Play next") }, onClick = { model.playNext(track); menu = false },
                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.QueueMusic, null) })
+                    track.shareUrl?.let { url ->
+                        DropdownMenuItem(text = { Text("Copy ${track.sourceLabel} link") },
+                            onClick = { menu = false; copyMusicLink(context, track.sourceLabel, url) })
+                    }
+                    if (track.providerId != null) DropdownMenuItem(text = { Text(if (track.offline) "Available offline" else "Download") },
+                        enabled = !track.offline, onClick = { menu = false; model.musicSources.download(listOf(track)) })
                     DropdownMenuItem(text = { Text("Properties") }, onClick = { menu = false; properties = true },
                         leadingIcon = { Icon(Icons.Rounded.Info, null) })
                 }
             }
         }
     }
-    if (addToPlaylist) AddToPlaylistDialog(track, state, model) { addToPlaylist = false }
+    if (addToPlaylist) {
+        if (track.providerId != null && track.sourceId != null) SourceAddToPlaylistDialog(track.providerId, listOf(track.sourceId), model) { addToPlaylist = false }
+        else AddToPlaylistDialog(track, state, model) { addToPlaylist = false }
+    }
     if (properties) TrackPropertiesSheet(track, state, model) { properties = false }
 
 }
@@ -525,7 +549,8 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
     val appScheme = MaterialTheme.colorScheme
     val base = appScheme.surface
     ContentTheme(state.coverColor, state.current) {
-        val track = state.current ?: return@ContentTheme
+    val track = state.current ?: return@ContentTheme
+    val context = androidx.compose.ui.platform.LocalContext.current
         var queue by rememberSaveable { mutableStateOf(false) }
         var equalizer by rememberSaveable { mutableStateOf(false) }
         var showingLyrics by rememberSaveable { mutableStateOf(false) }
@@ -551,7 +576,10 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
         val coverSettleSpec = MaterialTheme.motionScheme.fastSpatialSpec<Float>()
         val coverSlide = MaterialTheme.motionScheme.fastSpatialSpec<IntOffset>()
         val coverEffects = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
-        if (addPlaylist) AddToPlaylistDialog(track, state, model) { addPlaylist = false }
+        if (addPlaylist) {
+            if (track.providerId != null && track.sourceId != null) SourceAddToPlaylistDialog(track.providerId, listOf(track.sourceId), model) { addPlaylist = false }
+            else AddToPlaylistDialog(track, state, model) { addPlaylist = false }
+        }
         if (devices) OutputDevicesDialog(track) { devices = false }
         if (props) TrackPropertiesSheet(track, state, model) { props = false }
         if (sleepSheet) SleepTimerSheet(state, model) { sleepSheet = false }
@@ -588,6 +616,13 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
                                                 onClick = { overflow = false; app.lynli.klang.plugins.ExtensionRuntime.open(id) },
                                                 leadingIcon = { Icon(extensionIcon(action.icon), null) })
                                         }
+                                        track.shareUrl?.let { url ->
+                                            DropdownMenuItem(text = { Text("Copy ${track.sourceLabel} link") }, onClick = {
+                                                overflow = false; copyMusicLink(context, track.sourceLabel, url)
+                                            })
+                                        }
+                                        if (track.providerId != null) DropdownMenuItem(text = { Text(if (track.offline) "Available offline" else "Download") },
+                                            enabled = !track.offline, onClick = { overflow = false; model.musicSources.download(listOf(track)) })
                                         HorizontalDivider(Modifier.padding(vertical = 4.dp))
                                         DropdownMenuItem(text = { Text("Properties") }, onClick = { overflow = false; props = true },
                                             leadingIcon = { Icon(Icons.Rounded.Info, null) })

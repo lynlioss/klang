@@ -97,6 +97,7 @@ internal fun HomeScreen(state: MusicState, model: MusicViewModel, collections: L
                     DownloadStatusButton(model.musicImports, downloads)
                     UtilityIconButton(settings) { Icon(Icons.Rounded.Settings, "Settings") }
                 }
+                MusicSourceChips(model, "home", Modifier.padding(bottom = 12.dp))
                 MixHero(mix, state, model, compact = true) { openCollection(mix) }
                 if (state.loading || state.busy) LoadingRow(state)
                 if (!state.permission) { Spacer(Modifier.height(16.dp)); AccessCard(permission, import) }

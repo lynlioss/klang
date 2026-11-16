@@ -4,7 +4,11 @@ import org.json.JSONObject
 import java.net.URI
 import java.util.Locale
 
-enum class PluginType(val key: String, val label: String) { LYRICS("lyrics", "Lyrics"), IMPORT("musicImport", "Music downloads"), EXTENSION("extension", "Extensions") }
+enum class PluginType(val key: String, val label: String) { LYRICS("lyrics", "Lyrics"), IMPORT("musicImport", "Music downloads"), EXTENSION("extension", "Extensions"), SOURCE("musicSource", "Music sources") }
+
+/** Credentials and service-specific behavior stay in an independently updated plugin. */
+data class MusicSourcePluginSpec(val packageName: String, val service: String, val settingsActivity: String?,
+    val badge: String, val linkLabel: String, val capabilities: Set<String>, val hosts: Set<String>, val schemes: Set<String>)
 
 data class MusicImportPluginSpec(val packageName: String, val service: String, val hosts: Set<String>, val schemes: Set<String>)
 
@@ -49,6 +53,7 @@ data class PluginManifest(
     val lyrics: LyricsPluginSpec? = null,
     val musicImport: MusicImportPluginSpec? = null,
     val extension: ExtensionPluginSpec? = null,
+    val musicSource: MusicSourcePluginSpec? = null,
 ) {
     companion object {
         const val API_VERSION = 1
@@ -58,7 +63,7 @@ data class PluginManifest(
             val api = json.optInt("apiVersion", 1)
             require(api == API_VERSION) { "This plugin needs a different Klang plugin API" }
             val typeKey = json.getString("type")
-            require(typeKey in setOf("lyrics", "musicImport", "extension")) { "Unsupported plugin type" }
+            require(typeKey in setOf("lyrics", "musicImport", "extension", "musicSource")) { "Unsupported plugin type" }
             val id = json.getString("id")
             require(id.matches(Regex("[a-z][a-z0-9._-]{0,79}"))) { "Invalid plugin ID" }
             val version = json.getString("version")
@@ -175,12 +180,35 @@ data class PluginManifest(
             }
             require(typeKey != "extension" || extension != null) { "Extensions must define a service" }
             require(typeKey != "musicImport" || importer != null) { "Download plugins must define a service" }
+            val sourceSpec = json.optJSONObject("musicSource")?.let { source ->
+                val pkg = source.getString("package")
+                require(pkg.matches(Regex("[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+")))
+                fun component(key: String) = source.getString(key).also {
+                    require(it.startsWith("$pkg.") && it.matches(Regex("[a-zA-Z0-9_.]+")))
+                }
+                fun strings(key: String) = source.optJSONArray(key)?.let { a ->
+                    (0 until a.length()).map(a::getString).toSet()
+                }.orEmpty().also { require(it.size <= 30) }
+                val caps = strings("capabilities")
+                require(caps.all { it in setOf("catalog.home", "catalog.search", "catalog.library", "catalog.lookup",
+                    "library.write", "playlist.create", "playlist.edit", "playlist.items", "playlist.follow",
+                    "playlist.collaboration", "playlist.cover", "stream.resolve", "offline.download", "accounts") })
+                val hosts = strings("hosts"); val schemes = strings("schemes")
+                require(hosts.all { it.matches(Regex("[a-z0-9.-]+")) })
+                require(schemes.all { it.matches(Regex("[a-z][a-z0-9+.-]*")) })
+                val service = component("service")
+                require(importer == null || importer.packageName == pkg && importer.service == service) { "Source and download service must match" }
+                MusicSourcePluginSpec(pkg, service, if (source.has("settingsActivity")) component("settingsActivity") else null,
+                    source.optString("badge", "music").also { require(it in setOf("spotify", "music", "cloud", "device")) },
+                    source.optString("linkLabel", json.getString("name")).also { require(it.isNotBlank() && it.length <= 40) }, caps, hosts, schemes)
+            }
+            require(typeKey != "musicSource" || sourceSpec != null) { "Music sources must define a service" }
             return PluginManifest(id, json.getString("name").also { require(it.isNotBlank() && it.length <= 100) }, version,
                 PluginType.entries.first { it.key == json.getString("type") }, json.getString("author"),
                 json.getString("summary"), json.getString("description"), json.optString("privacy"),
                 json.optJSONArray("features")?.let { a -> (0 until a.length()).map(a::getString) }.orEmpty(),
                 buttons, settings, json.optBoolean("defaultEnabled", false), api,
-                json.optString("repository").takeIf { it.isNotBlank() }?.let { GitHubPluginRepo.parse(it).url }, spec, importer, extension)
+                json.optString("repository").takeIf { it.isNotBlank() }?.let { GitHubPluginRepo.parse(it).url }, spec, importer, extension, sourceSpec)
         }
     }
 }

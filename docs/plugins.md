@@ -72,10 +72,40 @@ Klang checks stable releases at startup. An available update shows a snackbar li
 
 API 1 is still being developed. Lyrics providers use declarative requests and do not execute downloaded code. Music providers run in a separately installed Android service under their own UID. Both provider types use `apiVersion: 1`; unknown API versions are rejected.
 
-Jam and Music Import are optional recommendations. A fresh Klang install does not
+Spotify Integration, Jam and Music Import are optional recommendations. A fresh Klang install does not
 bundle or download them automatically. If their APKs are already on the device,
 Klang discovers them directly. Otherwise, add them using Install in Recommended
 plugins or the plugin picker.
+
+## Music sources (Plugin API 1)
+
+API 1 also supports `type: "musicSource"` in a separate Android APK. Its service
+advertises `io.github.lynlioss.klang.MUSIC_SOURCE_V1` and embeds the manifest as the
+`klang.plugin` raw resource. The `musicSource` object declares package/service,
+optional account settings activity, badge/link label, supported links and catalog,
+library, playlist, streaming and download capabilities. API version remains 1.
+
+Klang renders native catalog pages for home, search, library, albums, artists and
+playlists. Plugins return opaque IDs and bounded pages; the host retains metadata,
+preserves duplicate playlist occurrences, fetches complete collections and resolves
+temporary HTTPS streams on Media3's loader thread. Downloads reuse the `musicImport`
+contract and host-owned queue, duplicate checks and MediaStore publication.
+Persistent source identities prefer downloaded files for offline playback after
+restarting Klang.
+
+Login, credentials, APIs and recording matching belong to the plugin. Account
+revisions invalidate cached library pages after switching accounts. Messages are
+checked against the installed service UID and a fresh token; invalid pagination,
+unknown capabilities and unsafe playback headers are rejected. Future community
+plugins can implement the same contract. See [Spotify Integration's API.md](https://github.com/lynlioss/klang-spotify/blob/main/API.md)
+for the manifest, Messenger envelope and operations.
+
+**Spotify Integration** appears in Recommended plugins with its Spotify icon.
+Spotify supplies account/catalog/playlist features; YouTube Music or the connected
+user's Qobuz account supplies matching recordings. Open its detail page's Accounts
+& playback settings to log in and choose sources. The YouTube path does not require
+Spotify Premium. The plugin has its own APK, releases and account storage and is
+enabled explicitly.
 
 ## Music download plugins (API 1)
 
