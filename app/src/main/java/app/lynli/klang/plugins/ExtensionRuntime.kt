@@ -116,6 +116,8 @@ class ExtensionRuntime(private val context: Context, private val player: Player)
                     when (message.what) {
                         10 -> {
                             require("ui.panel".lowercase() in spec.capabilities)
+                            if ("playback.control" !in spec.capabilities) json.remove("interceptControls")
+                            if ("ui.nowplaying" !in spec.capabilities) { json.remove("badge"); json.remove("trackAction") }
                             mutableStates.value = mutableStates.value + (id to json)
                         }
                         11 -> scope.launch {
