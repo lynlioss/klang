@@ -90,10 +90,10 @@ internal fun ExtensionPanel(state: MusicState) {
                                         context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, share), label))
                                     } else dispatch()
                                 }
-                                if (node.optString("style") == "tonal") FilledTonalButton(click, Modifier.fillMaxWidth().heightIn(min = height),
+                                if (node.optString("style") == "tonal") FilledTonalButton(onClick = click, modifier = Modifier.fillMaxWidth().heightIn(min = height),
                                     enabled = enabled, shapes = ButtonDefaults.shapesFor(height), contentPadding = ButtonDefaults.contentPaddingFor(height)) {
                                     Icon(extensionIcon(node.optString("icon")), null); Spacer(Modifier.width(8.dp)); Text(label, style = ButtonDefaults.textStyleFor(height))
-                                } else Button(click, Modifier.fillMaxWidth().heightIn(min = height), enabled = enabled,
+                                } else Button(onClick = click, modifier = Modifier.fillMaxWidth().heightIn(min = height), enabled = enabled,
                                     shapes = ButtonDefaults.shapesFor(height), contentPadding = ButtonDefaults.contentPaddingFor(height),
                                     colors = if (node.optString("style") == "danger") ButtonDefaults.buttonColors(
                                         containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer) else ButtonDefaults.buttonColors()) {
