@@ -28,6 +28,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.lynli.klang.AppIcon
 import app.lynli.klang.MusicState
@@ -71,8 +73,8 @@ private fun AppIconChoice(icon: AppIcon, selected: Boolean, choose: () -> Unit) 
         spring(dampingRatio = 1f, stiffness = 800f), label = "Icon outline")
     Surface(
         modifier = Modifier.fillMaxWidth()
-            .selectable(selected = selected, role = Role.RadioButton,
-                onClickLabel = "Use the ${icon.label} icon", onClick = choose),
+            .selectable(selected = selected, role = Role.RadioButton, onClick = choose)
+            .semantics { onClick(label = "Use the ${icon.label} icon", action = null) },
         shape = MaterialTheme.shapes.extraLarge,
         color = container,
         border = BorderStroke(1.dp, outline),
