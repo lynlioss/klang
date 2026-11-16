@@ -10,7 +10,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
-/** The bundled plugin is a first-install default. Uninstalling it persists across app updates. */
+/** Only lyrics can be bundled. Service plugins are discovered from separately installed APKs. */
 class PluginRegistry(private val context: Context) {
     private val file = AtomicFile(File(context.filesDir, "plugins/installed.json").also { it.parentFile?.mkdirs() })
     private val loadErrors = mutableListOf<String>()
@@ -25,7 +25,9 @@ class PluginRegistry(private val context: Context) {
         val bundled = context.assets.list("plugins").orEmpty().filter { it.endsWith(".json") }.sorted().mapNotNull { name ->
             runCatching {
                 val source = context.assets.open("plugins/$name").bufferedReader().use { it.readText() }
-                source to PluginManifest.parse(source)
+                val manifest = PluginManifest.parse(source)
+                require(manifest.type == PluginType.LYRICS) { "Service plugins must be installed separately" }
+                source to manifest
             }.onFailure { recordLoadError(name, it) }.getOrNull()
         }
         val saved = runCatching { JSONObject(file.openRead().bufferedReader().use { it.readText() }) }

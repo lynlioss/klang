@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ExitToApp
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -17,6 +18,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -39,101 +42,105 @@ internal fun ExtensionPanel(state: MusicState) {
     val panel = states[pluginId]?.optJSONObject("panel")
     ContentTheme(state.coverColor, state.current) {
         val values = remember(pluginId) { mutableStateMapOf<String, String>() }
-        val context = LocalContext.current
+        val items = panel?.optJSONArray("items") ?: JSONArray()
+        val nodes = (0 until minOf(items.length(), 40)).mapNotNull { items.optJSONObject(it) }
+        val footer = nodes.filter { it.optString("type") == "button" && it.optString("placement") == "footer" }.take(2)
+        fun dispatch(node: JSONObject, extra: JSONObject = JSONObject()) {
+            values.forEach { (key, value) -> extra.put(key, value) }
+            ExtensionRuntime.active?.action(pluginId, node.optString("action"), extra)
+        }
         ModalBottomSheet(onDismissRequest = ExtensionRuntime::dismiss,
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), shape = KlangSheetShape,
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                if (panel == null) { LoadingIndicator(Modifier.align(Alignment.CenterHorizontally)); Text("Connecting to plugin…") }
-                else {
-                    Text(panel.optString("title").take(100), style = MaterialTheme.typography.headlineLargeEmphasized)
-                    val nodes = panel.optJSONArray("items") ?: JSONArray()
-                    for (index in 0 until minOf(nodes.length(), 40)) {
-                        val node = nodes.optJSONObject(index) ?: continue
-                        val label = node.optString("label").take(500)
-                        val action = node.optString("action")
-                        val enabled = node.optBoolean("enabled", true)
-                        fun dispatch(extra: JSONObject = JSONObject()) {
-                            values.forEach { (key, value) -> extra.put(key, value) }
-                            ExtensionRuntime.active?.action(pluginId, action, extra)
-                        }
-                        when (node.optString("type")) {
-                            "text" -> Text(label, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            "hero" -> Surface(color = MaterialTheme.colorScheme.primaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer, shape = MaterialTheme.shapes.extraLargeIncreased) {
-                                Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(Icons.Rounded.GraphicEq, null, Modifier.size(40.dp))
-                                    Text(label, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.displayLarge,
-                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    node.optString("supporting").takeIf { it.isNotBlank() }?.let { Text(it.take(200), style = MaterialTheme.typography.labelLarge) }
-                                }
-                            }
-                            "field" -> {
-                                val key = node.optString("id").take(64)
-                                var value by rememberSaveable(pluginId, key, node.optString("value")) { mutableStateOf(node.optString("value")) }
-                                val max = node.optInt("maxLength", 256).coerceIn(1, 4096)
-                                OutlinedTextField(value, { input ->
-                                    value = if (node.optString("input") == "code") input.lowercase().filter { it in 'a'..'z' || it in '0'..'9' }.take(max) else input.take(max)
-                                    values[key] = value
-                                }, Modifier.fillMaxWidth(), enabled = enabled, singleLine = true, shape = KlangFieldShape,
-                                    label = { Text(label) }, keyboardOptions = KeyboardOptions(
-                                        capitalization = KeyboardCapitalization.None,
-                                        keyboardType = if (node.optBoolean("secret")) KeyboardType.Password else KeyboardType.Ascii),
-                                    visualTransformation = if (node.optBoolean("secret")) PasswordVisualTransformation() else VisualTransformation.None)
-                            }
-                            "button" -> {
-                                val height = ButtonDefaults.MediumContainerHeight
-                                val click: () -> Unit = {
-                                    val share = node.optString("shareUrl")
-                                    if (share.startsWith("https://") && share.length <= 2048) runCatching {
-                                        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, share), label))
-                                    } else dispatch()
-                                }
-                                if (node.optString("style") == "tonal") FilledTonalButton(onClick = click, modifier = Modifier.fillMaxWidth().heightIn(min = height),
-                                    enabled = enabled, shapes = ButtonDefaults.shapesFor(height), contentPadding = ButtonDefaults.contentPaddingFor(height)) {
-                                    Icon(extensionIcon(node.optString("icon")), null); Spacer(Modifier.width(8.dp)); Text(label, style = ButtonDefaults.textStyleFor(height))
-                                } else Button(onClick = click, modifier = Modifier.fillMaxWidth().heightIn(min = height), enabled = enabled,
-                                    shapes = ButtonDefaults.shapesFor(height), contentPadding = ButtonDefaults.contentPaddingFor(height),
-                                    colors = if (node.optString("style") == "danger") ButtonDefaults.buttonColors(
-                                        containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer) else ButtonDefaults.buttonColors()) {
-                                    Icon(extensionIcon(node.optString("icon")), null); Spacer(Modifier.width(8.dp)); Text(label, style = ButtonDefaults.textStyleFor(height))
-                                }
-                            }
-                            "toggle" -> Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-                                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text(label, style = MaterialTheme.typography.titleMediumEmphasized)
-                                        Text(node.optString("supporting").take(300), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                    Switch(node.optBoolean("checked"), { dispatch(JSONObject().put("checked", it)) }, enabled = enabled)
-                                }
-                            }
-                            "member" -> Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer) {
-                                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.tertiaryContainer,
-                                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer) {
-                                        Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) { Text(label.take(1), style = MaterialTheme.typography.titleLargeEmphasized) }
-                                    }
-                                    Column(Modifier.weight(1f)) {
-                                        Text(label, style = MaterialTheme.typography.titleMediumEmphasized)
-                                        Text(node.optString("supporting").take(100), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                    node.optString("badge").takeIf { it.isNotBlank() }?.let {
-                                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer,
+            Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp)) {
+                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    if (panel == null) { LoadingIndicator(Modifier.align(Alignment.CenterHorizontally)); Text("Connecting to plugin…") }
+                    else {
+                        Text(panel.optString("title").take(100), Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLargeEmphasized)
+                        for (node in nodes.filterNot { it in footer }) {
+                            val label = node.optString("label").take(500)
+                            val enabled = node.optBoolean("enabled", true)
+                            when (node.optString("type")) {
+                                "text" -> Text(label, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                "hero" -> Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    contentColor = MaterialTheme.colorScheme.onSurface, shape = MaterialTheme.shapes.extraLarge) {
+                                    Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                        Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.secondaryContainer,
                                             contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
-                                            Text(it.take(20), Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.labelLargeEmphasized)
+                                            Box(Modifier.size(56.dp), contentAlignment = Alignment.Center) {
+                                                Icon(Icons.Rounded.GraphicEq, null, Modifier.size(28.dp))
+                                            }
+                                        }
+                                        Column(Modifier.weight(1f)) {
+                                            node.optString("eyebrow").takeIf { it.isNotBlank() }?.let {
+                                                Text(it.take(100), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                            Text(label, style = MaterialTheme.typography.displaySmall,
+                                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            node.optString("supporting").takeIf { it.isNotBlank() }?.let {
+                                                Text(it.take(200), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
                                         }
                                     }
                                 }
+                                "field" -> {
+                                    val key = node.optString("id").take(64)
+                                    var value by rememberSaveable(pluginId, key, node.optString("value")) { mutableStateOf(node.optString("value")) }
+                                    val max = node.optInt("maxLength", 256).coerceIn(1, 4096)
+                                    OutlinedTextField(value, { input ->
+                                        value = if (node.optString("input") == "code") input.lowercase().filter { it in 'a'..'z' || it in '0'..'9' }.take(max) else input.take(max)
+                                        values[key] = value
+                                    }, Modifier.fillMaxWidth(), enabled = enabled, singleLine = true, shape = KlangFieldShape,
+                                        label = { Text(label) }, keyboardOptions = KeyboardOptions(
+                                            capitalization = KeyboardCapitalization.None,
+                                            keyboardType = if (node.optBoolean("secret")) KeyboardType.Password else KeyboardType.Ascii),
+                                        visualTransformation = if (node.optBoolean("secret")) PasswordVisualTransformation() else VisualTransformation.None)
+                                }
+                                "button" -> ExtensionPanelButton(node, Modifier.fillMaxWidth()) { dispatch(node) }
+                                "toggle" -> Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text(label, style = MaterialTheme.typography.titleMediumEmphasized)
+                                            Text(node.optString("supporting").take(300), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        Switch(node.optBoolean("checked"), { dispatch(node, JSONObject().put("checked", it)) }, enabled = enabled)
+                                    }
+                                }
+                                "member" -> Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer) {
+                                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.tertiaryContainer,
+                                            contentColor = MaterialTheme.colorScheme.onTertiaryContainer) {
+                                            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) { Text(label.take(1), style = MaterialTheme.typography.titleLargeEmphasized) }
+                                        }
+                                        Column(Modifier.weight(1f)) {
+                                            Text(label, style = MaterialTheme.typography.titleMediumEmphasized)
+                                            Text(node.optString("supporting").take(100), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        node.optString("badge").takeIf { it.isNotBlank() }?.let {
+                                            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer,
+                                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
+                                                Text(it.take(20), Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.labelLargeEmphasized)
+                                            }
+                                        }
+                                    }
+                                }
+                                "progress" -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    LoadingIndicator(Modifier.size(28.dp)); Text(label, style = MaterialTheme.typography.bodyMedium)
+                                }
+                                "error" -> Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.errorContainer,
+                                    contentColor = MaterialTheme.colorScheme.onErrorContainer) { Text(label, Modifier.fillMaxWidth().padding(16.dp), style = MaterialTheme.typography.bodyMedium) }
                             }
-                            "progress" -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                LoadingIndicator(Modifier.size(28.dp)); Text(label, style = MaterialTheme.typography.bodyMedium)
-                            }
-                            "error" -> Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.errorContainer,
-                                contentColor = MaterialTheme.colorScheme.onErrorContainer) { Text(label, Modifier.fillMaxWidth().padding(16.dp), style = MaterialTheme.typography.bodyMedium) }
                         }
+                    }
+                }
+                if (footer.isNotEmpty()) Row(Modifier.fillMaxWidth().padding(top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    footer.forEachIndexed { index, node ->
+                        if (index > 0) Spacer(Modifier.weight(1f))
+                        ExtensionPanelButton(node) { dispatch(node) }
                     }
                 }
             }
@@ -141,11 +148,49 @@ internal fun ExtensionPanel(state: MusicState) {
     }
 }
 
+@Composable
+private fun ExtensionPanelButton(node: JSONObject, modifier: Modifier = Modifier, dispatch: () -> Unit) {
+    val context = LocalContext.current
+    val label = node.optString("label").take(500)
+    val enabled = node.optBoolean("enabled", true)
+    val height = ButtonDefaults.MediumContainerHeight
+    val click: () -> Unit = {
+        val share = node.optString("shareUrl")
+        if (share.startsWith("https://") && share.length <= 2048) runCatching {
+            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, share), label))
+        } else dispatch()
+    }
+    if (node.optString("presentation") == "icon") {
+        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(),
+            tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
+            FilledTonalIconButton(onClick = click, modifier = modifier.size(height), enabled = enabled,
+                shapes = IconButtonDefaults.shapes(), colors = IconButtonDefaults.filledTonalIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant)) {
+                Icon(extensionIcon(node.optString("icon")), label)
+            }
+        }
+    } else {
+        val content: @Composable RowScope.() -> Unit = {
+            Icon(extensionIcon(node.optString("icon")), null, Modifier.size(ButtonDefaults.iconSizeFor(height)))
+            Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+            Text(label, style = ButtonDefaults.textStyleFor(height))
+        }
+        if (node.optString("style") == "tonal") FilledTonalButton(onClick = click, modifier = modifier.heightIn(min = height),
+            enabled = enabled, shapes = ButtonDefaults.shapesFor(height), contentPadding = ButtonDefaults.contentPaddingFor(height), content = content)
+        else Button(onClick = click, modifier = modifier.heightIn(min = height), enabled = enabled,
+            shapes = ButtonDefaults.shapesFor(height), contentPadding = ButtonDefaults.contentPaddingFor(height),
+            colors = if (node.optString("style") == "danger") ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer) else ButtonDefaults.buttonColors(),
+            content = content)
+    }
+}
+
 internal fun extensionIcon(name: String) = when (name) {
     "jam" -> Icons.Rounded.GraphicEq
     "share" -> Icons.Rounded.Share
     "join" -> Icons.Rounded.Headphones
-    "leave" -> Icons.Rounded.Close
+    "leave" -> Icons.AutoMirrored.Rounded.ExitToApp
     "download" -> Icons.Rounded.Download
     "add" -> Icons.Rounded.Add
     else -> Icons.Rounded.GraphicEq

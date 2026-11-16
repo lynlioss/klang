@@ -72,6 +72,11 @@ Klang checks stable releases at startup. An available update shows a snackbar li
 
 API 1 is still being developed. Lyrics providers use declarative requests and do not execute downloaded code. Music providers run in a separately installed Android service under their own UID. Both provider types use `apiVersion: 1`; unknown API versions are rejected.
 
+Jam and Music Import are optional recommendations. A fresh Klang install does not
+bundle or download them automatically. If their APKs are already on the device,
+Klang discovers them directly. Otherwise, add them using Install in Recommended
+plugins or the plugin picker.
+
 ## Music download plugins (API 1)
 
 Music providers in API 1 use an independently installed Android service. Klang
@@ -127,7 +132,10 @@ See [Klang Jam](https://github.com/lynlioss/klang-jam) and its
 Klang provides a native, bounded panel renderer using current Material color
 roles, expressive typography, springs and loading indicators. Plugins describe
 text, hero, field, button, toggle, member, progress and error nodes and receive
-user actions. They can contribute a Now Playing menu action, animated center
+user actions. Hero nodes can include an `eyebrow`. Up to two button nodes with
+`placement: "footer"` stay below the scrolling content; `presentation: "icon"`
+renders an accessible icon button with the label as its tooltip. They can
+contribute a Now Playing menu action, animated center
 pill and contextual track action. The host owns native layout and accessibility;
 plugins own the complete screen content and state. No HTML or downloaded classes
 execute inside Klang.
