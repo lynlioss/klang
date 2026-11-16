@@ -25,6 +25,7 @@ A lightweight music player for Android, built with Material 3 Expressive.
 - Create and manage playlists, and arrange the songs in any order.
 - Adjust the sound with a 10-band EQ, custom presets and separate speaker and Bluetooth settings.
 - Connect to other services through plugins.
+- Add **Spotify Integration** from Recommended plugins to search your Spotify library, manage playlists, stream matching recordings from YouTube Music or Qobuz, and download songs for offline playback.
 - Follow synced lyrics, with word-by-word highlighting when available.
 - Browse your library and control playback through a Material 3 Expressive interface.
 - Analytics are optional and off until you choose Yes. Change your choice in Settings → Privacy.
@@ -37,7 +38,7 @@ Grab the latest build from the [releases page](https://github.com/lynlioss/klang
 
 Read the [music import guide](docs/music-imports.md) for source support and quality details.
 
-To create a lyrics or music download provider, read the [plugin guide](docs/plugins.md). Plugins install from GitHub releases and can define their own settings and links. The optional [Music Import plugin](https://github.com/lynlioss/music-import-klang) keeps download runtimes outside Klang and supports songs, albums, EPs and playlists.
+To create a lyrics, music source, or music download provider, read the [plugin guide](docs/plugins.md). Plugin API 1 lets community plugins provide catalog pages, accounts, playlist actions, streams and downloads through separately installed APKs. The optional [Spotify Integration](https://github.com/lynlioss/klang-spotify) and [Music Import plugin](https://github.com/lynlioss/music-import-klang) keep service APIs and download runtimes outside Klang and update independently.
 
 ## Build it yourself
 

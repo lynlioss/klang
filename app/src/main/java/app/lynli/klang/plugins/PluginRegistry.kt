@@ -39,7 +39,7 @@ class PluginRegistry(private val context: Context) {
                 val source = entry.getJSONObject("manifest").toString()
                 val manifest = PluginManifest.parse(source)
                 val repository = GitHubPluginRepo.parse(entry.getString("repository"))
-                require((manifest.lyrics != null || manifest.musicImport != null || manifest.extension != null) && manifest.repository == repository.url)
+                require((manifest.lyrics != null || manifest.musicImport != null || manifest.extension != null || manifest.musicSource != null) && manifest.repository == repository.url)
                 InstalledPlugin(manifest, repository, source, false)
             }.onFailure { recordLoadError("Installed plugin ${index + 1}", it) }.getOrNull()
         } }.orEmpty().distinctBy { it.manifest.id }

@@ -99,4 +99,14 @@ class PluginManifestTest {
         json.getJSONObject("musicSource").put("capabilities", JSONArray(listOf("accounts"))).put("settingsActivity", "other.Activity")
         assertThrows(IllegalArgumentException::class.java) { PluginManifest.parse(json.toString()) }
     }
+    @Test fun sourcesCanStreamWithoutDownloadsButOfflineCapabilityRequiresDownloadService() {
+        val json = JSONObject(File("src/test/resources/plugins/music-source.json").readText())
+        json.remove("musicImport")
+        assertThrows(IllegalArgumentException::class.java) { PluginManifest.parse(json.toString()) }
+        json.getJSONObject("musicSource").put("capabilities", JSONArray(listOf("catalog.search", "stream.resolve", "accounts")))
+        val manifest = PluginManifest.parse(json.toString())
+        assertEquals(PluginType.SOURCE, manifest.type)
+        assertNull(manifest.musicImport)
+        assertTrue("stream.resolve" in manifest.musicSource!!.capabilities)
+    }
 }

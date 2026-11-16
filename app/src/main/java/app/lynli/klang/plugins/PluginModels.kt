@@ -198,6 +198,7 @@ data class PluginManifest(
                 require(schemes.all { it.matches(Regex("[a-z][a-z0-9+.-]*")) })
                 val service = component("service")
                 require(importer == null || importer.packageName == pkg && importer.service == service) { "Source and download service must match" }
+                require("offline.download" !in caps || importer != null) { "Offline downloads require a musicImport service" }
                 MusicSourcePluginSpec(pkg, service, if (source.has("settingsActivity")) component("settingsActivity") else null,
                     source.optString("badge", "music").also { require(it in setOf("spotify", "music", "cloud", "device")) },
                     source.optString("linkLabel", json.getString("name")).also { require(it.isNotBlank() && it.length <= 40) }, caps, hosts, schemes)
