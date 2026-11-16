@@ -1,5 +1,6 @@
 .gradle/
 .kotlin/
+.wrangler/
 .idea/
 # Local proot toolchain (Android SDK, ARM64 aapt2). Never committed.
 .android-tools/

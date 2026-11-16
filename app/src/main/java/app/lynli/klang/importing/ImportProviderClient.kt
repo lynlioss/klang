@@ -32,12 +32,16 @@ internal object ImportProviderClient {
         val result = CompletableDeferred<JSONObject>()
         val token = UUID.randomUUID().toString()
         val spec = requireNotNull(provider.manifest.musicImport) { "Enable a music download plugin." }
+        val providerUid = context.packageManager.getApplicationInfo(spec.packageName, 0).uid
         val intent = Intent(MUSIC_IMPORT_ACTION).setComponent(ComponentName(spec.packageName, spec.service))
         var remote: Messenger? = null
         var descriptor: ParcelFileDescriptor? = null
         val reply = Messenger(object : Handler(Looper.getMainLooper()) {
             override fun handleMessage(message: Message) {
-                if (message.data.getString("token") != token || result.isCompleted) return
+                if (message.sendingUid != providerUid || message.data.getString("token") != token || result.isCompleted) {
+                    message.data.getParcelable("metadata", ParcelFileDescriptor::class.java)?.close()
+                    return
+                }
                 try {
                     when(message.what) {
                         PROGRESS -> {
