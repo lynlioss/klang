@@ -16,3 +16,6 @@ __pycache__/
 # Local agent skill installs
 .agents/
 skills-lock.json
+
+# Standalone Jam redirect site (lives in its own private repo)
+klang-web/

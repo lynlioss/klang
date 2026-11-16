@@ -10,6 +10,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -40,7 +41,10 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
@@ -65,8 +69,11 @@ import app.lynli.klang.MusicViewModel
 import app.lynli.klang.R
 import app.lynli.klang.data.Track
 import app.lynli.klang.plugins.PluginType
+import kotlinx.coroutines.launch
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlin.math.sign
 import kotlin.math.sin
 
 private val FastSpatial = spring<Float>(dampingRatio = 0.6f, stiffness = 800f)
@@ -532,6 +539,18 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
         var props by remember { mutableStateOf(false) }
         var sleepSheet by remember { mutableStateOf(false) }
         var overflow by remember { mutableStateOf(false) }
+        // Cover swipes advance the queue just like the mini player, with the drag offset handed to
+        // the cover transition so the artwork never jumps when the finger lifts.
+        val coverScope = rememberCoroutineScope()
+        val coverSettle = remember { Animatable(0f) }
+        var coverDrag by remember { mutableFloatStateOf(0f) }
+        var coverDragging by remember { mutableStateOf(false) }
+        var coverSettling by remember { mutableStateOf(false) }
+        val latestState by rememberUpdatedState(state)
+        val coverAnimate = motionEnabled()
+        val coverSettleSpec = MaterialTheme.motionScheme.fastSpatialSpec<Float>()
+        val coverSlide = MaterialTheme.motionScheme.fastSpatialSpec<IntOffset>()
+        val coverEffects = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
         if (addPlaylist) AddToPlaylistDialog(track, state, model) { addPlaylist = false }
         if (devices) OutputDevicesDialog(track) { devices = false }
         if (props) TrackPropertiesSheet(track, state, model) { props = false }
@@ -589,13 +608,97 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
                                 }
                             }
                         }
-                        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(vertical = spacing),
+                        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(vertical = spacing)
+                            .pointerInput(track.id, coverAnimate) {
+                                var axis: MiniPlayerSwipeAxis? = null
+                                var displacement = 0f
+                                var accepting = false
+                                val tracker = VelocityTracker()
+                                val threshold = 56.dp.toPx()
+                                val minFlingDistance = 20.dp.toPx()
+                                val minFlingVelocity = 800.dp.toPx()
+
+                                fun springBack() {
+                                    coverScope.launch {
+                                        coverSettle.snapTo(coverDrag)
+                                        coverDragging = false
+                                        coverSettle.animateTo(0f, coverSettleSpec)
+                                        coverDrag = 0f
+                                    }
+                                }
+
+                                detectDragGestures(orientationLock = null,
+                                    onDragStart = { down, change, _ ->
+                                        accepting = !coverSettling
+                                        if (accepting) {
+                                            axis = null
+                                            displacement = 0f
+                                            tracker.resetTracking()
+                                            tracker.addPosition(down.uptimeMillis, down.position)
+                                            tracker.addPosition(change.uptimeMillis, change.position)
+                                            coverDrag = 0f
+                                            coverDragging = true
+                                        }
+                                    },
+                                    onDragCancel = { if (accepting) springBack() },
+                                    onDragEnd = { change ->
+                                        if (accepting) {
+                                            tracker.addPosition(change.uptimeMillis, change.position)
+                                            val velocity = tracker.calculateVelocity().x
+                                            val deliberate = abs(displacement) >= threshold ||
+                                                (abs(displacement) >= minFlingDistance &&
+                                                    abs(velocity) >= minFlingVelocity && displacement.sign == velocity.sign)
+                                            val forward = displacement < 0f
+                                            val current = latestState
+                                            val available = if (forward) current.hasNextTrack else current.hasPreviousTrack
+                                            if (axis == MiniPlayerSwipeAxis.Horizontal && deliberate && available) {
+                                                coverSettling = true
+                                                coverScope.launch {
+                                                    try {
+                                                        coverSettle.snapTo(coverDrag)
+                                                        coverDragging = false
+                                                        model.skipTrack(track.id, forward)
+                                                        coverSettle.animateTo(0f, coverSettleSpec)
+                                                    } finally {
+                                                        coverSettling = false
+                                                        coverDragging = false
+                                                        coverDrag = 0f
+                                                    }
+                                                }
+                                            } else springBack()
+                                        }
+                                    }) { change, amount ->
+                                    change.consume()
+                                    if (accepting) {
+                                        tracker.addPosition(change.uptimeMillis, change.position)
+                                        axis = axis ?: miniPlayerSwipeAxis(amount.x, amount.y)
+                                        if (axis == MiniPlayerSwipeAxis.Horizontal) {
+                                            displacement += amount.x
+                                            val current = latestState
+                                            val available = if (displacement < 0f) current.hasNextTrack else current.hasPreviousTrack
+                                            coverDrag = displacement * if (available) 1f else 0.25f
+                                        }
+                                    }
+                                }
+                            },
                             contentAlignment = Alignment.Center) {
                             val size = minOf(maxHeight, artLimit).coerceAtLeast(1.dp)
                             AnimatedContent(track.id, transitionSpec = {
-                                (fadeIn(Effects) + scaleIn(SlowSpatial, initialScale = 0.94f)) togetherWith fadeOut(Effects)
-                            }, label = "Cover transition") { id ->
-                                val shown = state.tracks.find { it.id == id } ?: track
+                                val from = state.queue.indexOfFirst { it.id == initialState }
+                                val to = state.queue.indexOfFirst { it.id == targetState }
+                                val dir = if (from >= 0 && to >= 0 && to != from) if (to > from) 1 else -1 else 1
+                                val enter = fadeIn(coverEffects) +
+                                    slideInHorizontally(animationSpec = coverSlide) { width -> dir * width / 2 } +
+                                    scaleIn(SlowSpatial, initialScale = 0.94f)
+                                val exit = fadeOut(coverEffects) +
+                                    slideOutHorizontally(animationSpec = coverSlide) { width -> -dir * width / 2 }
+                                enter togetherWith exit
+                            }, label = "Cover transition",
+                                modifier = Modifier.graphicsLayer {
+                                    translationX = if (coverDragging) coverDrag else coverSettle.value
+                                }) { id ->
+                                val shown = state.tracks.find { it.id == id }
+                                    ?: state.hiddenTracks.find { it.id == id } ?: track
                                 Artwork(shown, Modifier.size(size).clip(RoundedCornerShape(32.dp)),
                                     "${shown.title} cover", large = true)
                             }

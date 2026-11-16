@@ -100,12 +100,63 @@ internal class ImportStore private constructor(context: Context) {
         schedule()
     }
 
+    /** Requeue every failed song. Deliberately skipped songs stay skipped. */
+    @Synchronized
+    fun retryAll() {
+        val failed = mutable.value.filter { batch -> batch.entries.any { it.phase == ImportPhase.FAILED } }
+        if (failed.isEmpty()) return
+        val edit = app.getSharedPreferences("download_notifications", Context.MODE_PRIVATE).edit()
+        failed.forEach { edit.remove("finished-${it.id}") }
+        edit.apply()
+        publish(mutable.value.map { batch -> batch.copy(entries = batch.entries.map { entry ->
+            if (entry.phase == ImportPhase.FAILED) entry.copy(phase = ImportPhase.QUEUED, progress = 0f,
+                error = null, speed = null, etaSeconds = -1, audioFormat = null, recording = null) else entry
+        }) }, true)
+        schedule()
+    }
+
     @Synchronized
     fun dismiss(batchId: String) {
         publish(mutable.value.filterNot { it.id == batchId && !it.pending }, true)
         if (mutable.value.none { it.id == batchId }) app.getSharedPreferences("download_notifications", Context.MODE_PRIVATE)
             .edit().remove("finished-$batchId").apply()
         File(app.cacheDir, "music-imports/$batchId").deleteRecursively()
+    }
+
+    /** Clear the whole download history while leaving active downloads running. */
+    @Synchronized
+    fun dismissAll() {
+        val removed = mutable.value.filter { !it.pending }
+        val edit = app.getSharedPreferences("download_notifications", Context.MODE_PRIVATE).edit()
+        removed.forEach { edit.remove("finished-${it.id}") }
+        publish(mutable.value.mapNotNull { batch ->
+            when {
+                !batch.pending -> null
+                batch.entries.any { it.phase.finished } -> batch.copy(entries = batch.entries.map { entry ->
+                    if (entry.phase.finished) entry.copy(phase = ImportPhase.CANCELLED, error = null,
+                        speed = null, etaSeconds = -1) else entry
+                })
+                else -> batch
+            }
+        }, true)
+        edit.apply()
+        removed.forEach { File(app.cacheDir, "music-imports/${it.id}").deleteRecursively() }
+    }
+
+    /** Apply one decision to every song that is already on this device. */
+    @Synchronized
+    fun resolveAllDuplicates(download: Boolean) {
+        val touched = mutable.value.filter { batch -> batch.entries.any { it.phase == ImportPhase.DUPLICATE } }
+        if (touched.isEmpty()) return
+        val edit = app.getSharedPreferences("download_notifications", Context.MODE_PRIVATE).edit()
+        if (download) touched.forEach { edit.remove("finished-${it.id}") }
+        edit.apply()
+        publish(mutable.value.map { batch -> batch.copy(entries = batch.entries.map { entry ->
+            if (entry.phase != ImportPhase.DUPLICATE) entry else entry.copy(
+                phase = if (download) ImportPhase.QUEUED else ImportPhase.CANCELLED,
+                allowDuplicate = download, progress = 0f, error = null, speed = null, etaSeconds = -1)
+        }) }, true)
+        if (download) schedule()
     }
 
     @Synchronized fun resolveDuplicate(batchId: String, index: Int, download: Boolean) {
@@ -120,6 +171,19 @@ internal class ImportStore private constructor(context: Context) {
     @Synchronized fun clearFinished() {
         val removed = mutable.value.filter { !it.pending && !it.warnings }
         publish(mutable.value.filter { it.pending || it.warnings }, true)
+        val edit = app.getSharedPreferences("download_notifications", Context.MODE_PRIVATE).edit()
+        removed.forEach { edit.remove("finished-${it.id}") }
+        edit.apply()
+    }
+
+    /** Remove completed songs but keep failures and duplicates around for review. */
+    @Synchronized fun clearFinishedEntries() {
+        val removed = mutable.value.filter { !it.pending && !it.warnings }
+        publish(mutable.value.mapNotNull { batch ->
+            if (!batch.pending && !batch.warnings) null else batch.copy(entries = batch.entries.map { entry ->
+                if (entry.phase == ImportPhase.COMPLETE) entry.copy(phase = ImportPhase.CANCELLED) else entry
+            })
+        }, true)
         val edit = app.getSharedPreferences("download_notifications", Context.MODE_PRIVATE).edit()
         removed.forEach { edit.remove("finished-${it.id}") }
         edit.apply()

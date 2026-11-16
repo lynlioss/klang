@@ -3,6 +3,7 @@ package app.lynli.klang.ui
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -15,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
@@ -170,21 +172,50 @@ internal fun DownloadProgressSheet(controller: ImportController, dismiss: () -> 
     val batches by controller.store.batches.collectAsStateWithLifecycle()
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
+    var confirmDuplicateAll by remember { mutableStateOf(false) }
+    val failedCount = batches.sumOf { it.failed }
+    val duplicateCount = batches.sumOf { batch -> batch.entries.count { it.phase == ImportPhase.DUPLICATE } }
+    val completedCount = batches.sumOf { it.complete }
+    val finishedCount = batches.sumOf { batch -> batch.entries.count { it.phase.finished } }
     ModalBottomSheet(onDismissRequest = dismiss, sheetState = sheet, shape = KlangSheetShape,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         dragHandle = { BottomSheetDefaults.DragHandle(Modifier.padding(top = 10.dp)) }) {
         Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 16.dp, bottom = 24.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Downloads", Modifier.weight(1f), style = MaterialTheme.typography.headlineMediumEmphasized)
+                if (completedCount > 0) IconButton({ controller.store.clearFinishedEntries() }) {
+                    Icon(Icons.Rounded.DoneAll, "Clear finished downloads")
+                }
                 IconButton({ scope.launch { sheet.hide(); dismiss() } }) { Icon(Icons.Rounded.Close, "Close downloads") }
+            }
+            if (failedCount > 0 || finishedCount > 0) Row(Modifier.fillMaxWidth().padding(top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (failedCount > 0) {
+                    val height = ButtonDefaults.MediumContainerHeight
+                    FilledTonalButton({ controller.store.retryAll() },
+                        modifier = Modifier.heightIn(min = height), shapes = ButtonDefaults.shapesFor(height),
+                        contentPadding = ButtonDefaults.contentPaddingFor(height)) {
+                        Icon(Icons.Rounded.Autorenew, null, Modifier.size(ButtonDefaults.SmallIconSize))
+                        Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                        Text("Retry all", style = ButtonDefaults.textStyleFor(height))
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                if (finishedCount > 0) TextButton({ controller.store.dismissAll() }) {
+                    Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(ButtonDefaults.SmallIconSize))
+                    Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                    Text("Dismiss all")
+                }
             }
             if (batches.isEmpty()) Text("All done", Modifier.padding(vertical = 24.dp), style = MaterialTheme.typography.bodyLarge)
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 560.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(top = 16.dp)) {
                 batches.forEach { batch ->
                     if (batch.entries.any { it.phase == ImportPhase.DUPLICATE }) item(key = "warning-${batch.id}") {
-                        Text("These songs were found on your device already. Download only if you want another copy.",
-                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(buildString {
+                            append("These songs are already on your device. Download only if you want another copy.")
+                            if (duplicateCount > 1) append(" Hold “Download anyway” to decide for all duplicates at once.")
+                        }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     val visible = batch.entries.indices.filter { index ->
                         val phase = batch.entries[index].phase
@@ -217,7 +248,12 @@ internal fun DownloadProgressSheet(controller: ImportController, dismiss: () -> 
                                 }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 if (entry.phase == ImportPhase.DUPLICATE) Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalAlignment = Alignment.CenterVertically) {
-                                    FilledTonalButton({ controller.store.resolveDuplicate(batch.id, index, true) }) { Text("Download anyway") }
+                                    DuplicateDownloadButton(
+                                        onClick = { controller.store.resolveDuplicate(batch.id, index, true) },
+                                        onLongClick = if (duplicateCount > 1) {
+                                            { confirmDuplicateAll = true }
+                                        } else null,
+                                    )
                                     IconButton({ controller.store.resolveDuplicate(batch.id, index, false) }) { Icon(Icons.Rounded.Close, "Skip ${entry.song.title}") }
                                 }
                                 if (entry.phase == ImportPhase.FAILED) Row(verticalAlignment = Alignment.CenterVertically) {
@@ -229,6 +265,39 @@ internal fun DownloadProgressSheet(controller: ImportController, dismiss: () -> 
                     }
                 }
             }
+        }
+        if (confirmDuplicateAll) AlertDialog(
+            onDismissRequest = { confirmDuplicateAll = false },
+            icon = { Icon(Icons.Rounded.Warning, null) },
+            title = { Text("Download all duplicates?") },
+            text = { Text("$duplicateCount songs are already on this device. Downloading them all adds another copy of each.") },
+            confirmButton = {
+                TextButton({
+                    controller.store.resolveAllDuplicates(true)
+                    confirmDuplicateAll = false
+                }) { Text("Download all") }
+            },
+            dismissButton = { TextButton({ confirmDuplicateAll = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+/** A tonal button that also accepts a long press, used for the bulk duplicate decision. */
+@Composable
+private fun DuplicateDownloadButton(onClick: () -> Unit, onLongClick: (() -> Unit)?) {
+    val height = ButtonDefaults.MediumContainerHeight
+    val shape = MaterialTheme.shapes.large
+    Surface(modifier = Modifier.heightIn(min = height).clip(shape).combinedClickable(
+        onClick = onClick,
+        onLongClick = onLongClick,
+        onClickLabel = "Download anyway",
+        onLongClickLabel = if (onLongClick != null) "Download all duplicates anyway" else null,
+    ), shape = shape, color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
+        Row(Modifier.padding(ButtonDefaults.contentPaddingFor(height)), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.Download, null, Modifier.size(ButtonDefaults.SmallIconSize))
+            Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+            Text("Download anyway", style = ButtonDefaults.textStyleFor(height))
         }
     }
 }
