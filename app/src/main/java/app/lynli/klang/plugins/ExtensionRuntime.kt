@@ -24,6 +24,7 @@ class ExtensionRuntime(private val context: Context, private val player: Player)
     private val root = File(context.cacheDir, "extensions")
     private val audio = mutableMapOf<String, MutableMap<String, File>>()
     private val localAudio = mutableMapOf<String, MutableMap<String, Uri>>()
+    private val userActions = mutableMapOf<String, Long>()
     private val receipts = mutableMapOf<String, Deferred<File>>()
     private var beforeExtension: Pair<List<MediaItem>, Pair<Int, Long>>? = null
     private var playbackOwner: String? = null
@@ -64,12 +65,15 @@ class ExtensionRuntime(private val context: Context, private val player: Player)
             beforeExtension = null; playbackOwner = null
         }
         receipts.keys.filter { it.startsWith("$id:") }.forEach { receipts.remove(it)?.cancel() }
-        audio.remove(id); localAudio.remove(id)
+        audio.remove(id); localAudio.remove(id); userActions.remove(id)
         val retired = File(root, "removed-${UUID.randomUUID()}")
         val directory = File(root, id)
         if (directory.exists() && directory.renameTo(retired)) scope.launch(Dispatchers.IO) { retired.deleteRecursively() }
     }
-    fun action(id: String, action: String, values: JSONObject = JSONObject()) { connections[id]?.send(2, values.put("action", action)) }
+    fun action(id: String, action: String, values: JSONObject = JSONObject()) {
+        if (action != "control" && action != "link" && action != "open") userActions[id] = SystemClock.elapsedRealtime()
+        connections[id]?.send(2, values.put("action", action))
+    }
     private fun dispatchLink(link: String): Boolean {
         val uri = runCatching { Uri.parse(link) }.getOrNull() ?: return false
         val entry = connections.values.firstOrNull { c ->
@@ -253,11 +257,12 @@ class ExtensionRuntime(private val context: Context, private val player: Player)
                 }
                 "audio.save" -> {
                     capability("audio.receive")
+                    require(SystemClock.elapsedRealtime() - (userActions.remove(id) ?: -60_000) < 30_000) { "Saving audio requires a user action" }
                     val file = requireNotNull(audio[id]?.get(json.getString("sha256")))
                     withContext(Dispatchers.IO) {
                         val values = android.content.ContentValues().apply {
                             put(android.provider.MediaStore.Audio.Media.DISPLAY_NAME, "${json.optString("title", "Jam track").replace(Regex("[^\\p{L}\\p{N} ._-]"), "_").take(100)}.${validateAudio(file)}")
-                            put(android.provider.MediaStore.Audio.Media.MIME_TYPE, audioMime(file))
+                            put(android.provider.MediaStore.Audio.Media.MIME_TYPE, when (validateAudio(file)) { "mp3" -> "audio/mpeg"; "m4a" -> "audio/mp4"; "flac" -> "audio/flac"; "wav" -> "audio/wav"; else -> "audio/ogg" })
                             put(android.provider.MediaStore.Audio.Media.RELATIVE_PATH, "Music/Klang")
                             put(android.provider.MediaStore.Audio.Media.IS_PENDING, 1)
                         }
