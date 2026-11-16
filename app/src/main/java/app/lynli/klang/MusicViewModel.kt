@@ -138,6 +138,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private var deviceTracks = emptyList<Track>()
     private val favoriteJobs = mutableMapOf<String, Job>()
     private val favoriteOverrides = mutableMapOf<String, Boolean>()
+    private val favoriteAccounts = mutableMapOf<String, Pair<String, String?>>()
     private var sleepJob: Job? = null
     private val future = MediaController.Builder(application,
         SessionToken(application, ComponentName(application, PlaybackService::class.java))).buildAsync()
@@ -225,20 +226,26 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     private suspend fun applySourceLibrary(library: SourceLibrary) {
+        favoriteAccounts.toMap().forEach { (id, account) ->
+            if (account.second != musicSources.accountRevision(account.first)) {
+                favoriteJobs.remove(id)?.cancel(); favoriteOverrides.remove(id); favoriteAccounts.remove(id)
+            }
+        }
         val snapshot = mutableState.value
         val enabled = musicSources.entries().map { it.manifest.id }.toSet()
         val savedFavorites = prefs.getStringSet("favorites", emptySet()).orEmpty().toSet()
         val ids = (snapshot.playlists.flatMap { it.trackIds } + savedFavorites + favoriteOverrides.filterValues { it }.keys).distinct()
-        val combined = withContext(Dispatchers.IO) {
+        val (combined, retainedFavorites) = withContext(Dispatchers.IO) {
             val retained = ids.mapNotNull(musicSources::storedTrack).filter { track ->
                 retainSourceSong(track.offline, track.providerId in enabled,
                     runCatching { org.json.JSONObject(track.sourcePayload.orEmpty()).optString("accountRevision") }.getOrNull(),
                     track.providerId?.let(musicSources::accountRevision))
             }
-            mergeMusicEntries(deviceTracks, library.tracks + retained, Track::id, musicSources::offlineDeviceId)
+            mergeMusicEntries(deviceTracks, library.tracks + retained, Track::id, musicSources::offlineDeviceId) to
+                savedFavorites.filter { !it.startsWith("klang-source:") || retained.any { track -> track.id == it } }.toSet()
         }
         favoriteOverrides.entries.removeAll { (id, value) -> favoriteJobs[id]?.isActive != true && (id in library.favorites) == value }
-        val favorites = (savedFavorites + library.favorites + favoriteOverrides.filterValues { it }.keys) - favoriteOverrides.filterValues { !it }.keys
+        val favorites = (retainedFavorites + library.favorites + favoriteOverrides.filterValues { it }.keys) - favoriteOverrides.filterValues { !it }.keys
         mutableState.update { state -> state.copy(tracks = combined.filterNot { it.id in state.hiddenIds },
             hiddenTracks = combined.filter { it.id in state.hiddenIds }, favorites = favorites,
             sourceCollections = library.collections, sourceHome = library.home,
@@ -595,6 +602,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             // Migrate favorites created before source synchronization to provider-backed likes.
             prefs.edit().putStringSet("favorites", prefs.getStringSet("favorites", emptySet()).orEmpty() - track.id).apply()
             favoriteOverrides[track.id] = value
+            favoriteAccounts[track.id] = track.providerId to musicSources.accountRevision(track.providerId)
             favoriteJobs[track.id]?.cancel()
             mutableState.update { it.copy(favorites = if (value) it.favorites + track.id else it.favorites - track.id) }
             favoriteJobs[track.id] = viewModelScope.launch {
@@ -614,7 +622,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         val updated = mutableState.value.favorites.toMutableSet().apply { if (!add(track.id)) remove(track.id) }.toSet()
-        prefs.edit().putStringSet("favorites", updated).apply()
+        val saved = prefs.getStringSet("favorites", emptySet()).orEmpty().toSet()
+        prefs.edit().putStringSet("favorites", if (track.id in updated) saved + track.id else saved - track.id).apply()
         mutableState.update { it.copy(favorites = updated) }
         analytics.capture(event = "favorite_toggled", properties = mapOf("is_favorite" to (track.id in updated)))
     }
