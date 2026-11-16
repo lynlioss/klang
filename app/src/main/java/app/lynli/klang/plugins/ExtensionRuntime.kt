@@ -71,6 +71,13 @@ class ExtensionRuntime(private val context: Context, private val player: Player)
         if (directory.exists() && directory.renameTo(retired)) scope.launch(Dispatchers.IO) { retired.deleteRecursively() }
     }
     fun action(id: String, action: String, values: JSONObject = JSONObject()) {
+        if (action == "host.retry" && mutableStates.value[id]?.optBoolean("hostDisconnected") == true) {
+            val connection = connections[id] ?: return
+            connection.close()
+            mutableStates.value = mutableStates.value - id
+            Connection(connection.entry).also { connections[id] = it; it.bind() }
+            return
+        }
         if (action != "control" && action != "link" && action != "open") userActions[id] = SystemClock.elapsedRealtime()
         connections[id]?.send(2, values.put("action", action))
     }
@@ -137,9 +144,15 @@ class ExtensionRuntime(private val context: Context, private val player: Player)
             remote = Messenger(binder)
             configure(); snapshot()
         }
-        override fun onServiceDisconnected(name: ComponentName) { remote = null; cleanup(id); mutableStates.value = mutableStates.value - id }
-        override fun onBindingDied(name: ComponentName) { disconnect(id) }
-        override fun onNullBinding(name: ComponentName) { disconnect(id) }
+        private fun unavailable() {
+            remote = null
+            cleanup(id)
+            // Keep an open panel visible with recovery controls when a plugin process exits.
+            mutableStates.value = mutableStates.value + (id to ExtensionConnectionState.unavailable(entry.manifest.name))
+        }
+        override fun onServiceDisconnected(name: ComponentName) { unavailable() }
+        override fun onBindingDied(name: ComponentName) { close(); unavailable() }
+        override fun onNullBinding(name: ComponentName) { close(); unavailable() }
         fun configure() {
             val settings = JSONObject()
             val configuration = config.read()
@@ -325,7 +338,7 @@ class ExtensionRuntime(private val context: Context, private val player: Player)
                 else -> error("Unsupported extension operation")
             }
         }
-        fun close() { send(4, JSONObject()); remote = null; if (bound) runCatching { context.unbindService(this) } }
+        fun close() { send(4, JSONObject()); remote = null; if (bound) runCatching { context.unbindService(this) }; bound = false }
     }
     companion object {
         const val MAX_AUDIO_BYTES = 256 * 1024 * 1024L
