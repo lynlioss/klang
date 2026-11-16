@@ -27,7 +27,7 @@ internal fun RecommendedPluginsScreen(model: MusicViewModel, complete: (() -> Un
             Text("Add what you need.", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             LazyColumn(Modifier.weight(1f).padding(top = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                listOf(Triple("spotify", "Spotify Integration", "Your Spotify library, YouTube Music and Qobuz playback, and offline downloads."),
+                listOf(Triple("spotify", "Spotify Sync", "Your Spotify library, YouTube Music and Qobuz playback, and offline downloads."),
                     Triple("music-import", "Music Import", "Songs, albums, EPs and playlists from music links."),
                     Triple("lrclib", "LRCLIB", "Synchronized lyrics for your music."),
                     Triple("klang-jam", "Jam", "Listen together with up to four people. Share a code and bring your music.")).forEach { (id, title, subtitle) ->

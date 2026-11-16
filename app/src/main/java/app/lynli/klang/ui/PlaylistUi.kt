@@ -45,6 +45,9 @@ import app.lynli.klang.MusicState
 import app.lynli.klang.MusicViewModel
 import app.lynli.klang.R
 import app.lynli.klang.data.Track
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import org.json.JSONObject
 
 @Composable
 internal fun PlaylistNameDialog(title: String, initial: String, dismiss: () -> Unit, save: (String) -> Unit) {
@@ -106,11 +109,11 @@ internal fun PlaylistListItem(collection: MusicCollection, modifier: Modifier = 
     Surface(onClick = open, modifier = modifier.fillMaxWidth().padding(bottom = 8.dp),
         shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            PlaylistArtwork(collection.coverFile, collection.tracks.firstOrNull(), Modifier.size(64.dp).clip(RoundedCornerShape(8.dp)))
+            CollectionCover(collection, Modifier.size(64.dp).clip(RoundedCornerShape(8.dp)))
             Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
                 Text(collection.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${collection.tracks.size} songs", style = MaterialTheme.typography.bodySmall,
+                Text(if (collection.source?.kind in setOf("artist", "folder")) collection.subtitle else "${collection.songCount} songs", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -121,6 +124,12 @@ internal fun PlaylistListItem(collection: MusicCollection, modifier: Modifier = 
 @Composable
 internal fun AddToPlaylistDialog(track: Track, state: MusicState, model: MusicViewModel, dismiss: () -> Unit) {
     var create by rememberSaveable { mutableStateOf(false) }
+    var sourceCreate by rememberSaveable { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var submitting by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val providerId = track.providerId
+    val remote = state.sourceCollections.filter { it.providerId == providerId && it.kind == "playlist" && it.editable }
     val songs = remember(state.tracks) { state.tracks.associateBy { it.id } }
     ModalBottomSheet(onDismissRequest = dismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow, shape = KlangSheetShape) {
@@ -136,9 +145,14 @@ internal fun AddToPlaylistDialog(track: Track, state: MusicState, model: MusicVi
             }
             FilledTonalButton({ create = true }, Modifier.fillMaxWidth().heightIn(min = 56.dp), shape = RoundedCornerShape(16.dp)) {
                 Icon(painterResource(R.drawable.playlist_add), null, Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp)); Text("New playlist", fontWeight = FontWeight.Bold)
+                Spacer(Modifier.width(8.dp)); Text("New Klang playlist", fontWeight = FontWeight.Bold)
+            }
+            if (providerId != null) TextButton({ sourceCreate = true }, Modifier.fillMaxWidth()) {
+                Icon(Icons.Rounded.PlaylistAdd, null); Spacer(Modifier.width(8.dp)); Text("New ${track.sourceLabel} playlist")
             }
             Spacer(Modifier.height(16.dp))
+            if (submitting) LoadingIndicator()
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 items(state.playlists, key = { it.id }) { playlist ->
                     val added = track.id in playlist.trackIds
@@ -156,10 +170,36 @@ internal fun AddToPlaylistDialog(track: Track, state: MusicState, model: MusicVi
                         }
                     }
                 }
-                if (state.playlists.isEmpty()) item { EmptyState("Start a new mix", "Create a playlist to keep this song close.") }
+                items(remote, key = { it.identity }) { playlist ->
+                    Surface(onClick = {
+                        submitting = true; error = null
+                        scope.launch {
+                            try {
+                                val revision = JSONObject(playlist.payload).optString("accountRevision")
+                                model.musicSources.call(playlist.providerId, "playlist.add", JSONObject().put("id", playlist.id)
+                                    .put("ids", org.json.JSONArray().put(track.sourceId)).apply {
+                                        if (revision.isNotBlank()) put("accountRevision", revision)
+                                    })
+                                dismiss()
+                            } catch (cancelled: CancellationException) { throw cancelled } catch (e: Exception) { error = e.message }
+                            finally { submitting = false }
+                        }
+                    }, enabled = !submitting, shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer) {
+                        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            CollectionCover(playlist.collection(), Modifier.size(48.dp).clip(RoundedCornerShape(4.dp)))
+                            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                                Text(playlist.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("${track.sourceLabel} · ${playlist.total} songs", style = MaterialTheme.typography.bodySmall)
+                            }
+                            Icon(Icons.Rounded.Add, null)
+                        }
+                    }
+                }
+                if (state.playlists.isEmpty() && remote.isEmpty()) item { EmptyState("Start a new mix", "Create a playlist to keep this song close.") }
             }
         }
     }
+    if (sourceCreate && providerId != null) SourceCreatePlaylistDialog(providerId, model) { sourceCreate = false }
     if (create) PlaylistCreateDialog({ create = false }) { name, cover ->
         model.createPlaylist(name)?.let { id ->
             model.addToPlaylist(id, listOf(track))
@@ -270,11 +310,15 @@ internal fun PlaylistTrackRow(track: Track, index: Int, collection: MusicCollect
                 Artwork(track, Modifier.size(52.dp).clip(RoundedCornerShape(6.dp)))
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
                     Text(track.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(track.artist, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        color = if (lifted) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        SourceBadge(track)
+                        Text(track.artist, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            color = if (lifted) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
             if (lifted) Icon(painterResource(R.drawable.drag_handle), null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+            else if (state.current?.id == track.id && state.buffering && state.playWhenReady) PlaybackLoadingIndicator()
             else if (state.current?.id == track.id && state.playing) PlayingIndicator(MaterialTheme.colorScheme.onSurface)
             else Text(time(track.durationMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Box {

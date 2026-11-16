@@ -72,7 +72,7 @@ Klang checks stable releases at startup. An available update shows a snackbar li
 
 API 1 is still being developed. Lyrics providers use declarative requests and do not execute downloaded code. Music providers run in a separately installed Android service under their own UID. Both provider types use `apiVersion: 1`; unknown API versions are rejected.
 
-Spotify Integration, Jam and Music Import are optional recommendations. A fresh Klang install does not
+Spotify Sync, Jam and Music Import are optional recommendations. A fresh Klang install does not
 bundle or download them automatically. If their APKs are already on the device,
 Klang discovers them directly. Otherwise, add them using Install in Recommended
 plugins or the plugin picker.
@@ -85,24 +85,31 @@ advertises `io.github.lynlioss.klang.MUSIC_SOURCE_V1` and embeds the manifest as
 optional account settings activity, badge/link label, supported links and catalog,
 library, playlist, streaming and download capabilities. API version remains 1.
 
-Klang renders native catalog pages for home, search, library, albums, artists and
-playlists. Plugins return opaque IDs and bounded pages; the host retains metadata,
-preserves duplicate playlist occurrences, fetches complete collections and resolves
-temporary HTTPS streams on Media3's loader thread. Downloads reuse the `musicImport`
+Klang merges saved source music into its existing Home, Search and Library pages.
+Songs use the same favorites, playlist picker, queue, downloads and playback controls
+as device files. Album, artist and playlist entities use native collection cards.
+Plugins return opaque IDs and bounded pages; the host retains account-scoped library
+membership and preserves duplicate playlist occurrences. Playback starts from the
+visible page while the remaining queue loads in the background. Temporary HTTPS
+streams resolve on Media3's loader thread and are prepared for likely next tracks.
+The player shows expressive loading feedback while preparing or buffering. Downloads reuse the `musicImport`
 contract and host-owned queue, duplicate checks and MediaStore publication.
 Persistent source identities prefer downloaded files for offline playback after
-restarting Klang.
+restarting Klang, without showing a duplicate device row. `accounts.connected`
+controls account connection cards; `revision` scopes library membership and
+`playbackRevision` scopes temporary stream caches. Prepared URLs stay in memory.
 
 Login, credentials, APIs and recording matching belong to the plugin. Account
 revisions invalidate cached library pages after switching accounts. Messages are
 checked against the installed service UID and a fresh token; invalid pagination,
 unknown capabilities and unsafe playback headers are rejected. Future community
-plugins can implement the same contract. See [Spotify Integration's API.md](https://github.com/lynlioss/klang-spotify/blob/main/API.md)
+plugins can implement the same contract. See [Spotify Sync's API.md](https://github.com/lynlioss/klang-spotify/blob/main/API.md)
 for the manifest, Messenger envelope and operations.
 
-**Spotify Integration** appears in Recommended plugins with its Spotify icon.
+**Spotify Sync** appears in Recommended plugins with its Spotify icon.
 Spotify supplies account/catalog/playlist features; YouTube Music or the connected
-user's Qobuz account supplies matching recordings. Open its detail page's Accounts
+user's Qobuz account supplies matching recordings. YouTube Music is the default.
+The plugin APK uses Android's default application icon. Open its detail page's Accounts
 & playback settings to log in and choose sources. The YouTube path does not require
 Spotify Premium. The plugin has its own APK, releases and account storage and is
 enabled explicitly.

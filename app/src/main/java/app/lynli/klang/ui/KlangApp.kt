@@ -103,7 +103,7 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
     var appIcon by rememberSaveable { mutableStateOf(false) }
     var hiddenFiles by rememberSaveable { mutableStateOf(false) }
     var collectionId by rememberSaveable { mutableStateOf<String?>(null) }
-    val collections = remember(state.tracks, state.favorites, state.playlists) { musicCollections(state) }
+    val collections = remember(state.tracks, state.favorites, state.playlists, state.sourceCollections) { musicCollections(state) }
     val selectedCollection = collections.find { it.id == collectionId }
     var lastCollection by remember { mutableStateOf<MusicCollection?>(null) }
     SideEffect { if (selectedCollection != null) lastCollection = selectedCollection }
@@ -124,6 +124,10 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
         }
     }
     // Jumping to an artist or album closes the player and every other overlay first.
+    fun openCollection(collection: MusicCollection) {
+        if (collection.source != null) model.musicSources.open(collection.source.providerId, collection.source.id)
+        else collectionId = collection.id
+    }
     fun openTrackCollection(track: Track, artist: Boolean) {
         if (track.providerId != null && track.sourcePayload != null) {
             val item = org.json.JSONObject(track.sourcePayload)
@@ -166,10 +170,10 @@ fun KlangApp(state: MusicState, model: MusicViewModel, onPermission: () -> Unit,
                             holder.SaveableStateProvider(page) {
                                 when (page) {
                                     0 -> HomeScreen(state, model, collections, { settings = true }, onPermission, addMusic,
-                                        { destination = 2 }, { collectionId = it.id }, bottomSpace, { downloadingMusic = true })
-                                    1 -> SearchScreen(state, model, addMusic, bottomSpace)
+                                        { destination = 2 }, ::openCollection, bottomSpace, { downloadingMusic = true })
+                                    1 -> SearchScreen(state, model, addMusic, bottomSpace, ::openCollection)
                                     else -> LibraryScreen(state, model, { settings = true }, onPermission, addMusic,
-                                        { collectionId = it.id }, bottomSpace, { downloadingMusic = true })
+                                        ::openCollection, bottomSpace, { downloadingMusic = true })
                                 }
                             }
                         }
@@ -328,37 +332,85 @@ internal fun AccessCard(permission: () -> Unit, import: () -> Unit) {
 }
 
 @Composable
-private fun SearchScreen(state: MusicState, model: MusicViewModel, import: () -> Unit, bottom: Dp) {
+private fun SearchScreen(state: MusicState, model: MusicViewModel, import: () -> Unit, bottom: Dp,
+    openCollection: (MusicCollection) -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableIntStateOf(0) }
-    val found = remember(state.tracks, query, filter) {
-        state.tracks.filter { (filter == 0 || it.id in state.favorites) &&
+    val config by model.plugins.collectAsStateWithLifecycle()
+    var remote by remember { mutableStateOf<app.lynli.klang.plugins.SourceSearchPage?>(null) }
+    var searching by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val kinds = listOf("all", "track", "album", "artist", "playlist", "favorites")
+    LaunchedEffect(query, filter, config.enabled) {
+        remote = null; searching = false
+        if (query.isBlank() || filter == 5 || model.musicSources.entries().isEmpty()) return@LaunchedEffect
+        searching = true
+        try {
+            kotlinx.coroutines.delay(250)
+            remote = model.musicSources.search(query.trim(), kinds[filter])
+            model.musicSources.prepare(remote?.tracks.orEmpty().take(2))
+        } finally { searching = false }
+    }
+    val local = remember(state.tracks, state.favorites, query, filter) {
+        state.tracks.filter { (filter != 5 || it.id in state.favorites) &&
             (query.isBlank() || "${it.title} ${it.artist} ${it.album}".contains(query.trim(), ignoreCase = true)) }
+    }
+    val found = remember(local, remote, filter) {
+        if (filter !in listOf(0, 1, 5)) emptyList() else (local + remote?.tracks.orEmpty()).distinctBy { it.id }
+    }
+    val collections = remember(state.tracks, state.sourceCollections, remote, query, filter) {
+        if (query.isBlank() || filter in listOf(1, 5)) emptyList() else {
+            val native = (albumCollections(state.tracks) + artistCollections(state.tracks) +
+                musicCollections(state).filter { it.editableId != null } + state.sourceCollections.map { it.collection() })
+                .filter { "${it.title} ${it.subtitle}".contains(query.trim(), true) }
+            (native + remote?.collections.orEmpty().map { it.collection() }).distinctBy { it.id }
+                .filter { filter == 0 || filter == 2 && it.album || filter == 3 && it.artist ||
+                    filter == 4 && (it.editableId != null || it.source?.kind == "playlist") }
+        }
     }
     Column(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
         PageTitle("Search")
-        MusicSourceChips(model, "search", Modifier.padding(bottom = 12.dp))
         TextField(query, { query = it }, Modifier.fillMaxWidth(), shape = CircleShape, singleLine = true,
             placeholder = { Text("Songs, artists, albums") }, leadingIcon = { Icon(Icons.Rounded.Search, null) },
             trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear search") } },
             colors = TextFieldDefaults.colors(focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                 focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent))
-        Row(Modifier.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(filter == 0, { filter = 0 }, label = { Text("All songs") }, shapes = klangFilterChipShapes())
-            FilterChip(filter == 1, { filter = 1 }, label = { Text("Favorites") }, shapes = klangFilterChipShapes(),
-                leadingIcon = { Icon(Icons.Rounded.Favorite, null, Modifier.size(18.dp)) })
+        LazyRow(Modifier.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(6) { index ->
+                FilterChip(filter == index, { filter = index }, label = { Text(listOf("All", "Songs", "Albums", "Artists", "Playlists", "Favorites")[index]) },
+                    shapes = klangFilterChipShapes())
+            }
         }
         Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(if (query.isBlank()) "Songs" else "Results", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            Text("${found.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (searching) PlaybackLoadingIndicator()
+            else Text("${found.size + collections.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = bottom)) {
             items(found, key = { it.id }) { track -> TrackRow(track, state, model,
                 { model.play(found, found.indexOf(track)) }, Modifier.animateItem()) }
-            if (found.isEmpty()) item {
+            items(collections, key = { "collection:${it.id}" }) { collection ->
+                PlaylistListItem(collection, Modifier.animateItem()) { openCollection(collection) }
+            }
+            remote?.notices.orEmpty().forEach { notice -> item { Text(notice, Modifier.padding(vertical = 12.dp),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+            if (remote?.nextOffsets?.isNotEmpty() == true) item {
+                TextButton({
+                    val previous = remote ?: return@TextButton
+                    searching = true
+                    scope.launch {
+                        try {
+                            val next = model.musicSources.search(query.trim(), kinds[filter], previous.nextOffsets)
+                            remote = next.copy(tracks = (previous.tracks + next.tracks).distinctBy { it.id },
+                                collections = (previous.collections + next.collections).distinctBy { it.identity })
+                        } finally { searching = false }
+                    }
+                }, enabled = !searching) { Text("Show more") }
+            }
+            if (found.isEmpty() && collections.isEmpty() && !searching) item {
                 EmptyState(if (query.isBlank()) "No songs" else "No results",
-                    if (query.isBlank()) "Add audio files to search your library." else "Try a different title, artist or album.")
+                    if (query.isBlank()) "Your saved songs appear here. Search to find more music." else "Try a different title, artist or album.")
                 if (query.isBlank()) FilledTonalButton(import) { Text("Add music") }
             }
         }
@@ -374,16 +426,23 @@ private fun LibraryScreen(state: MusicState, model: MusicViewModel, settings: ()
         val list = state.tracks
         when (sort) { 1 -> list.sortedBy { it.title.lowercase() }; 2 -> list.sortedBy { it.artist.lowercase() }; else -> list.sortedByDescending { it.added } }
     }
+    val albums = remember(tracks, state.sourceCollections) { albumCollections(tracks) +
+        state.sourceCollections.filter { it.kind == "album" }.map { it.collection() } }
+    val playlists = remember(state.tracks, state.playlists, state.favorites, state.sourceCollections) {
+        musicCollections(state).filter { it.mix || it.favorites || it.editableId != null || it.source?.kind in setOf("playlist", "folder") }
+    }
+    var createSource by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(tracks.take(2).map { it.id }) { model.musicSources.prepare(tracks.take(2)) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = bottom)) {
         item {
             PageTitle("Library") {
                 DownloadStatusButton(model.musicImports, downloads)
                 UtilityIconButton(settings) { Icon(Icons.Rounded.Settings, "Settings") }
             }
-            MusicSourceChips(model, "library", Modifier.padding(bottom = 12.dp))
             ChoiceGroup(listOf("Songs", "Albums", "Playlists"), filter) { filter = it }
+            SourceConnectionCards(state, model)
             Row(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(if (filter == 1) "${albumCollections(tracks).size} albums" else if (filter == 2) "${state.playlists.size + 2} playlists" else "${tracks.size} songs",
+                Text(if (filter == 1) "${albums.size} albums" else if (filter == 2) "${playlists.size} playlists" else "${tracks.size} songs",
                     Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 FilledTonalIconButton(import) { Icon(Icons.Rounded.Add, "Add music or import playlist") }
                 IconButton(model::refresh) { Icon(Icons.Rounded.Refresh, "Refresh library") }
@@ -401,34 +460,43 @@ private fun LibraryScreen(state: MusicState, model: MusicViewModel, settings: ()
                 }
             }
             if (!state.permission) { AccessCard(permission, import); Spacer(Modifier.height(16.dp)) }
-            if (state.busy || state.loading) LoadingRow(state)
+            if (state.busy || state.loading || state.sourceSyncing) LoadingRow(state)
+            if (filter == 2) model.musicSources.entries().filter {
+                "playlist.create" in requireNotNull(it.manifest.musicSource).capabilities
+            }.forEach { source ->
+                FilledTonalButton({ createSource = source.manifest.id }, Modifier.padding(bottom = 12.dp)) {
+                    Icon(Icons.Rounded.PlaylistAdd, null); Spacer(Modifier.width(8.dp))
+                    Text("New ${source.manifest.musicSource?.linkLabel} playlist")
+                }
+            }
         }
         if (filter == 1) {
-            items(albumCollections(tracks), key = { it.id }) { collection ->
+            items(albums, key = { it.id }) { collection ->
                 val name = collection.title
                 val songs = collection.tracks
                 Surface(Modifier.fillMaxWidth().padding(bottom = 8.dp).animateItem().clip(RoundedCornerShape(20.dp)).clickable { openCollection(collection) },
                     shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Artwork(songs.first(), Modifier.size(80.dp).clip(RoundedCornerShape(12.dp)))
+                        CollectionCover(collection, Modifier.size(80.dp).clip(RoundedCornerShape(12.dp)))
                         Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
                             Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text("${songs.first().artist} · ${songs.size} songs", Modifier.padding(top = 6.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("${collection.subtitle} · ${collection.songCount} songs", Modifier.padding(top = 6.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
             }
         } else if (filter == 2) {
-            items(musicCollections(state).filter { !it.album && !it.artist }, key = { it.id }) { collection ->
+            items(playlists, key = { it.id }) { collection ->
                 PlaylistListItem(collection, Modifier.animateItem()) { openCollection(collection) }
             }
         } else items(tracks, key = { it.id }) { track -> TrackRow(track, state, model,
             { model.play(tracks, tracks.indexOf(track)) }, Modifier.animateItem()) }
-        if (tracks.isEmpty() && !state.loading && filter != 2) item { EmptyLibrary(import) }
-        if (filter == 1 && tracks.isNotEmpty() && albumCollections(tracks).isEmpty()) item {
+        if (tracks.isEmpty() && !state.loading && !state.sourceSyncing && filter == 0) item { EmptyLibrary(import) }
+        if (filter == 1 && !state.sourceSyncing && albums.isEmpty()) item {
             EmptyState("No albums", "Files with album metadata appear here.")
         }
     }
+    createSource?.let { provider -> SourceCreatePlaylistDialog(provider, model) { createSource = null } }
 }
 
 @Composable
@@ -458,7 +526,7 @@ internal fun SectionHeading(title: String, action: String? = null, click: () -> 
 internal fun LoadingRow(state: MusicState) {
     Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         LoadingIndicator(Modifier.size(36.dp)); Spacer(Modifier.width(12.dp))
-        Text(if (state.busy) "Adding music…" else "Loading library…", style = MaterialTheme.typography.bodyMedium)
+        Text(if (state.busy) "Adding music…" else if (state.sourceSyncing) "Syncing your library…" else "Loading library…", style = MaterialTheme.typography.bodyMedium)
     }
 }
 @Composable
@@ -475,7 +543,8 @@ internal fun EmptyLibrary(import: () -> Unit) {
 }
 
 @Composable
-internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, play: () -> Unit, modifier: Modifier = Modifier) {
+internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, play: () -> Unit, modifier: Modifier = Modifier,
+    enabled: Boolean = true, extraActions: @Composable ColumnScope.(() -> Unit) -> Unit = {}) {
     var menu by remember { mutableStateOf(false) }
     var addToPlaylist by remember { mutableStateOf(false) }
     var properties by remember { mutableStateOf(false) }
@@ -485,7 +554,7 @@ internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, pl
         spring(1f, 3800f), label = "Track selection")
     val content = if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface
     Surface(modifier.fillMaxWidth().padding(bottom = 4.dp).clip(MaterialTheme.shapes.medium)
-        .combinedClickable(onClick = play, onLongClick = { menu = true }), shape = MaterialTheme.shapes.medium, color = fill) {
+        .combinedClickable(enabled = enabled, onClick = play, onLongClick = { menu = true }), shape = MaterialTheme.shapes.medium, color = fill) {
         Row(Modifier.padding(start = 10.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Artwork(track, Modifier.size(52.dp).clip(RoundedCornerShape(12.dp)))
             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
@@ -497,8 +566,12 @@ internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, pl
                         color = if (active) content else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            if (active && state.playing) PlayingIndicator(content)
+            if (active && state.buffering && state.playWhenReady) PlaybackLoadingIndicator(content)
+            else if (active && state.playing) PlayingIndicator(content)
             else Text(time(track.durationMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (track.providerId != null && !track.offline) IconButton({ model.musicSources.download(listOf(track)) }, enabled = enabled) {
+                Icon(Icons.Rounded.Download, "Download ${track.title}")
+            }
             Box {
                 IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Options for ${track.title}") }
                 DropdownMenu(menu, { menu = false }, shape = KlangMenuShape,
@@ -512,10 +585,13 @@ internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, pl
                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.QueueMusic, null) })
                     track.shareUrl?.let { url ->
                         DropdownMenuItem(text = { Text("Copy ${track.sourceLabel} link") },
-                            onClick = { menu = false; copyMusicLink(context, track.sourceLabel, url) })
+                            onClick = { menu = false; copyMusicLink(context, track.sourceLabel, url) },
+                            leadingIcon = { Icon(Icons.Rounded.Link, null) })
                     }
                     if (track.providerId != null) DropdownMenuItem(text = { Text(if (track.offline) "Available offline" else "Download") },
-                        enabled = !track.offline, onClick = { menu = false; model.musicSources.download(listOf(track)) })
+                        enabled = !track.offline, onClick = { menu = false; model.musicSources.download(listOf(track)) },
+                        leadingIcon = { Icon(if (track.offline) Icons.Rounded.OfflinePin else Icons.Rounded.Download, null) })
+                    extraActions { menu = false }
                     DropdownMenuItem(text = { Text("Properties") }, onClick = { menu = false; properties = true },
                         leadingIcon = { Icon(Icons.Rounded.Info, null) })
                 }
@@ -523,15 +599,15 @@ internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, pl
         }
     }
     if (addToPlaylist) {
-        if (track.providerId != null && track.sourceId != null) SourceAddToPlaylistDialog(track.providerId, listOf(track.sourceId), model) { addToPlaylist = false }
-        else AddToPlaylistDialog(track, state, model) { addToPlaylist = false }
+        AddToPlaylistDialog(track, state, model) { addToPlaylist = false }
     }
     if (properties) TrackPropertiesSheet(track, state, model) { properties = false }
 
 }
 
 @Composable
-internal fun ExpressivePlay(playing: Boolean, click: () -> Unit, size: Dp = 88.dp, enabled: Boolean = true) {
+internal fun ExpressivePlay(playing: Boolean, click: () -> Unit, size: Dp = 88.dp, enabled: Boolean = true,
+    loading: Boolean = false) {
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
     val corner by animateFloatAsState(if (pressed) 22f else if (playing) 32f else 50f, FastSpatial, label = "Play shape")
@@ -539,7 +615,9 @@ internal fun ExpressivePlay(playing: Boolean, click: () -> Unit, size: Dp = 88.d
     FilledIconButton(click, Modifier.size(size).scale(scale), enabled = enabled, interactionSource = source,
         shape = RoundedCornerShape(corner.coerceIn(0f, 50f).toInt()),
         colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary)) {
-        Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (playing) "Pause" else "Play", Modifier.size(40.dp))
+        if (loading && playing) PlaybackLoadingIndicator(MaterialTheme.colorScheme.onPrimary,
+            Modifier.size(48.dp).semantics { contentDescription = "Loading song. Tap to pause." })
+        else Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (playing) "Pause" else "Play", Modifier.size(40.dp))
     }
 }
 
@@ -577,8 +655,7 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
         val coverSlide = MaterialTheme.motionScheme.fastSpatialSpec<IntOffset>()
         val coverEffects = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
         if (addPlaylist) {
-            if (track.providerId != null && track.sourceId != null) SourceAddToPlaylistDialog(track.providerId, listOf(track.sourceId), model) { addPlaylist = false }
-            else AddToPlaylistDialog(track, state, model) { addPlaylist = false }
+            AddToPlaylistDialog(track, state, model) { addPlaylist = false }
         }
         if (devices) OutputDevicesDialog(track) { devices = false }
         if (props) TrackPropertiesSheet(track, state, model) { props = false }
@@ -619,10 +696,11 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
                                         track.shareUrl?.let { url ->
                                             DropdownMenuItem(text = { Text("Copy ${track.sourceLabel} link") }, onClick = {
                                                 overflow = false; copyMusicLink(context, track.sourceLabel, url)
-                                            })
+                                            }, leadingIcon = { Icon(Icons.Rounded.Link, null) })
                                         }
                                         if (track.providerId != null) DropdownMenuItem(text = { Text(if (track.offline) "Available offline" else "Download") },
-                                            enabled = !track.offline, onClick = { overflow = false; model.musicSources.download(listOf(track)) })
+                                            enabled = !track.offline, onClick = { overflow = false; model.musicSources.download(listOf(track)) },
+                                            leadingIcon = { Icon(if (track.offline) Icons.Rounded.OfflinePin else Icons.Rounded.Download, null) })
                                         HorizontalDivider(Modifier.padding(vertical = 4.dp))
                                         DropdownMenuItem(text = { Text("Properties") }, onClick = { overflow = false; props = true },
                                             leadingIcon = { Icon(Icons.Rounded.Info, null) })
@@ -772,7 +850,7 @@ private fun PlayerContent(state: MusicState, model: MusicViewModel, close: () ->
                                 shape = RoundedCornerShape(40.dp)) {
                                 Icon(Icons.Rounded.SkipPrevious, "Previous", Modifier.size(32.dp))
                             }
-                            ExpressivePlay(state.playing, model::togglePlay, playSize)
+                            ExpressivePlay(state.playWhenReady, model::togglePlay, playSize, loading = state.buffering)
                             FilledTonalIconButton(model::next, Modifier.weight(1f).height(if (short) 64.dp else 80.dp),
                                 enabled = state.queue.size > 1, shape = RoundedCornerShape(40.dp)) {
                                 Icon(Icons.Rounded.SkipNext, "Next", Modifier.size(32.dp))

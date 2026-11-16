@@ -63,16 +63,19 @@ internal fun copyMusicLink(context: Context, label: String, url: String) {
 }
 
 @Composable
-internal fun MusicSourceChips(model: MusicViewModel, root: String, modifier: Modifier = Modifier) {
-    val config by model.plugins.collectAsStateWithLifecycle()
-    val catalog by model.pluginCatalog.collectAsStateWithLifecycle()
-    val sources = catalog.installed.filter { it.manifest.musicSource != null && it.manifest.id in config.enabled }
-    if (sources.isNotEmpty()) LazyRow(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        item { AssistChip({}, label = { Text("On Device") }, leadingIcon = { Icon(Icons.Rounded.PhoneAndroid, null, Modifier.size(18.dp)) }) }
-        items(sources, key = { it.manifest.id }) { source ->
-            AssistChip({ model.musicSources.open(source.manifest.id, root = root) }, label = { Text(source.manifest.name) },
-                leadingIcon = { if (source.manifest.musicSource?.badge == "spotify") Icon(painterResource(R.drawable.spotify), null, Modifier.size(18.dp))
-                    else Icon(Icons.Rounded.MusicNote, null, Modifier.size(18.dp)) })
+internal fun SourceConnectionCards(state: MusicState, model: MusicViewModel) {
+    state.sourceConnections.filter { !it.connected }.forEach { source ->
+        Surface(Modifier.fillMaxWidth().padding(vertical = 12.dp), shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
+            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (source.badge == "spotify") Icon(painterResource(R.drawable.spotify), null, Modifier.size(32.dp))
+                else Icon(Icons.Rounded.MusicNote, null, Modifier.size(32.dp))
+                Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                    Text("Connect ${source.name}", style = MaterialTheme.typography.titleMediumEmphasized)
+                    Text("Bring your songs and playlists into Klang.", style = MaterialTheme.typography.bodySmall)
+                }
+                FilledTonalButton({ model.musicSources.settings(source.providerId) }) { Text("Connect") }
+            }
         }
     }
 }
@@ -105,9 +108,6 @@ internal fun MusicSourceScreen(destination: SourceDestination, state: MusicState
     val resume by controller.resumes.collectAsStateWithLifecycle()
     val offlineChanges by controller.changes.collectAsStateWithLifecycle()
     var entityId by rememberSaveable(destination) { mutableStateOf(destination.entityId) }
-    var root by rememberSaveable(destination) { mutableStateOf(destination.root) }
-    var query by rememberSaveable(destination) { mutableStateOf("") }
-    var kind by rememberSaveable(destination) { mutableStateOf(if (destination.root == "search") "all" else "playlist") }
     var history by remember { mutableStateOf<List<String?>>(emptyList()) }
     var page by remember { mutableStateOf<JSONObject?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -122,25 +122,20 @@ internal fun MusicSourceScreen(destination: SourceDestination, state: MusicState
     var tracks by remember { mutableStateOf<Map<String, Track>>(emptyMap()) }
     val entity = page?.optJSONObject("entity")
     fun go(id: String) { history = history + entityId; entityId = id; offset = 0; error = null }
-    fun goBack() { if (history.isNotEmpty()) { entityId = history.last(); history = history.dropLast(1); offset = 0 } else if (entityId != null) entityId = null else back() }
+    fun goBack() { if (history.isNotEmpty()) { entityId = history.last(); history = history.dropLast(1); offset = 0 } else back() }
     BackHandler { goBack() }
     suspend fun load(next: Int): JSONObject {
         val args = JSONObject().put("offset", next).put("limit", 50)
-        val op = if (entityId != null) { args.put("id", entityId); "lookup" } else when (root) {
-            "search" -> { args.put("query", query).put("kind", kind); "search" }
-            "library" -> { args.put("kind", kind); "library" }
-            else -> "home"
-        }
-        return controller.call(plugin.id, op, args)
+        args.put("id", requireNotNull(entityId))
+        return controller.call(plugin.id, "lookup", args)
     }
-    LaunchedEffect(entityId, root, query, kind, refresh, resume, config.enabled) {
+    LaunchedEffect(entityId, refresh, resume, config.enabled) {
         loading = true; error = null; page = null; tracks = emptyMap(); offset = 0
-        if (entityId == null && root == "search" && query.isBlank()) { loading = false; return@LaunchedEffect }
         try {
-            if (entityId == null && root == "search") delay(350)
             page = load(0)
             tracks = page?.optJSONArray("items")?.jsonObjects().orEmpty().filter { it.optString("kind") == "track" }
                 .associate { item -> item.getString("id") to controller.track(plugin.id, item) }
+            controller.prepare(tracks.values.toList().take(2))
         } catch (e: CancellationException) { throw e } catch (e: Exception) { error = e.message } finally { loading = false }
     }
     LaunchedEffect(offlineChanges) {
@@ -181,65 +176,44 @@ internal fun MusicSourceScreen(destination: SourceDestination, state: MusicState
     val playable = items.filter { it.optString("kind") == "track" && it.optBoolean("available", true) }.mapNotNull { tracks[it.optString("id")] }
     fun playCollection(selected: Int? = null, shuffled: Boolean = false) {
         if (loading) return
-        if (entityId == null || page?.isNull("nextOffset") != false) {
-            model.play(playable, selected, shuffled, "${plugin.id}:${entityId ?: root}"); return
-        }
-        scope.launch {
-            loading = true
-            try { model.play(controller.collection(plugin.id, requireNotNull(entityId)), selected, shuffled, "${plugin.id}:$entityId") }
-            catch (e: CancellationException) { throw e } catch (e: Exception) { error = e.message } finally { loading = false }
-        }
+        if (entityId != null) model.playSourceCollection(plugin.id, requireNotNull(entityId), playable, selected, shuffled,
+            hasMore = page?.isNull("nextOffset") == false)
+        else model.play(playable, selected, shuffled)
     }
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         Column(Modifier.fillMaxSize().systemBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 UtilityIconButton({ goBack() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
-                Text(plugin.name, Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleMediumEmphasized)
-                UtilityIconButton({ controller.settings(plugin.id) }) { Icon(Icons.Rounded.Settings, "${plugin.name} settings") }
+                Spacer(Modifier.weight(1f))
                 Box {
                     UtilityIconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Source options") }
                     DropdownMenu(menu, { menu = false }, shape = KlangMenuShape) {
-                        DropdownMenuItem(text = { Text("Refresh") }, onClick = { menu = false; refresh++ })
+                        DropdownMenuItem(text = { Text("Refresh") }, leadingIcon = { Icon(Icons.Rounded.Refresh, null) }, onClick = { menu = false; refresh++ })
                         entity?.optString("url")?.takeIf { it.startsWith("https://") }?.let { url ->
-                            DropdownMenuItem(text = { Text("Copy ${spec.linkLabel} link") }, onClick = { menu = false; copyMusicLink(context, spec.linkLabel, url) })
+                            DropdownMenuItem(text = { Text("Copy ${spec.linkLabel} link") }, leadingIcon = { Icon(Icons.Rounded.Link, null) }, onClick = { menu = false; copyMusicLink(context, spec.linkLabel, url) })
                         }
                         if (entity?.optString("kind") in setOf("album", "artist") && "library.write" in spec.capabilities) {
                             val artist = entity?.optString("kind") == "artist"
-                            DropdownMenuItem(text = { Text(if (artist) "Follow artist" else "Save album") }, onClick = {
+                            DropdownMenuItem(text = { Text(if (artist) "Follow artist" else "Save album") }, leadingIcon = { Icon(Icons.Rounded.FavoriteBorder, null) }, onClick = {
                                 menu = false; change("library.save", JSONObject().put("ids", JSONArray().put(entityId)))
                             })
-                            DropdownMenuItem(text = { Text(if (artist) "Unfollow artist" else "Remove saved album") }, onClick = {
+                            DropdownMenuItem(text = { Text(if (artist) "Unfollow artist" else "Remove saved album") }, leadingIcon = { Icon(Icons.Rounded.RemoveCircleOutline, null) }, onClick = {
                                 menu = false; change("library.remove", JSONObject().put("ids", JSONArray().put(entityId)))
                             })
                         }
                         if (entity?.optString("kind") == "playlist") {
                             if (entity.optBoolean("owned") && "playlist.edit" in spec.capabilities)
-                                DropdownMenuItem(text = { Text("Edit playlist") }, onClick = { menu = false; edit = true })
+                                DropdownMenuItem(text = { Text("Edit playlist") }, leadingIcon = { Icon(Icons.Rounded.Edit, null) }, onClick = { menu = false; edit = true })
                             if (entity.optBoolean("owned") && "playlist.cover" in spec.capabilities)
-                                DropdownMenuItem(text = { Text("Change cover") }, onClick = { menu = false; coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
+                                DropdownMenuItem(text = { Text("Change cover") }, leadingIcon = { Icon(Icons.Rounded.Photo, null) }, onClick = { menu = false; coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
                             if ("playlist.follow" in spec.capabilities) {
-                                DropdownMenuItem(text = { Text("Save playlist") }, onClick = { menu = false; change("playlist.follow", JSONObject().put("id", entityId)) })
-                                DropdownMenuItem(text = { Text(if (entity.optBoolean("owned")) "Remove from your library" else "Unfollow playlist") }, onClick = { menu = false; change("playlist.unfollow", JSONObject().put("id", entityId)) })
+                                DropdownMenuItem(text = { Text("Save playlist") }, leadingIcon = { Icon(Icons.Rounded.LibraryAdd, null) }, onClick = { menu = false; change("playlist.follow", JSONObject().put("id", entityId)) })
+                                DropdownMenuItem(text = { Text(if (entity.optBoolean("owned")) "Remove from your library" else "Unfollow playlist") }, leadingIcon = { Icon(Icons.Rounded.RemoveCircleOutline, null) }, onClick = { menu = false; change("playlist.unfollow", JSONObject().put("id", entityId)) })
                             }
                             if ("playlist.create" in spec.capabilities)
-                                DropdownMenuItem(text = { Text("Copy to a new playlist") }, onClick = { menu = false; copying = true; create = true })
+                                DropdownMenuItem(text = { Text("Copy to a new playlist") }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) }, onClick = { menu = false; copying = true; create = true })
                         }
                     }
-                }
-            }
-            if (entityId == null) {
-                LazyRow(Modifier.padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(listOf("home" to "For you", "search" to "Search", "library" to "Your library")) { (value, label) ->
-                        FilterChip(root == value, { root = value; kind = if (value == "search") "all" else "playlist" }, label = { Text(label) }, shapes = klangFilterChipShapes())
-                    }
-                }
-                if (root == "search") OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-                    label = { Text("Search ${plugin.name}") }, singleLine = true, shape = CircleShape,
-                    leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear search") } })
-                if (root in listOf("library", "search")) LazyRow(Modifier.padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val kinds = if (root == "search") listOf("all" to "All", "track" to "Songs", "album" to "Albums", "artist" to "Artists", "playlist" to "Playlists")
-                        else listOf("playlist" to "Playlists", "track" to "Liked songs", "album" to "Albums", "artist" to "Artists", "folder" to "Folders")
-                    items(kinds) { (value, label) -> FilterChip(kind == value, { kind = value }, label = { Text(label) }, shapes = klangFilterChipShapes()) }
                 }
             }
             if (loading || mutation) LinearWavyProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp))
@@ -254,14 +228,23 @@ internal fun MusicSourceScreen(destination: SourceDestination, state: MusicState
             LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 24.dp, end = 24.dp,
                 bottom = if (state.current != null) 112.dp else 24.dp)) {
                 item {
-                    Text(page?.optString("title") ?: if (root == "search") "Find your next song" else plugin.name,
+                    entity?.let { value ->
+                        val cover = sourceCollection(plugin.id, value).collection()
+                        Box(Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
+                            CollectionCover(cover, Modifier.size(244.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(48.dp)), large = true)
+                        }
+                    }
+                    Text(page?.optString("title") ?: "Loading collection…",
                         Modifier.padding(vertical = 16.dp), style = MaterialTheme.typography.headlineLargeEmphasized)
                     entity?.optString("description")?.takeIf { it.isNotBlank() && it != "null" }?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
                     page?.optString("notice")?.takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
                     page?.optInt("unavailableCount")?.takeIf { it > 0 }?.let { Text("$it unavailable entries", style = MaterialTheme.typography.bodySmall) }
                     if (entityId != null && playable.isNotEmpty()) Row(Modifier.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Button({ playCollection() }, enabled = !loading) { Text("Play") }
-                        FilledTonalButton({ playCollection(shuffled = true) }, enabled = !loading) { Text("Shuffle") }
+                        val sourceId = MusicSourceProtocol.identity(plugin.id, requireNotNull(entityId))
+                        ExpressivePlay(state.playWhenReady && state.isPlayingFrom(sourceId), {
+                            if (state.isPlayingFrom(sourceId)) model.togglePlay() else playCollection()
+                        }, 72.dp, !loading, state.buffering && state.isPlayingFrom(sourceId))
+                        FilledTonalIconButton({ playCollection(shuffled = true) }, enabled = !loading) { Icon(Icons.Rounded.Shuffle, "Shuffle collection") }
                         if ("offline.download" in spec.capabilities) IconButton({ scope.launch {
                             try {
                                 loading = true
@@ -270,8 +253,6 @@ internal fun MusicSourceScreen(destination: SourceDestination, state: MusicState
                             } catch (e: CancellationException) { throw e } catch (e: Exception) { error = e.message } finally { loading = false }
                         } }, enabled = !loading && !mutation) { Icon(Icons.Rounded.Download, "Download collection") }
                     }
-                    if (entityId == null && root == "library" && "playlist.create" in spec.capabilities)
-                        FilledTonalButton({ copying = false; create = true }, Modifier.padding(bottom = 12.dp)) { Icon(Icons.Rounded.Add, null); Text("Create playlist") }
                 }
                 items(items.size, key = { index -> items[index].optString("uid").takeIf { it.isNotBlank() && it != "null" } ?: "$index:${items[index].optString("id")}" }) { index ->
                     val item = items[index]
@@ -284,7 +265,7 @@ internal fun MusicSourceScreen(destination: SourceDestination, state: MusicState
                             canUp = index > 0, canDown = index < items.lastIndex, change = ::change)
                     } else CatalogEntityRow(item) { go(item.getString("id")) }
                 }
-                if (!loading && items.isEmpty() && error == null) item { EmptyState("Nothing here yet", if (root == "search") "Search songs, albums, artists or playlists." else "Refresh to check your library.") }
+                if (!loading && items.isEmpty() && error == null) item { EmptyState("No songs yet", "Add songs or refresh this collection.") }
                 if (page != null && !page!!.isNull("nextOffset")) item {
                     TextButton({ if (!loading) scope.launch {
                         loading = true
@@ -342,98 +323,64 @@ private fun CatalogEntityRow(item: JSONObject, open: () -> Unit) {
 private fun SourceTrackRow(item: JSONObject, track: Track, model: MusicViewModel, providerId: String,
     spec: MusicSourcePluginSpec, state: MusicState, play: () -> Unit, go: (String) -> Unit, playlist: JSONObject?,
     moveBefore: String?, moveAfter: String?, canUp: Boolean, canDown: Boolean, change: (String, JSONObject) -> Unit) {
-    var menu by remember { mutableStateOf(false) }
-    var adding by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-    val available = item.optBoolean("available", true)
     val uid = item.optString("uid").takeIf { it.isNotBlank() && it != "null" }
-    val fill = if (state.current?.id == track.id) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow
-    Surface(onClick = play, enabled = available, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp), shape = MaterialTheme.shapes.medium, color = fill) {
-        Row(Modifier.padding(start = 10.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Artwork(track, Modifier.size(52.dp).clip(MaterialTheme.shapes.small))
-            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                Text(track.title, style = MaterialTheme.typography.titleMediumEmphasized, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    SourceBadge(track); Text(track.artist, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-            if ("offline.download" in spec.capabilities && available) IconButton({ model.musicSources.download(listOf(track)) }, enabled = !track.offline) {
-                Icon(if (track.offline) Icons.Rounded.Check else Icons.Rounded.Download,
-                    if (track.offline) "Available offline" else "Download ${track.title}")
-            }
-            Box {
-                IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Options for ${track.title}") }
-                DropdownMenu(menu, { menu = false }, shape = KlangMenuShape) {
-                    if ("library.write" in spec.capabilities) DropdownMenuItem(text = { Text(if (item.optBoolean("saved")) "Remove from liked songs" else "Like song") },
-                        onClick = { menu = false; change(if (item.optBoolean("saved")) "library.remove" else "library.save", JSONObject().put("ids", JSONArray().put(track.sourceId))) })
-                    if ("playlist.items" in spec.capabilities) DropdownMenuItem(text = { Text("Add to playlist") }, onClick = { menu = false; adding = true })
-                    DropdownMenuItem(text = { Text("Play next") }, onClick = { menu = false; model.playNext(track) }, enabled = available)
-                    track.shareUrl?.let { url -> DropdownMenuItem(text = { Text("Copy ${spec.linkLabel} link") }, onClick = { menu = false; copyMusicLink(context, spec.linkLabel, url) }) }
-                    item.optString("albumId").takeIf { it.isNotBlank() && it != "null" }?.let { id -> DropdownMenuItem(text = { Text("Go to album") }, onClick = { menu = false; go(id) }) }
-                    item.optJSONArray("artists")?.jsonObjects().orEmpty().forEach { artist -> artist.optString("id").takeIf { it.isNotBlank() && it != "null" }?.let { id ->
-                        DropdownMenuItem(text = { Text("Go to ${artist.optString("name")}") }, onClick = { menu = false; go(id) })
-                    } }
-                    if (playlist != null && uid != null && "playlist.items" in spec.capabilities) {
-                        HorizontalDivider()
-                        DropdownMenuItem(text = { Text("Remove from playlist") }, onClick = { menu = false; change("playlist.remove", JSONObject()
-                            .put("id", playlist.getString("id")).put("items", JSONArray().put(JSONObject().put("id", track.sourceId).put("uid", uid)))) })
-                        DropdownMenuItem(text = { Text("Move up") }, enabled = canUp && !moveBefore.isNullOrBlank(), onClick = { menu = false; change("playlist.move", JSONObject()
-                            .put("id", playlist.getString("id")).put("uids", JSONArray().put(uid)).put("beforeUid", moveBefore)) })
-                        DropdownMenuItem(text = { Text("Move down") }, enabled = canDown, onClick = { menu = false; change("playlist.move", JSONObject()
-                            .put("id", playlist.getString("id")).put("uids", JSONArray().put(uid)).put("beforeUid", moveAfter)) })
-                    }
-                }
+    TrackRow(track, state, model, play, enabled = item.optBoolean("available", true)) { close ->
+        item.optString("albumId").takeIf { it.isNotBlank() && it != "null" }?.let { id ->
+            DropdownMenuItem(text = { Text("Go to album") }, leadingIcon = { Icon(Icons.Rounded.Album, null) },
+                onClick = { close(); go(id) })
+        }
+        item.optJSONArray("artists")?.jsonObjects().orEmpty().forEach { artist ->
+            artist.optString("id").takeIf { it.isNotBlank() && it != "null" }?.let { id ->
+                DropdownMenuItem(text = { Text("Go to ${artist.optString("name")}") }, leadingIcon = { Icon(Icons.Rounded.Person, null) },
+                    onClick = { close(); go(id) })
             }
         }
+        if (playlist != null && uid != null && "playlist.items" in spec.capabilities) {
+            HorizontalDivider()
+            DropdownMenuItem(text = { Text("Remove from playlist") }, leadingIcon = { Icon(Icons.Rounded.PlaylistRemove, null) },
+                onClick = { close(); change("playlist.remove", JSONObject().put("id", playlist.getString("id"))
+                    .put("items", JSONArray().put(JSONObject().put("id", track.sourceId).put("uid", uid)))) })
+            DropdownMenuItem(text = { Text("Move up") }, leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null) },
+                enabled = canUp && !moveBefore.isNullOrBlank(), onClick = { close(); change("playlist.move", JSONObject()
+                    .put("id", playlist.getString("id")).put("uids", JSONArray().put(uid)).put("beforeUid", moveBefore)) })
+            DropdownMenuItem(text = { Text("Move down") }, leadingIcon = { Icon(Icons.Rounded.ArrowDownward, null) },
+                enabled = canDown, onClick = { close(); change("playlist.move", JSONObject()
+                    .put("id", playlist.getString("id")).put("uids", JSONArray().put(uid)).put("beforeUid", moveAfter)) })
+        }
     }
-    if (adding) SourceAddToPlaylistDialog(providerId, listOfNotNull(track.sourceId), model) { adding = false }
 }
 
 @Composable
-internal fun SourceAddToPlaylistDialog(providerId: String, ids: List<String>, model: MusicViewModel, dismiss: () -> Unit) {
-    var playlists by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var loading by remember { mutableStateOf(true) }
-    var submitting by remember { mutableStateOf(false) }
+internal fun SourceCreatePlaylistDialog(providerId: String, model: MusicViewModel, dismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
-    LaunchedEffect(providerId) {
-        try {
-            var offset = 0
-            do {
-                val result = model.musicSources.call(providerId, "library", JSONObject().put("kind", "playlist").put("offset", offset).put("limit", 100))
-                playlists = playlists + result.getJSONArray("items").jsonObjects().filter { it.optBoolean("editable") }
-                if (result.isNull("nextOffset")) break
-                val next = result.getInt("nextOffset")
-                require(next > offset && next < 10_000) { "The source returned invalid playlist pagination." }
-                offset = next
-            } while (true)
-        } catch (e: CancellationException) { throw e } catch (e: Exception) { error = e.message } finally { loading = false }
-    }
-    AlertDialog(onDismissRequest = dismiss, title = { Text("Add to playlist") }, text = {
-        Column {
-            if (loading) LoadingIndicator()
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            LazyColumn(Modifier.heightIn(max = 400.dp)) {
-                items(playlists) { playlist -> TextButton({ submitting = true; scope.launch {
-                    try { model.musicSources.addToPlaylist(providerId, playlist.getString("id"), ids); dismiss() }
-                    catch (e: CancellationException) { throw e } catch (e: Exception) { error = e.message }
-                    finally { submitting = false }
-                } }, enabled = !loading && !submitting) { Text(playlist.optString("title")) } }
+    var error by remember { mutableStateOf<String?>(null) }
+    var submitting by remember { mutableStateOf(false) }
+    SourcePlaylistEditor(null, true, false, dismiss, submitting, error) { args ->
+        if (!submitting) {
+            submitting = true; error = null
+            scope.launch {
+                try {
+                    val result = model.musicSources.call(providerId, "playlist.create", args)
+                    dismiss()
+                    result.optJSONObject("entity")?.optString("id")?.let { model.musicSources.open(providerId, it) }
+                } catch (cancelled: CancellationException) { throw cancelled } catch (e: Exception) { error = e.message }
+                finally { submitting = false }
             }
-            if (!loading && playlists.isEmpty() && error == null) Text("Create a playlist in your source library first.")
         }
-    }, confirmButton = { TextButton(dismiss) { Text("Close") } })
+    }
 }
 
 @Composable
 private fun SourcePlaylistEditor(entity: JSONObject?, create: Boolean, supportsCollaboration: Boolean,
-    dismiss: () -> Unit, save: (JSONObject) -> Unit) {
+    dismiss: () -> Unit, submitting: Boolean = false, error: String? = null, save: (JSONObject) -> Unit) {
     var name by remember { mutableStateOf(entity?.optString("title").orEmpty()) }
     var description by remember { mutableStateOf(entity?.optString("description")?.takeUnless { it == "null" }.orEmpty()) }
     var public by remember { mutableStateOf(entity?.optBoolean("public") ?: false) }
     var collaborative by remember { mutableStateOf(entity?.optBoolean("collaborative") ?: false) }
     AlertDialog(onDismissRequest = dismiss, title = { Text(if (create) "Create playlist" else "Edit playlist") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (submitting) LoadingIndicator()
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             OutlinedTextField(name, { name = it.take(100) }, label = { Text("Name") }, singleLine = true)
             OutlinedTextField(description, { description = it.take(300) }, label = { Text("Description") }, maxLines = 4)
             Row(verticalAlignment = Alignment.CenterVertically) { Text("Public", Modifier.weight(1f)); Switch(public, { public = it; if (it) collaborative = false }) }
@@ -442,7 +389,7 @@ private fun SourcePlaylistEditor(entity: JSONObject?, create: Boolean, supportsC
             }
         }
     }, confirmButton = { TextButton({ save(JSONObject().put("name", name.trim()).put("description", description).put("public", public)
-        .also { if (!create && supportsCollaboration && entity?.optBoolean("owned") == true) it.put("collaborative", collaborative) }) }, enabled = name.isNotBlank()) { Text("Save") } },
+        .also { if (!create && supportsCollaboration && entity?.optBoolean("owned") == true) it.put("collaborative", collaborative) }) }, enabled = name.isNotBlank() && !submitting) { Text("Save") } },
         dismissButton = { TextButton(dismiss) { Text("Cancel") } })
 }
 

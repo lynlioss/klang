@@ -5,6 +5,7 @@ import android.net.Uri
 import android.util.AtomicFile
 import app.lynli.klang.data.Track
 import org.json.JSONObject
+import org.json.JSONArray
 import java.io.File
 import java.security.MessageDigest
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,12 +45,14 @@ internal class SourceMediaStore(private val context: Context) {
         require(item.optLong("durationMs") in 0..86_400_000L)
         val key = identity(plugin.id, id)
         val json = providerItem(item).put("providerId", plugin.id).put("badge", spec.badge).put("linkLabel", spec.linkLabel)
-        read(key)?.optString("offlineUri")?.takeIf { it.isNotBlank() }?.let { json.put("offlineUri", it) }
+        val previous = read(key)
+        previous?.optString("offlineUri")?.takeIf { it.isNotBlank() }?.let { json.put("offlineUri", it) }
+        if (!json.has("added")) previous?.optLong("added")?.let { json.put("added", it) }
         write(key, json)
         return toTrack(key, json)
     }
     private fun toTrack(key: String, json: JSONObject): Track = Track(Uri.parse(key), json.getString("title"),
-        json.optString("artist"), json.optString("album"), json.optLong("durationMs"), albumArtist = json.optString("albumArtist"),
+        json.optString("artist"), json.optString("album"), json.optLong("durationMs"), added = json.optLong("added"), albumArtist = json.optString("albumArtist"),
         providerId = json.getString("providerId"), sourceId = json.getString("id"), sourceBadge = json.optString("badge", "music"),
         sourceLabel = json.optString("linkLabel"), shareUrl = json.optString("url").takeIf { it.startsWith("https://") },
         artworkUrl = json.optString("artwork").takeIf { it.startsWith("https://") },
@@ -74,30 +77,88 @@ internal class SourceMediaStore(private val context: Context) {
         require(Uri.parse(uri).scheme == "content")
         val key = identity(providerId, sourceId)
         read(key)?.let { write(key, it.put("offlineUri", uri)) }
+        val indexKey = "offline:$providerId"
+        val ids = read(indexKey)?.optJSONArray("ids")?.strings().orEmpty()
+        write(indexKey, JSONObject().put("ids", JSONArray((ids + sourceId).distinct().takeLast(10_000))))
         offlineChecks.remove(key)
         mutableChanges.value++
     }
-    @Synchronized fun acceptAccount(providerId: String, revision: String) {
+    @Synchronized fun acceptAccount(providerId: String, revision: String): Boolean {
         require(revision.length in 1..200)
         val key = "account:$providerId"
-        if (read(key)?.optString("revision") == revision) return
-        clearPages(providerId)
+        if (read(key)?.optString("revision") == revision) return false
+        clearPages(providerId, includeLibrary = true)
         write(key, JSONObject().put("revision", revision))
         mutableChanges.value++
+        return true
+    }
+    fun accountRevision(providerId: String): String? = read("account:$providerId")?.optString("revision")
+
+    /** Commit membership only for the account that supplied it; seen search songs aren't library songs. */
+    @Synchronized fun replaceLibrary(plugin: PluginManifest, kind: String, items: List<JSONObject>, revision: String) {
+        require(kind in LIBRARY_KINDS && items.size <= 10_000)
+        check(revision == accountRevision(plugin.id)) { "The source account changed during synchronization." }
+        val ids = items.distinctBy { it.getString("id") }.map { item ->
+            val value = JSONObject(item.toString()).put("accountRevision", revision)
+            if (value.optString("kind") == "track") track(plugin, value)
+            else write("entity:${plugin.id}:${value.getString("id")}", value)
+            value.getString("id")
+        }
+        // Chunk membership so large liked-song libraries stay within the per-file metadata bound.
+        val key = "library:${plugin.id}:$kind"
+        val chunks = ids.chunked(100)
+        chunks.forEachIndexed { index, chunk -> write("$key:$index", JSONObject()
+            .put("cacheProvider", plugin.id).put("libraryCache", true).put("revision", revision).put("ids", JSONArray(chunk))) }
+        write(key, JSONObject().put("cacheProvider", plugin.id).put("libraryCache", true).put("revision", revision).put("chunks", chunks.size))
+    }
+    @Synchronized private fun libraryIds(providerId: String, kind: String): List<String> {
+        val key = "library:$providerId:$kind"
+        val header = read(key) ?: return emptyList()
+        if (header.optString("revision") != accountRevision(providerId)) return emptyList()
+        return (0 until header.optInt("chunks").coerceIn(0, 100)).flatMap { index ->
+            read("$key:$index")?.takeIf { it.optString("revision") == header.optString("revision") }
+                ?.optJSONArray("ids")?.strings().orEmpty()
+        }
+    }
+    @Synchronized fun library(providerIds: Set<String>): SourceLibrary {
+        val favorites = providerIds.flatMap { providerId -> libraryIds(providerId, "track").map { identity(providerId, it) } }.toSet()
+        val offline = providerIds.flatMap { providerId -> offlineIds(providerId).map { identity(providerId, it) } }.filter { offlineUri(it) != null }
+        fun entities(kind: String) = providerIds.flatMap { providerId -> libraryIds(providerId, kind).mapNotNull { id ->
+            read("entity:$providerId:$id")?.let { sourceCollection(providerId, it) }
+        } }
+        return SourceLibrary(tracks = (favorites + offline).mapNotNull(::lookup), favorites = favorites,
+            collections = listOf("album", "playlist", "artist", "folder").flatMap(::entities).distinctBy { it.identity }, home = entities("home"))
+    }
+    /** Upgrade files downloaded before the unified library had an explicit offline index. */
+    @Synchronized private fun offlineIds(providerId: String): List<String> {
+        val key = "offline:$providerId"
+        read(key)?.optJSONArray("ids")?.let { return it.strings() }
+        val ids = directory.listFiles().orEmpty().filter { it.extension == "json" }.mapNotNull { candidate ->
+            runCatching { JSONObject(candidate.readText()) }.getOrNull()?.takeIf {
+                it.optString("providerId") == providerId && it.optString("offlineUri").isNotBlank()
+            }?.optString("id")
+        }.distinct().take(10_000)
+        write(key, JSONObject().put("ids", JSONArray(ids)))
+        return ids
     }
     @Synchronized
-    fun clearPages(providerId: String) {
+    fun clearPages(providerId: String, includeLibrary: Boolean = false) {
         memory.evictAll()
         directory.listFiles()?.filter { it.extension == "json" }?.forEach { candidate ->
-            runCatching { JSONObject(candidate.readText()) }.getOrNull()?.takeIf { it.optString("cacheProvider") == providerId }?.let { candidate.delete() }
+            runCatching { JSONObject(candidate.readText()) }.getOrNull()?.takeIf {
+                it.optString("cacheProvider") == providerId && (includeLibrary || !it.optBoolean("libraryCache"))
+            }?.let { candidate.delete() }
         }
     }
     fun cacheKey(providerId: String, args: JSONObject) = "page:$providerId:$args"
     fun cache(providerId: String, args: JSONObject, result: JSONObject) = write(cacheKey(providerId, args), JSONObject(result.toString()).put("cacheProvider", providerId))
     fun cached(providerId: String, args: JSONObject) = read(cacheKey(providerId, args))
     companion object {
+        private val LIBRARY_KINDS = setOf("track", "album", "playlist", "artist", "folder", "home")
         private val lock = Any()
         private var instance: SourceMediaStore? = null
         fun get(context: Context): SourceMediaStore = synchronized(lock) { instance ?: SourceMediaStore(context.applicationContext).also { instance = it } }
     }
 }
+
+private fun JSONArray.strings(): List<String> = (0 until length()).map { getString(it) }

@@ -19,13 +19,8 @@ internal fun musicSourceDataSource(context: Context): DataSource.Factory {
         if (spec.uri.scheme != "klang-source") spec else try {
             val local = store.offlineUri(spec.uri.toString())
             if (local != null) spec.withUri(local) else {
-                val registry = PluginRegistry(context)
-                val enabled = PluginStore(context) { registry.manifests }.read().enabled
-                val plugin = registry.entries.firstOrNull { it.manifest.id == spec.uri.authority && it.manifest.id in enabled }
-                    ?: error("Enable this music source in Plugins, or download the song for offline playback.")
-                require("stream.resolve" in requireNotNull(plugin.manifest.musicSource).capabilities)
                 val result = runBlocking(Dispatchers.IO) {
-                    MusicSourceClient.call(context, plugin, "stream.resolve", JSONObject().put("item", store.item(spec.uri.toString())))
+                    SourceStreams.get(context).resolve(spec.uri.toString())
                 }
                 val (url, headers) = MusicSourceProtocol.stream(result)
                 spec.withUri(Uri.parse(url)).withAdditionalHeaders(headers)

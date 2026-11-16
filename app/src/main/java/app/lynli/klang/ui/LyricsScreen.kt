@@ -160,7 +160,7 @@ internal fun LyricsScreen(state: MusicState, model: MusicViewModel, close: () ->
                     FilledTonalIconButton(model::previous, Modifier.weight(1f).height(if (compact) 56.dp else 64.dp), shape = RoundedCornerShape(32.dp)) {
                         Icon(Icons.Rounded.SkipPrevious, "Previous", Modifier.size(28.dp))
                     }
-                    ExpressivePlay(state.playing, model::togglePlay, if (compact) 64.dp else 80.dp)
+                    ExpressivePlay(state.playWhenReady, model::togglePlay, if (compact) 64.dp else 80.dp, loading = state.buffering)
                     FilledTonalIconButton(model::next, Modifier.weight(1f).height(if (compact) 56.dp else 64.dp),
                         enabled = state.queue.size > 1, shape = RoundedCornerShape(32.dp)) {
                         Icon(Icons.Rounded.SkipNext, "Next", Modifier.size(28.dp))

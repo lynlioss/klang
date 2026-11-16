@@ -211,8 +211,9 @@ private fun MiniPlayerCard(track: Track, state: MusicState, model: MusicViewMode
                 }
                 FavoriteButton(track, state, model, colors.onPrimaryContainer)
                 IconButton(model::togglePlay) {
-                    Icon(if (state.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        if (state.playing) "Pause" else "Play", tint = colors.onPrimaryContainer)
+                    if (state.buffering && state.playWhenReady) PlaybackLoadingIndicator(colors.onPrimaryContainer)
+                    else Icon(if (state.playWhenReady) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        if (state.playWhenReady) "Pause" else "Play", tint = colors.onPrimaryContainer)
                 }
                 IconButton(model::next, enabled = state.hasNextTrack) {
                     Icon(Icons.Rounded.SkipNext, "Next", tint = colors.onPrimaryContainer)

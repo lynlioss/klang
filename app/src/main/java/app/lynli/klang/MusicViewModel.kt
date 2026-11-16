@@ -23,6 +23,11 @@ import app.lynli.klang.data.PlaylistStore
 import app.lynli.klang.data.SavedPlaylist
 import app.lynli.klang.data.PlaylistCovers
 import app.lynli.klang.data.audioFileIds
+import app.lynli.klang.data.mergeMusicEntries
+import app.lynli.klang.plugins.SourceCollection
+import app.lynli.klang.plugins.SourceConnection
+import app.lynli.klang.plugins.SourceStreams
+import app.lynli.klang.plugins.SourceLibrary
 import app.lynli.klang.playback.PlaybackService
 import app.lynli.klang.playback.PLAYBACK_SOURCE_KEY
 import app.lynli.klang.playback.canResumeCollection
@@ -62,12 +67,14 @@ data class MusicState(
     val tracks: List<Track> = emptyList(), val loading: Boolean = true,
     val busy: Boolean = false, val permission: Boolean = false,
     val current: Track? = null, val playing: Boolean = false, val connected: Boolean = false,
-    val playWhenReady: Boolean = false, val hasPreviousTrack: Boolean = false, val hasNextTrack: Boolean = false,
+    val playWhenReady: Boolean = false, val buffering: Boolean = false, val hasPreviousTrack: Boolean = false, val hasNextTrack: Boolean = false,
     val position: Long = 0, val duration: Long = 0, val queue: List<Track> = emptyList(),
     val playbackDiscontinuity: Long = 0,
     val playbackSource: String? = null, val queueIndex: Int = 0, val shuffle: Boolean = false, val repeat: Int = Player.REPEAT_MODE_OFF,
     val favorites: Set<String> = emptySet(), val message: String? = null,
     val playlists: List<SavedPlaylist> = emptyList(),
+    val sourceCollections: List<SourceCollection> = emptyList(), val sourceHome: List<SourceCollection> = emptyList(),
+    val sourceConnections: List<SourceConnection> = emptyList(), val sourceSyncing: Boolean = false,
     val coverColor: Boolean = true, val dynamicColor: Boolean = false, val theme: String = "system", val sleepMinutes: Int = 0,
     val appIcon: AppIcon = AppIcon.Light,
     val sleepEndsAt: Long = 0, val sleepRemaining: Long = 0,
@@ -126,6 +133,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val deletedAudioIds = mutableSetOf<String>()
     private var controller: MediaController? = null
     private var refreshJob: Job? = null
+    private var collectionQueueJob: Job? = null
+    private var deviceTracks = emptyList<Track>()
+    private val favoriteJobs = mutableMapOf<String, Job>()
+    private val favoriteOverrides = mutableMapOf<String, Boolean>()
     private var sleepJob: Job? = null
     private val future = MediaController.Builder(application,
         SessionToken(application, ComponentName(application, PlaybackService::class.java))).buildAsync()
@@ -143,12 +154,19 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             musicSources.changes.collect {
+                musicSources.reloadLibrary()
                 val current = mutableState.value.current
                 if (current?.providerId != null) musicSources.storedTrack(current.id)?.let { fresh ->
                     mutableState.update { state -> if (state.current?.id == fresh.id) state.copy(current = fresh) else state }
                 }
             }
         }
+        viewModelScope.launch {
+            musicSources.library.collectLatest { library ->
+                applySourceLibrary(library)
+            }
+        }
+        viewModelScope.launch { musicSources.refreshes.collectLatest { musicSources.synchronize() } }
         viewModelScope.launch {
             var completedIds = emptySet<String>()
             var importPlaylistIds = emptySet<String>()
@@ -205,16 +223,37 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             while (true) { syncPlayer(); tickSleep(); delay(500) }
         }
     }
+    private suspend fun applySourceLibrary(library: SourceLibrary) {
+        val snapshot = mutableState.value
+        val enabled = musicSources.entries().map { it.manifest.id }.toSet()
+        val ids = (snapshot.playlists.flatMap { it.trackIds } + favoriteOverrides.filterValues { it }.keys).distinct()
+        val combined = withContext(Dispatchers.IO) {
+            val retained = ids.mapNotNull(musicSources::storedTrack).filter { track ->
+                track.providerId in enabled && (track.offline || runCatching {
+                    org.json.JSONObject(track.sourcePayload.orEmpty()).optString("accountRevision") == musicSources.accountRevision(requireNotNull(track.providerId))
+                }.getOrDefault(false))
+            }
+            mergeMusicEntries(deviceTracks, library.tracks + retained, Track::id, musicSources::offlineDeviceId)
+        }
+        favoriteOverrides.entries.removeAll { (id, value) -> favoriteJobs[id]?.isActive != true && (id in library.favorites) == value }
+        val localFavorites = prefs.getStringSet("favorites", emptySet()).orEmpty().filterNot { it.startsWith("klang-source:") }.toSet()
+        val favorites = (localFavorites + library.favorites + favoriteOverrides.filterValues { it }.keys) - favoriteOverrides.filterValues { !it }.keys
+        mutableState.update { state -> state.copy(tracks = combined.filterNot { it.id in state.hiddenIds },
+            hiddenTracks = combined.filter { it.id in state.hiddenIds }, favorites = favorites,
+            sourceCollections = library.collections, sourceHome = library.home,
+            sourceConnections = library.connections, sourceSyncing = library.syncing) }
+    }
     fun refresh() {
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
             try {
                 val all = repository.tracks()
-                val hidden = mutableState.value.hiddenIds
-                mutableState.update { it.copy(tracks = all.filterNot { track -> track.id in hidden },
-                    hiddenTracks = all.filter { track -> track.id in hidden },
-                    loading = false, permission = repository.hasLibraryPermission(),
+                deviceTracks = all
+                musicSources.reloadLibrary()
+                applySourceLibrary(musicSources.library.value)
+                mutableState.update { it.copy(loading = false, permission = repository.hasLibraryPermission(),
                     notificationPermission = hasNotificationPermission()) }
+                musicSources.requestSync()
                 syncPlayer()
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -315,6 +354,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
         mutablePluginCatalog.update { it.copy(installed = pluginRegistry.entries) }
         app.lynli.klang.plugins.ExtensionRuntime.active?.reload()
+        SourceStreams.get(getApplication()).invalidate()
+        musicSources.resumed()
     }
     fun completeOnboarding() {
         if (mutableState.value.onboardingComplete) return
@@ -346,6 +387,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun play(tracks: List<Track>, index: Int? = null, shuffled: Boolean = false, sourceId: String? = null) {
         if (tracks.isEmpty()) return
+        collectionQueueJob?.cancel()
         val jamStart = collectionPlaybackStart(tracks.size, index, sourceId, shuffled)
         val jamOffset = (jamStart.index - 16).coerceIn(0, (tracks.size - 32).coerceAtLeast(0))
         if (app.lynli.klang.plugins.ExtensionRuntime.active?.routeSelection(tracks.drop(jamOffset).take(32).map { it.mediaItem() }, "replace", jamStart.index - jamOffset) == true) {
@@ -371,6 +413,26 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             "shuffled" to start.shuffle,
         ))
     }
+    /** Start the visible songs now and extend the queue without restarting the current song. */
+    internal fun playSourceCollection(providerId: String, entityId: String, visible: List<Track>,
+        index: Int? = null, shuffled: Boolean = false, hasMore: Boolean = false) {
+        val sourceId = app.lynli.klang.plugins.MusicSourceProtocol.identity(providerId, entityId)
+        play(visible, index, shuffled, sourceId)
+        if (!hasMore) return
+        collectionQueueJob = viewModelScope.launch {
+            try {
+                val all = musicSources.collection(providerId, entityId)
+                val player = controller ?: return@launch
+                if (player.playbackSourceOrNull() != sourceId) return@launch
+                // Only append if the source still has the exact visible occurrence order.
+                if (all.take(visible.size).map(Track::id) == visible.map(Track::id)) {
+                    player.addMediaItems(all.drop(visible.size).map { it.mediaItem().withPlaybackSource(sourceId) })
+                } else message("This playlist changed. Refresh it to play the updated order.")
+            } catch (cancelled: CancellationException) { throw cancelled } catch (e: Exception) {
+                message(e.message ?: "Couldn't load the rest of this playlist.")
+            }
+        }
+    }
     /** Resume/pause a matching collection without replacing the queue or resetting the position. */
     fun playOrToggle(tracks: List<Track>, sourceId: String) {
         val player = controller
@@ -382,7 +444,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         else play(tracks, sourceId = sourceId)
     }
     fun togglePlay() {
-        controller?.let { if (it.isPlaying) it.pause() else { if (it.playbackState == Player.STATE_IDLE) it.prepare(); if (it.playbackState == Player.STATE_ENDED) it.seekToDefaultPosition(); it.play() } }
+        controller?.let { if (it.playWhenReady) it.pause() else { if (it.playbackState == Player.STATE_IDLE) it.prepare(); if (it.playbackState == Player.STATE_ENDED) it.seekToDefaultPosition(); it.play() } }
     }
     fun next() { controller?.seekToNextMediaItem() }
     fun previous() { controller?.let { if (it.currentPosition > 3000) it.seekTo(0) else it.seekToPreviousMediaItem() } }
@@ -403,7 +465,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun lyricsOpened() { lyricsViewers.update { it + 1 } }
     fun lyricsClosed() { lyricsViewers.update { (it - 1).coerceAtLeast(0) } }
     fun retryLyrics() { lyricsRetry.update { it + 1 } }
-    fun enablePlugin(id: String, enabled: Boolean) { mutablePlugins.value = pluginStore.enable(id, enabled); app.lynli.klang.plugins.ExtensionRuntime.active?.reload() }
+    fun enablePlugin(id: String, enabled: Boolean) {
+        mutablePlugins.value = pluginStore.enable(id, enabled)
+        app.lynli.klang.plugins.ExtensionRuntime.active?.reload()
+        musicSources.resumed()
+    }
     fun pluginSetting(id: String, key: String, value: String) {
         mutablePlugins.value = pluginStore.setting(id, key, value)
         app.lynli.klang.plugins.ExtensionRuntime.active?.reload()
@@ -520,6 +586,25 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun queuePlay(index: Int) { controller?.let { it.seekToDefaultPosition(index); it.prepare(); it.play() } }
     fun queueRemove(index: Int) { controller?.removeMediaItem(index) }
     fun favorite(track: Track) {
+        if (track.providerId != null && track.sourceId != null && musicSources.entries().any {
+                it.manifest.id == track.providerId && "library.write" in requireNotNull(it.manifest.musicSource).capabilities }) {
+            val value = track.id !in mutableState.value.favorites
+            favoriteOverrides[track.id] = value
+            favoriteJobs[track.id]?.cancel()
+            mutableState.update { it.copy(favorites = if (value) it.favorites + track.id else it.favorites - track.id) }
+            favoriteJobs[track.id] = viewModelScope.launch {
+                try {
+                    musicSources.call(track.providerId, if (value) "library.save" else "library.remove",
+                        org.json.JSONObject().put("ids", org.json.JSONArray().put(track.sourceId)))
+                    musicSources.requestSync()
+                } catch (cancelled: CancellationException) { throw cancelled } catch (e: Exception) {
+                    favoriteOverrides.remove(track.id)
+                    applySourceLibrary(musicSources.library.value)
+                    message(e.message ?: "Couldn't update your favorites. Try again.")
+                }
+            }
+            return
+        }
         val updated = mutableState.value.favorites.toMutableSet().apply { if (!add(track.id)) remove(track.id) }.toSet()
         prefs.edit().putStringSet("favorites", updated).apply()
         mutableState.update { it.copy(favorites = updated) }
@@ -563,7 +648,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         editPlaylist(id) { it.copy(coverFile = null) }
         viewModelScope.launch { PlaylistCovers.delete(getApplication(), cover) }
     }
-    fun addToPlaylist(id: String, tracks: List<Track>) { editPlaylist(id) { it.add(tracks.map(Track::id)) } }
+    fun addToPlaylist(id: String, tracks: List<Track>) {
+        editPlaylist(id) { it.add(tracks.map(Track::id)) }
+        viewModelScope.launch { musicSources.reloadLibrary() }
+    }
     fun removeFromPlaylist(id: String, trackId: String) { editPlaylist(id) { it.remove(trackId) } }
     fun reorderPlaylist(id: String, orderedIds: List<String>) { editPlaylist(id) { it.reorder(orderedIds) } }
     fun moveInPlaylist(id: String, trackId: String, offset: Int) {
@@ -631,8 +719,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         mutableState.update { it.copy(connected = true, playbackSource = player.playbackSourceOrNull(),
             current = player.currentMediaItem?.takeUnless { item -> item.mediaId in deletedAudioIds }?.let(::track),
             playWhenReady = player.playWhenReady, hasPreviousTrack = player.hasPreviousMediaItem(), hasNextTrack = player.hasNextMediaItem(),
+            buffering = player.playbackState == Player.STATE_BUFFERING,
             queueIndex = player.currentMediaItemIndex, playing = player.isPlaying, position = player.currentPosition.coerceAtLeast(0),
-            duration = player.duration.coerceAtLeast(0), queue = (0 until player.mediaItemCount).map { i -> player.getMediaItemAt(i) }
+            duration = player.duration.takeIf { value -> value > 0 } ?: player.currentMediaItem?.mediaMetadata?.extras?.getLong("durationMs") ?: 0,
+            queue = (0 until player.mediaItemCount).map { i -> player.getMediaItemAt(i) }
                 .filterNot { item -> item.mediaId in deletedAudioIds }.map(::track),
             shuffle = player.shuffleModeEnabled, repeat = player.repeatMode) }
     }

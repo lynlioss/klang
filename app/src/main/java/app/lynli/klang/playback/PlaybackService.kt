@@ -47,6 +47,7 @@ class PlaybackService : MediaSessionService() {
     private lateinit var audioManager: AudioManager
     private var audioTrack: android.media.AudioTrack? = null
     private var destroyed = false
+    private var preparedNext: String? = null
     private val routeCallback = object : MediaRouter2.ControllerCallback() {
         override fun onControllerUpdated(controller: MediaRouter2.RoutingController) { updateEqRoute() }
     }
@@ -112,7 +113,8 @@ class PlaybackService : MediaSessionService() {
                 }
             }
         }
-        player = ExoPlayer.Builder(this, renderers).setMediaSourceFactory(
+        player = ExoPlayer.Builder(this, renderers).setLoadControl(androidx.media3.exoplayer.DefaultLoadControl.Builder()
+            .setBufferDurationsMs(15_000, 50_000, 300, 1_500).build()).setMediaSourceFactory(
             androidx.media3.exoplayer.source.DefaultMediaSourceFactory(musicSourceDataSource(this))).build().apply {
             // Offload/passthrough would bypass PCM effects; keep all music in the processing chain.
             trackSelectionParameters = trackSelectionParameters.buildUpon().setAudioOffloadPreferences(
@@ -129,7 +131,20 @@ class PlaybackService : MediaSessionService() {
         session = MediaSession.Builder(this, app.lynli.klang.plugins.ExtensionPlayer(player, extensions)).setSessionActivity(intent).build()
         restoreQueue()
         player.addListener(object : Player.Listener {
-            override fun onEvents(player: Player, events: Player.Events) { saveQueue(); updateEqRoute() }
+            override fun onEvents(player: Player, events: Player.Events) {
+                saveQueue(); updateEqRoute()
+                // Media3 gives the actual next index, including its shuffle ordering.
+                val next = player.nextMediaItemIndex.takeIf { it in 0 until player.mediaItemCount }
+                    ?.let { player.getMediaItemAt(it).mediaId }
+                if (next != preparedNext && player.playWhenReady) {
+                    preparedNext = next
+                    next?.takeIf { it.startsWith("klang-source:") }?.let {
+                        app.lynli.klang.plugins.SourceMediaStore.get(this@PlaybackService).lookup(it)?.let { track ->
+                            app.lynli.klang.plugins.SourceStreams.get(this@PlaybackService).prepare(listOf(track))
+                        }
+                    }
+                }
+            }
         })
         router.registerControllerCallback(mainExecutor, routeCallback)
         // Passive discovery registers for route changes without continuous Bluetooth scanning.

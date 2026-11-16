@@ -1,3 +1,4 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package app.lynli.klang.ui
 
 import android.provider.Settings
@@ -24,6 +25,11 @@ import app.lynli.klang.data.Track
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.sin
+
+@Composable
+internal fun PlaybackLoadingIndicator(ink: Color = MaterialTheme.colorScheme.primary, modifier: Modifier = Modifier.size(32.dp)) {
+    LoadingIndicator(modifier.semantics { contentDescription = "Loading song" }, color = ink)
+}
 
 /** Check the middle half of a row, where the controls sit, rather than one clipped pixel. */
 internal fun controlsAreVisible(offset: Int, size: Int, viewportStart: Int, viewportEnd: Int): Boolean {

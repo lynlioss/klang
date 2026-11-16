@@ -44,12 +44,25 @@ import app.lynli.klang.R
 import app.lynli.klang.data.Track
 import app.lynli.klang.data.albumGroupingArtist
 import app.lynli.klang.data.mixArtwork
+import app.lynli.klang.plugins.SourceCollection
 import kotlinx.coroutines.launch
 
 internal data class MusicCollection(val id: String, val title: String, val subtitle: String,
     val tracks: List<Track>, val favorites: Boolean = false, val mix: Boolean = false,
     val album: Boolean = false, val artist: Boolean = false, val editableId: String? = null,
-    val coverFile: String? = null)
+    val coverFile: String? = null, val source: SourceCollection? = null) {
+    val songCount: Int get() = source?.total ?: tracks.size
+}
+
+internal fun SourceCollection.collection() = MusicCollection(identity, title, subtitle, emptyList(),
+    album = kind == "album", artist = kind == "artist", source = this)
+
+@Composable
+internal fun CollectionCover(collection: MusicCollection, modifier: Modifier, large: Boolean = false) {
+    if (collection.source != null) Artwork(Track(android.net.Uri.EMPTY, collection.title, collection.subtitle, "", 0,
+        artworkUrl = collection.source.artwork), modifier, large = large)
+    else PlaylistArtwork(collection.coverFile, collection.tracks.firstOrNull(), modifier, large = large)
+}
 
 // Album credits stay constant when individual tracks include guest artists.
 internal fun albumCollections(tracks: List<Track>): List<MusicCollection> = tracks
@@ -79,7 +92,7 @@ internal fun musicCollections(state: MusicState): List<MusicCollection> {
         MusicCollection("favorites", "Favorites", "Saved songs", state.tracks.filter { it.id in state.favorites }, favorites = true)) +
         state.playlists.map { playlist -> MusicCollection("playlist:${playlist.id}", playlist.name, "",
             playlist.trackIds.mapNotNull { tracks[it] }, editableId = playlist.id, coverFile = playlist.coverFile) } +
-        albumCollections(state.tracks) + artistCollections(state.tracks)
+        albumCollections(state.tracks) + artistCollections(state.tracks) + state.sourceCollections.map { it.collection() }
 }
 
 @Composable
@@ -90,6 +103,7 @@ internal fun HomeScreen(state: MusicState, model: MusicViewModel, collections: L
     val mix = collections.first { it.mix }
     val recentPlaylists = state.playlists.filter { it.lastPlayedAt > 0 }.sortedByDescending { it.lastPlayedAt }
         .take(8).mapNotNull { playlist -> collections.find { it.editableId == playlist.id } }
+    LaunchedEffect(state.tracks.take(2).map { it.id }) { model.musicSources.prepare(state.tracks.take(2)) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = bottom)) {
         item {
             Column(Modifier.padding(horizontal = 24.dp)) {
@@ -97,10 +111,21 @@ internal fun HomeScreen(state: MusicState, model: MusicViewModel, collections: L
                     DownloadStatusButton(model.musicImports, downloads)
                     UtilityIconButton(settings) { Icon(Icons.Rounded.Settings, "Settings") }
                 }
-                MusicSourceChips(model, "home", Modifier.padding(bottom = 12.dp))
                 MixHero(mix, state, model, compact = true) { openCollection(mix) }
+                SourceConnectionCards(state, model)
                 if (state.loading || state.busy) LoadingRow(state)
                 if (!state.permission) { Spacer(Modifier.height(16.dp)); AccessCard(permission, import) }
+            }
+        }
+        state.sourceHome.groupBy { it.section.ifBlank { "Made for you" } }.forEach { (section, entries) ->
+            item { Box(Modifier.padding(horizontal = 24.dp)) { SectionHeading(section) } }
+            item {
+                LazyRow(contentPadding = PaddingValues(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    items(entries.distinctBy { it.identity }, key = { it.identity }) { entry ->
+                        val collection = entry.collection()
+                        AlbumCard(collection) { openCollection(collection) }
+                    }
+                }
             }
         }
         if (recentPlaylists.isNotEmpty()) {
@@ -135,11 +160,10 @@ private fun RecentPlaylistCard(playlist: MusicCollection, open: () -> Unit) {
     Surface(onClick = open, modifier = Modifier.width(172.dp), shape = RoundedCornerShape(28.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.padding(12.dp)) {
-            PlaylistArtwork(playlist.coverFile, playlist.tracks.firstOrNull(),
-                Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(16.dp)), large = true)
+            CollectionCover(playlist, Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(16.dp)), large = true)
             Text(playlist.title, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text("${playlist.tracks.size} songs", Modifier.padding(top = 4.dp),
+            Text("${playlist.songCount} songs", Modifier.padding(top = 4.dp),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -184,8 +208,8 @@ private fun MixHero(collection: MusicCollection, state: MusicState, model: Music
             }
             Box(Modifier.align(if (compact) Alignment.BottomStart else Alignment.TopEnd)
                 .padding(start = if (compact) 88.dp else 0.dp, top = if (compact) 0.dp else 36.dp, bottom = if (compact) 4.dp else 0.dp)) {
-                ExpressivePlay(state.playing && state.isPlayingFrom(collection.id), { model.playOrToggle(collection.tracks, collection.id) }, if (compact) 60.dp else 96.dp,
-                    state.connected && collection.tracks.isNotEmpty())
+                ExpressivePlay(state.playWhenReady && state.isPlayingFrom(collection.id), { model.playOrToggle(collection.tracks, collection.id) }, if (compact) 60.dp else 96.dp,
+                    state.connected && collection.tracks.isNotEmpty(), state.buffering && state.isPlayingFrom(collection.id))
             }
         }
     }
@@ -195,7 +219,7 @@ private fun MixHero(collection: MusicCollection, state: MusicState, model: Music
 private fun AlbumCard(album: MusicCollection, click: () -> Unit) {
     Column(Modifier.width(172.dp).clickable(role = Role.Button,
         onClickLabel = "Open ${album.title}", onClick = click)) {
-        Artwork(album.tracks.first(), Modifier.size(172.dp).clip(RoundedCornerShape(28.dp)), large = true)
+        CollectionCover(album, Modifier.size(172.dp).clip(RoundedCornerShape(28.dp)), large = true)
         Text(album.title, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(album.subtitle, Modifier.padding(top = 4.dp, bottom = 8.dp), style = MaterialTheme.typography.bodyMedium,
@@ -206,6 +230,15 @@ private fun AlbumCard(album: MusicCollection, click: () -> Unit) {
 @Composable
 internal fun CollectionScreen(collection: MusicCollection, state: MusicState, model: MusicViewModel,
     player: () -> Unit, back: () -> Unit) {
+    if (collection.source != null) {
+        Box(Modifier.fillMaxSize()) {
+            MusicSourceScreen(app.lynli.klang.plugins.SourceDestination(collection.source.providerId, collection.source.id), state, model, back)
+            if (state.current != null) Box(Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
+                .widthIn(max = 520.dp).padding(16.dp)) { MiniPlayer(state, model, player) }
+        }
+        return
+    }
+    LaunchedEffect(collection.id) { model.musicSources.prepare(collection.tracks.take(2)) }
     var menu by remember { mutableStateOf(false) }
     var rename by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
@@ -277,7 +310,8 @@ internal fun CollectionScreen(collection: MusicCollection, state: MusicState, mo
                                 enabled = state.connected && collection.tracks.isNotEmpty()) { Icon(Icons.Rounded.Shuffle, "Shuffle collection") }
                             if (!collection.mix) {
                                 Spacer(Modifier.width(12.dp))
-                                ExpressivePlay(state.playing && state.isPlayingFrom(collection.id), { model.playOrToggle(collection.tracks, collection.id) }, 72.dp, state.connected && collection.tracks.isNotEmpty())
+                                ExpressivePlay(state.playWhenReady && state.isPlayingFrom(collection.id), { model.playOrToggle(collection.tracks, collection.id) },
+                                    72.dp, state.connected && collection.tracks.isNotEmpty(), state.buffering && state.isPlayingFrom(collection.id))
                             }
                         }
                         if (collection.editableId != null) {

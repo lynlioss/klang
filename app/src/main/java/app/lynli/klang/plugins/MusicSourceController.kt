@@ -19,12 +19,111 @@ internal class MusicSourceController(private val context: Context, private val s
     private val store = SourceMediaStore.get(context)
     val changes = store.changes
     private val accountLock = Mutex()
+    private val accounts = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, JSONObject>>()
+    private val mutableLibrary = MutableStateFlow(SourceLibrary())
+    val library = mutableLibrary.asStateFlow()
+    private val mutableRefresh = MutableStateFlow(0L)
+    val refreshes = mutableRefresh.asStateFlow()
     private val mutableResume = MutableStateFlow(0L)
     val resumes = mutableResume.asStateFlow()
-    fun resumed() { mutableResume.value++ }
+    fun resumed() { accounts.clear(); SourceStreams.get(context).invalidate(); mutableResume.value++; requestSync() }
     private val mutableDestination = MutableStateFlow<SourceDestination?>(null)
     val destination = mutableDestination.asStateFlow()
     fun entries() = providers().filter { it.manifest.musicSource != null }
+    fun requestSync() { mutableRefresh.value++ }
+    suspend fun reloadLibrary() {
+        val saved = withContext(Dispatchers.IO) { store.library(entries().map { it.manifest.id }.toSet()) }
+        mutableLibrary.value = saved.copy(connections = mutableLibrary.value.connections.filter { connection ->
+            entries().any { it.manifest.id == connection.providerId }
+        }, syncing = mutableLibrary.value.syncing)
+    }
+    private suspend fun account(plugin: InstalledPlugin, force: Boolean = false): JSONObject = accountLock.withLock {
+        if (!force) accounts[plugin.manifest.id]?.takeIf { System.currentTimeMillis() - it.first < 10_000 }?.let { return@withLock it.second }
+        val result = if ("accounts" in requireNotNull(plugin.manifest.musicSource).capabilities)
+            MusicSourceClient.call(context, plugin, "accounts") else JSONObject().put("connected", true).put("revision", "public")
+        result.optString("revision").takeIf { it.isNotBlank() }?.let { revision -> withContext(Dispatchers.IO) {
+            if (store.acceptAccount(plugin.manifest.id, revision)) SourceStreams.get(context).invalidate()
+        } }
+        accounts[plugin.manifest.id] = System.currentTimeMillis() to result
+        result
+    }
+    /** Sync library membership in the background while durable metadata remains immediately usable. */
+    suspend fun synchronize() {
+        reloadLibrary()
+        mutableLibrary.value = mutableLibrary.value.copy(syncing = true)
+        try {
+            val connections = mutableListOf<SourceConnection>()
+            for (plugin in entries()) {
+                val manifest = plugin.manifest
+                val spec = requireNotNull(manifest.musicSource)
+                try {
+                    val account = account(plugin, force = true)
+                    val connected = account.optBoolean("connected", account.optBoolean("spotify", true))
+                    connections += SourceConnection(manifest.id, manifest.name, spec.badge, connected,
+                        account.optString("profile").takeIf { it.isNotBlank() && it != "null" })
+                    mutableLibrary.value = mutableLibrary.value.copy(connections = connections.toList())
+                    reloadLibrary()
+                    if (!connected) continue
+                    val revision = account.optString("revision", "public")
+                    if ("catalog.library" in spec.capabilities) for (kind in listOf("track", "playlist", "album", "artist", "folder")) {
+                        try {
+                            val items = readPages(manifest.id, "library", JSONObject().put("kind", kind), revision)
+                            withContext(Dispatchers.IO) { store.replaceLibrary(manifest, kind, items, revision) }
+                            reloadLibrary()
+                        } catch (cancelled: CancellationException) { throw cancelled } catch (e: Exception) {
+                            connections[connections.lastIndex] = connections.last().copy(notice = e.message?.take(200))
+                        }
+                    }
+                    if ("catalog.home" in spec.capabilities) try {
+                        val home = call(manifest.id, "home", JSONObject().put("limit", 100))
+                        withContext(Dispatchers.IO) { store.replaceLibrary(manifest, "home", home.getJSONArray("items").objects(), revision) }
+                    } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { }
+                } catch (cancelled: CancellationException) { throw cancelled } catch (e: Exception) {
+                    connections += SourceConnection(manifest.id, manifest.name, spec.badge, true, notice = e.message?.take(200))
+                }
+                mutableLibrary.value = mutableLibrary.value.copy(connections = connections.toList())
+            }
+            reloadLibrary()
+        } finally { mutableLibrary.value = mutableLibrary.value.copy(syncing = false) }
+    }
+    private suspend fun readPages(id: String, operation: String, args: JSONObject, revision: String): List<JSONObject> {
+        val items = mutableListOf<JSONObject>()
+        var offset = 0
+        do {
+            val page = call(id, operation, JSONObject(args.toString()).put("offset", offset).put("limit", 100))
+            page.optString("accountRevision").takeIf { it.isNotBlank() }?.let {
+                check(it == revision) { "The source account changed. Refresh your library." }
+            }
+            check(!page.has("notice")) { page.optString("notice") }
+            items += page.getJSONArray("items").objects()
+            require(items.size <= 10_000) { "This source library supports up to 10,000 entries per collection." }
+            if (page.isNull("nextOffset")) break
+            offset = page.getInt("nextOffset")
+            require(offset < 100_000)
+        } while (true)
+        return items
+    }
+    suspend fun search(query: String, kind: String = "all", offsets: Map<String, Int>? = null): SourceSearchPage = coroutineScope {
+        val pages = entries().filter { "catalog.search" in requireNotNull(it.manifest.musicSource).capabilities &&
+            (offsets == null || it.manifest.id in offsets) }.map { plugin -> async {
+            val id = plugin.manifest.id
+            try {
+                val result = call(id, "search", JSONObject().put("query", query).put("kind", kind)
+                    .put("offset", offsets?.get(id) ?: 0).put("limit", 20))
+                val items = result.getJSONArray("items").objects()
+                SourceSearchPage(items.filter { it.optString("kind") == "track" && it.optBoolean("available", true) }.map { track(id, it) },
+                    items.filter { it.optString("kind") != "track" }.map { sourceCollection(id, it) },
+                    if (result.isNull("nextOffset")) emptyMap() else mapOf(id to result.getInt("nextOffset")),
+                    listOfNotNull(result.optString("notice").takeIf { it.isNotBlank() }))
+            } catch (cancelled: CancellationException) { throw cancelled } catch (e: Exception) {
+                SourceSearchPage(emptyList(), emptyList(), emptyMap(), listOf("${plugin.manifest.name}: ${e.message.orEmpty().take(200)}"))
+            }
+        } }.awaitAll()
+        SourceSearchPage(pages.flatMap { it.tracks }, pages.flatMap { it.collections },
+            pages.flatMap { it.nextOffsets.entries }.associate { it.toPair() }, pages.flatMap { it.notices })
+    }
+    fun prepare(tracks: List<Track>) = SourceStreams.get(context).prepare(tracks)
+    fun offlineDeviceId(track: Track): String? = if (track.providerId == null) null else store.offlineUri(track.id)?.toString()
     fun open(providerId: String, entityId: String? = null, root: String = "home") {
         mutableDestination.value = SourceDestination(providerId, entityId, root)
     }
@@ -47,15 +146,19 @@ internal class MusicSourceController(private val context: Context, private val s
         val read = operation in setOf("home", "search", "library", "lookup")
         val cacheArgs = JSONObject(args.toString()).put("operation", operation)
         return try {
-            if (operation != "accounts" && operation != "account.logout" && "accounts" in spec.capabilities) accountLock.withLock {
-                val account = MusicSourceClient.call(context, plugin, "accounts")
-                account.optString("revision").takeIf { it.isNotBlank() }?.let { revision -> withContext(Dispatchers.IO) { store.acceptAccount(id, revision) } }
-            }
+            if (operation != "accounts" && operation != "account.logout" && "accounts" in spec.capabilities) account(plugin)
             val result = MusicSourceClient.call(context, plugin, operation, args)
             if (read) MusicSourceProtocol.page(result)
-            if (!read && operation != "accounts") withContext(Dispatchers.IO) { store.clearPages(id) }
+            if (!read && operation != "accounts") {
+                withContext(Dispatchers.IO) { store.clearPages(id) }
+                requestSync()
+            }
             if (read) withContext(Dispatchers.IO) {
-                result.optJSONArray("items")?.objects().orEmpty().filter { it.optString("kind") == "track" }.forEach { store.track(plugin.manifest, it) }
+                val revision = result.optString("accountRevision")
+                result.optJSONArray("items")?.objects().orEmpty().forEach { item ->
+                    if (revision.isNotBlank()) item.put("accountRevision", revision)
+                    if (item.optString("kind") == "track") store.track(plugin.manifest, item)
+                }
                 // Large pages still render, but only bounded pages enter the offline catalog cache.
                 if (result.toString().toByteArray().size <= 256_000) store.cache(id, cacheArgs, result)
             }
@@ -67,6 +170,7 @@ internal class MusicSourceController(private val context: Context, private val s
     }
     suspend fun track(id: String, item: JSONObject): Track = withContext(Dispatchers.IO) { store.track(provider(id).manifest, item) }
     fun storedTrack(id: String): Track? = store.lookup(id)
+    fun accountRevision(id: String): String? = store.accountRevision(id)
     fun settings(id: String) {
         try {
             val spec = requireNotNull(provider(id).manifest.musicSource)
