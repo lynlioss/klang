@@ -27,6 +27,7 @@ class ExtensionRuntime(private val context: Context, private val player: Player)
     private val userActions = mutableMapOf<String, Long>()
     private val receipts = mutableMapOf<String, Deferred<File>>()
     private val selections = mutableMapOf<String, MutableMap<String, MediaItem>>()
+    private val queuedSelections = mutableMapOf<String, Map<String, MediaItem>>()
     private var beforeExtension: Pair<List<MediaItem>, Pair<Int, Long>>? = null
     private var playbackOwner: String? = null
     init {
@@ -66,7 +67,7 @@ class ExtensionRuntime(private val context: Context, private val player: Player)
             beforeExtension = null; playbackOwner = null
         }
         receipts.keys.filter { it.startsWith("$id:") }.forEach { receipts.remove(it)?.cancel() }
-        audio.remove(id); localAudio.remove(id); userActions.remove(id); selections.remove(id)
+        audio.remove(id); localAudio.remove(id); userActions.remove(id); selections.remove(id); queuedSelections.remove(id)
         val retired = File(root, "removed-${UUID.randomUUID()}")
         val directory = File(root, id)
         if (directory.exists() && directory.renameTo(retired)) scope.launch(Dispatchers.IO) { retired.deleteRecursively() }
@@ -213,7 +214,7 @@ class ExtensionRuntime(private val context: Context, private val player: Player)
             val requestId = json.getString("requestId").also { require(it.length <= 100) }
             val result = JSONObject().put("requestId", requestId)
             fun capability(name: String) { require(name.lowercase() in spec.capabilities) { "Capability $name was not declared" } }
-            fun selected(reference: String): MediaItem? = selections[id]?.get(reference)
+            fun selected(reference: String): MediaItem? = selections[id]?.get(reference) ?: queuedSelections[id]?.get(reference)
                 ?: (0 until player.mediaItemCount).map(player::getMediaItemAt).firstOrNull { it.mediaId == reference }
             fun item(track: JSONObject): MediaItem {
                 val hash = track.optString("sha256")
@@ -250,16 +251,22 @@ class ExtensionRuntime(private val context: Context, private val player: Player)
                         }
                     }
                     val items = (0 until tracks.length()).map { item(tracks.getJSONObject(it)) }
+                    val retained = (0 until tracks.length()).mapNotNull { index ->
+                        val reference = tracks.getJSONObject(index).optString("localRef")
+                        selected(reference)?.let { reference to it }
+                    }.toMap()
                     require(items.map { it.mediaId }.distinct().size == items.size)
                     if (playbackOwner == null) {
                         beforeExtension = (0 until player.mediaItemCount).map(player::getMediaItemAt) to (player.currentMediaItemIndex to player.currentPosition)
                         playbackOwner = id
                     }
+                    queuedSelections[id] = retained
                     reconcileExtensionQueue(player, items)
                     val nextKey = json.optString("nextKey")
                     val successor = items.indexOfFirst { it.mediaId == nextKey }
-                    if (player is androidx.media3.exoplayer.ExoPlayer && successor >= 0 && player.currentMediaItemIndex in items.indices) {
-                        val order = listOf(player.currentMediaItemIndex, successor).distinct() + items.indices.filter { it != player.currentMediaItemIndex && it != successor }
+                    val anchorIndex = items.indexOfFirst { it.mediaId == json.optString("key") }.takeIf { it >= 0 } ?: player.currentMediaItemIndex
+                    if (player is androidx.media3.exoplayer.ExoPlayer && successor >= 0 && anchorIndex in items.indices) {
+                        val order = listOf(anchorIndex, successor).distinct() + items.indices.filter { it != anchorIndex && it != successor }
                         player.setShuffleOrder(androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder(order.toIntArray(), 0L))
                     }
                     json.optInt("index", -1).takeIf { it in items.indices && it != player.currentMediaItemIndex }?.let { player.seekToDefaultPosition(it) }
