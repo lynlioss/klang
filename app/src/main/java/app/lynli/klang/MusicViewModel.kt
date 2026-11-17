@@ -24,6 +24,7 @@ import app.lynli.klang.data.SavedPlaylist
 import app.lynli.klang.data.PlaylistCovers
 import app.lynli.klang.data.audioFileIds
 import app.lynli.klang.data.sameSong
+import app.lynli.klang.data.byIdentity
 import app.lynli.klang.data.retainSourceSong
 import app.lynli.klang.plugins.SourceCollection
 import app.lynli.klang.plugins.SourceConnection
@@ -137,6 +138,15 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private var refreshJob: Job? = null
     private var collectionQueueJob: Job? = null
     private var deviceTracks = emptyList<Track>()
+    private var indexedTracks: List<Track>? = null
+    private var indexedHidden: List<Track>? = null
+    private var trackIndex = emptyMap<String, Track>()
+    private val queueTracks = mutableMapOf<String, Track>()
+    private var queueRevision = 0L
+    private var shownQueueRevision = -1L
+    private var shownLibrary: List<Track>? = null
+    private var shownHidden: List<Track>? = null
+    private var shownQueue = emptyList<Track>()
     private val favoriteJobs = mutableMapOf<String, Job>()
     private val favoriteOverrides = mutableMapOf<String, Boolean>()
     private val favoriteAccounts = mutableMapOf<String, Pair<String, String?>>()
@@ -148,7 +158,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             mutableState.update { it.copy(playbackDiscontinuity = it.playbackDiscontinuity + 1) }
             syncPlayer()
         }
-        override fun onEvents(player: Player, events: Player.Events) { syncPlayer() }
+        override fun onEvents(player: Player, events: Player.Events) {
+            if (events.contains(Player.EVENT_TIMELINE_CHANGED)) queueRevision++
+            syncPlayer()
+        }
         override fun onPlayerError(error: PlaybackException) {
             android.util.Log.e("KlangPlayback", "Playback failed: ${error.errorCodeName}", error)
             message("Playback failed (${error.errorCodeName}). Try playing again.")
@@ -406,6 +419,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun play(tracks: List<Track>, index: Int? = null, shuffled: Boolean = false, sourceId: String? = null) {
         if (tracks.isEmpty()) return
+        queueTracks.clear(); tracks.forEach { queueTracks[it.id] = it }
         collectionQueueJob?.cancel()
         val jamStart = collectionPlaybackStart(tracks.size, index, sourceId, shuffled)
         val jamOffset = (jamStart.index - 16).coerceIn(0, (tracks.size - 32).coerceAtLeast(0))
@@ -442,6 +456,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         collectionQueueJob = viewModelScope.launch {
             try {
                 val all = musicSources.collection(providerId, entityId)
+                all.forEach { queueTracks[it.id] = it }
                 val player = controller ?: return@launch
                 if (player.playbackSourceOrNull() != sourceId) return@launch
                 // Only append if the source still has the exact visible occurrence order.
@@ -597,6 +612,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL; Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE; else -> Player.REPEAT_MODE_OFF
     } } }
     fun playNext(track: Track) {
+        queueTracks[track.id] = track
         if (app.lynli.klang.plugins.ExtensionRuntime.active?.routeSelection(listOf(track.mediaItem()), "next") == true) return
         controller?.let {
             if (it.mediaItemCount == 0) { play(listOf(track)); return }
@@ -745,16 +761,28 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val remaining = (endsAt - System.currentTimeMillis()).coerceAtLeast(0)
         mutableState.update { if (it.sleepRemaining == remaining) it else it.copy(sleepRemaining = remaining) }
     }
-    private fun track(item: MediaItem): Track = mutableState.value.tracks.find { it.id == item.mediaId }
-        ?: mutableState.value.hiddenTracks.find { it.id == item.mediaId }
-        ?: musicSources.storedTrack(item.mediaId)
-        ?: deviceTracks.find { it.id == item.mediaId }
-        ?: mutableState.value.tracks.find { item.mediaId in it.aliases }?.let { it.copy(uri = Uri.parse(item.mediaId), aliases = it.identities) }
-        ?: Track(app.lynli.klang.plugins.ExtensionRuntime.active?.audioUri(item.mediaId) ?: Uri.parse(item.mediaId), item.mediaMetadata.title?.toString() ?: "Untitled",
-            item.mediaMetadata.artist?.toString() ?: "Unknown artist", item.mediaMetadata.albumTitle?.toString() ?: "Unknown album", 0)
+    private fun track(item: MediaItem): Track {
+        val state = mutableState.value
+        if (indexedTracks !== state.tracks || indexedHidden !== state.hiddenTracks) {
+            indexedTracks = state.tracks; indexedHidden = state.hiddenTracks
+            trackIndex = (state.tracks + state.hiddenTracks + deviceTracks).byIdentity()
+        }
+        trackIndex[item.mediaId]?.let { return if (it.id == item.mediaId) it else it.copy(uri = Uri.parse(item.mediaId), aliases = it.identities) }
+        return queueTracks.getOrPut(item.mediaId) {
+            musicSources.storedTrack(item.mediaId) ?: Track(
+                app.lynli.klang.plugins.ExtensionRuntime.active?.audioUri(item.mediaId) ?: Uri.parse(item.mediaId),
+                item.mediaMetadata.title?.toString() ?: "Untitled", item.mediaMetadata.artist?.toString() ?: "Unknown artist",
+                item.mediaMetadata.albumTitle?.toString() ?: "Unknown album", item.mediaMetadata.extras?.getLong("durationMs") ?: 0)
+        }
+    }
     private fun syncPlayer() {
         val player = controller ?: return
         val previous = mutableState.value
+        if (shownQueueRevision != queueRevision || shownLibrary !== previous.tracks || shownHidden !== previous.hiddenTracks || shownQueue.size != player.mediaItemCount) {
+            shownQueueRevision = queueRevision; shownLibrary = previous.tracks; shownHidden = previous.hiddenTracks
+            shownQueue = (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }
+                .filterNot { it.mediaId in deletedAudioIds }.map(::track)
+        }
         val source = player.playbackSourceOrNull()
         if (player.isPlaying && (!previous.playing || previous.playbackSource != source)) {
             source?.takeIf { it.startsWith("playlist:") }?.removePrefix("playlist:")?.let { id ->
@@ -767,8 +795,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             buffering = player.playbackState == Player.STATE_BUFFERING,
             queueIndex = player.currentMediaItemIndex, playing = player.isPlaying, position = player.currentPosition.coerceAtLeast(0),
             duration = player.duration.takeIf { value -> value > 0 } ?: player.currentMediaItem?.mediaMetadata?.extras?.getLong("durationMs") ?: 0,
-            queue = (0 until player.mediaItemCount).map { i -> player.getMediaItemAt(i) }
-                .filterNot { item -> item.mediaId in deletedAudioIds }.map(::track),
+            queue = shownQueue,
             shuffle = player.shuffleModeEnabled, repeat = player.repeatMode) }
     }
     private fun message(text: String) { mutableState.update { it.copy(message = text) } }

@@ -41,6 +41,7 @@ import app.lynli.klang.data.Track
 import android.net.Uri
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlinx.coroutines.*
 
 class PlaybackService : MediaSessionService() {
     private lateinit var eq: EqStore
@@ -48,6 +49,10 @@ class PlaybackService : MediaSessionService() {
     private lateinit var audioManager: AudioManager
     private var audioTrack: android.media.AudioTrack? = null
     private var destroyed = false
+    private val lifecycleScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var queueRevision = 0L
+    private var savedQueueRevision = -1L
+    private var restoringQueue = false
     private val recovery = SourcePlaybackRecovery()
     private var recoveryTask: Runnable? = null
     private var stableSince = 0L
@@ -143,6 +148,7 @@ class PlaybackService : MediaSessionService() {
         restoreQueue()
         player.addListener(object : Player.Listener {
             override fun onEvents(player: Player, events: Player.Events) {
+                if (events.contains(Player.EVENT_TIMELINE_CHANGED)) queueRevision++
                 saveQueue(); updateEqRoute()
                 if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) {
                     recovery.song(player.currentMediaItem?.mediaId)
@@ -234,43 +240,60 @@ class PlaybackService : MediaSessionService() {
     }
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = session
     private fun saveQueue() {
+        if (restoringQueue && player.mediaItemCount == 0) return
         if (::extensions.isInitialized && extensions.ownsPlayback) return
         if (player.currentMediaItem?.localConfiguration?.uri?.scheme == "file" &&
             player.currentMediaItem?.localConfiguration?.uri?.path?.startsWith(java.io.File(cacheDir, "extensions").path) == true) return
-        val items = JSONArray()
-        for (i in 0 until player.mediaItemCount) {
-            val item = player.getMediaItemAt(i)
-            items.put(JSONObject().put("uri", item.mediaId).put("title", item.mediaMetadata.title)
-                .put("artist", item.mediaMetadata.artist).put("album", item.mediaMetadata.albumTitle))
+        val edit = getSharedPreferences("playback", MODE_PRIVATE).edit()
+        if (savedQueueRevision != queueRevision) {
+            savedQueueRevision = queueRevision
+            val items = JSONArray()
+            for (i in 0 until player.mediaItemCount) {
+                val item = player.getMediaItemAt(i)
+                items.put(JSONObject().put("uri", item.mediaId).put("title", item.mediaMetadata.title)
+                    .put("artist", item.mediaMetadata.artist).put("album", item.mediaMetadata.albumTitle))
+            }
+            edit.putString("queue", items.toString())
         }
-        getSharedPreferences("playback", MODE_PRIVATE).edit().putString("queue", items.toString())
+        edit
             .putInt("index", player.currentMediaItemIndex.coerceAtLeast(0)).putLong("position", player.currentPosition)
             .putString("source", player.playbackSourceOrNull())
             .putInt("repeat", player.repeatMode).putBoolean("shuffle", player.shuffleModeEnabled).apply()
     }
     private fun restoreQueue() {
+        restoringQueue = true
         val prefs = getSharedPreferences("playback", MODE_PRIVATE)
-        runCatching {
-            val array = JSONArray(prefs.getString("queue", "[]"))
-            val source = prefs.getString("source", null)
-            val items = (0 until array.length()).map { i -> array.getJSONObject(i).let {
-                (app.lynli.klang.plugins.SourceMediaStore.get(this).lookup(it.getString("uri")) ?:
-                    Track(Uri.parse(it.getString("uri")), it.optString("title"), it.optString("artist"),
-                    it.optString("album"), 0)).mediaItem().withPlaybackSource(source)
-            }}
-            if (items.isNotEmpty()) {
+        val serialized = prefs.getString("queue", "[]")
+        val source = prefs.getString("source", null)
+        val index = prefs.getInt("index", 0)
+        val position = prefs.getLong("position", 0)
+        val repeat = prefs.getInt("repeat", Player.REPEAT_MODE_OFF)
+        val shuffle = prefs.getBoolean("shuffle", false)
+        val captured = queueRevision
+        lifecycleScope.launch {
+            val items = withContext(Dispatchers.IO) { runCatching {
+                val array = JSONArray(serialized)
+                (0 until array.length()).map { i -> array.getJSONObject(i).let {
+                    (app.lynli.klang.plugins.SourceMediaStore.get(this@PlaybackService).lookup(it.getString("uri")) ?:
+                        Track(Uri.parse(it.getString("uri")), it.optString("title"), it.optString("artist"),
+                            it.optString("album"), 0)).mediaItem().withPlaybackSource(source)
+                }}
+            }.getOrDefault(emptyList()) }
+            restoringQueue = false
+            if (!destroyed && captured == queueRevision && player.mediaItemCount == 0 && items.isNotEmpty()) {
                 player.setPlaylistMetadata(MediaMetadata.Builder().setExtras(Bundle().apply {
-                    prefs.getString("source", null)?.let { putString(PLAYBACK_SOURCE_KEY, it) }
+                    source?.let { putString(PLAYBACK_SOURCE_KEY, it) }
                 }).build())
-                player.setMediaItems(items, prefs.getInt("index", 0).coerceIn(items.indices), prefs.getLong("position", 0))
-                player.repeatMode = prefs.getInt("repeat", Player.REPEAT_MODE_OFF)
-                player.shuffleModeEnabled = prefs.getBoolean("shuffle", false)
+                player.setMediaItems(items, index.coerceIn(items.indices), position)
+                player.repeatMode = repeat
+                player.shuffleModeEnabled = shuffle
                 player.prepare()
             }
         }
     }
     override fun onDestroy() {
         destroyed = true
+        lifecycleScope.cancel()
         handler.removeCallbacks(save)
         recoveryTask?.let(handler::removeCallbacks)
         SourceAudioCache.get(this).cancelPreparation()

@@ -68,7 +68,7 @@ class MainActivity : ComponentActivity() {
             val model: MusicViewModel = viewModel()
             val state by model.state.collectAsStateWithLifecycle()
             LifecycleStartEffect(Unit) { model.appOpened(); onStopOrDispose { } }
-            LifecycleResumeEffect(Unit) { model.refresh(); model.refreshPluginServices(); model.musicSources.resumed(); onPauseOrDispose { } }
+            LifecycleResumeEffect(Unit) { model.refresh(); model.refreshPluginServices(); onPauseOrDispose { } }
             val permissionPrefs = remember { getSharedPreferences("klang_permissions", MODE_PRIVATE) }
             val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { model.refresh() }
             val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { model.refresh() }
