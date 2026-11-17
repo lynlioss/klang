@@ -29,7 +29,7 @@ internal class SourceStreams private constructor(private val context: Context) {
         return entries.firstOrNull { it.manifest.id == id && id in enabled && it.manifest.musicSource != null }
             ?: error("Enable this music source in Plugins, or download the song for offline playback.")
     }
-    suspend fun resolve(identity: String): JSONObject {
+    suspend fun resolve(identity: String, playback: Boolean = false): JSONObject {
         val plugin = provider(requireNotNull(java.net.URI(identity).rawAuthority))
         val spec = requireNotNull(plugin.manifest.musicSource)
         require("stream.resolve" in spec.capabilities)
@@ -42,9 +42,12 @@ internal class SourceStreams private constructor(private val context: Context) {
         val revision = account.optString("revision")
         if (revision.isNotBlank()) withContext(Dispatchers.IO) { store.acceptAccount(plugin.manifest.id, revision) }
         val key = "$identity|${plugin.manifest.version}|$revision|${account.optString("playbackRevision")}"
-        val result = requests.get(key) {
+        // Playback never joins a speculative request the source may shed; prepared URLs still share the audio key.
+        val result = requests.get(if (playback) "$key|playback" else key) {
             val refresh = synchronized(this) { identity in rejected }
             val args = JSONObject().put("item", withContext(Dispatchers.IO) { store.item(identity) })
+                // The source may shed speculative prefetch at capacity; playback must never be dropped.
+                .put("playback", playback)
             if (refresh) args.put("refresh", true)
             val stream = MusicSourceClient.call(context, plugin, "stream.resolve", args)
             MusicSourceProtocol.stream(stream)

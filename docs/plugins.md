@@ -98,7 +98,10 @@ A 192 MiB evictable audio cache reuses received bytes. Four readers concurrently
 at most 768 KiB per nearby song (up to twelve) after playback is ready. Optional stream `cacheKey` identifies the
 exact encoded recording so refreshed signed URLs can safely reuse those bytes;
 keys are hashed with account, playback settings and plugin version. Optional
-`args.refresh: true` requests a fresh URL after rejection. Rejected URLs refresh
+`args.refresh: true` requests a fresh URL after rejection. Playback resolves send
+`args.playback: true` and speculative preparation sends `false`, so a plugin can
+shed prefetch while the request limit is reached without delaying a tapped song.
+Rejected URLs refresh
 once at the original byte position, and transient failures have bounded recovery
 that preserves queue, position and user pauses. Source resolution has a 60-second
 timeout. The player shows expressive loading feedback while preparing or buffering. Downloads reuse the `musicImport`
@@ -108,7 +111,7 @@ restarting Klang. Library/search rows merge matching title, artist and duration,
 controls account connection cards; `revision` scopes library membership and
 `playbackRevision` scopes temporary stream caches. Prepared URLs stay in memory.
 
-The optional `stream.prepare` capability accepts up to 100 retained `items` and returns `ok` after queuing background recording links. Klang batches the queue and browsed songs into this generic API 1 extension. A UID-checked content-provider bridge passes `klang.cacheBridge` and `klang.providerId` to settings; `cache.stats`/`cache.clear` expose `audioBytes` and `audioSongs` for that provider only. Downloaded files and catalog pages are retained. Login, credentials, APIs and recording matching belong to the plugin. Account
+The optional `stream.prepare` capability accepts up to 100 retained `items` and returns `ok` after queuing background recording links. Klang batches the queue and browsed songs into this generic API 1 extension. Song properties ask a source for `lookup` with `statusOnly` and show its cached playback bytes, source link and matched recording link; older plugins simply omit the section. A UID-checked content-provider bridge passes `klang.cacheBridge` and `klang.providerId` to settings; `cache.stats`/`cache.clear` expose `audioBytes` and `audioSongs` for that provider only. Downloaded files and catalog pages are retained. Login, credentials, APIs and recording matching belong to the plugin. Account
 revisions invalidate cached library pages after switching accounts. Messages are
 checked against the installed service UID and a fresh token; invalid pagination,
 unknown capabilities and unsafe playback headers are rejected. Future community

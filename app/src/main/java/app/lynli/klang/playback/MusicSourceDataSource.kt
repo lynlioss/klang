@@ -37,7 +37,7 @@ internal fun sourceFactory(context: Context, cacheAudio: Boolean): DataSource.Fa
                 try {
                     return openResolvedStream(resolve = { refresh ->
                         if (refresh) streams.reject(identity)
-                        val result = runBlocking(Dispatchers.IO) { streams.resolve(identity) }
+                        val result = runBlocking(Dispatchers.IO) { streams.resolve(identity, playback = true) }
                         val (url, headers) = MusicSourceProtocol.stream(result)
                         spec.withUri(Uri.parse(url)).withAdditionalHeaders(headers).buildUpon()
                             .setKey(result.getString("_klangCacheKey")).build()

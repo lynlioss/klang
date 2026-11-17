@@ -13,6 +13,11 @@ import kotlinx.coroutines.sync.withLock
 
 internal data class SourceDestination(val providerId: String, val entityId: String? = null, val root: String = "home")
 
+/** Non-secret link/cache state the source reports for one song. */
+internal data class SourceRecording(val title: String, val artist: String, val album: String, val durationMs: Long)
+internal data class SourceTrackStatus(val state: String, val verified: Boolean, val retryAt: Long,
+    val sourceUrl: String?, val recordingUrl: String?, val recording: SourceRecording?)
+
 /** Generic source host: discover providers, validate declared features, retain metadata and queue downloads. */
 internal class MusicSourceController(private val context: Context, private val scope: CoroutineScope,
     private val providers: () -> List<InstalledPlugin>, private val message: (String) -> Unit) {
@@ -188,6 +193,28 @@ internal class MusicSourceController(private val context: Context, private val s
     }
     suspend fun track(id: String, item: JSONObject): Track = withContext(Dispatchers.IO) { store.track(provider(id).manifest, item) }
     fun storedTrack(id: String): Track? = store.lookup(id)
+    /** Link and playback-cache state for song properties; never returns credentials or signed audio URLs. */
+    suspend fun status(track: Track): SourceTrackStatus? = withContext(Dispatchers.IO) {
+        val id = track.providerId ?: return@withContext null
+        val item = track.sourcePayload?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return@withContext null
+        val sourceId = track.sourceId ?: return@withContext null
+        val plugin = runCatching { provider(id) }.getOrNull() ?: return@withContext null
+        if ("catalog.lookup" !in requireNotNull(plugin.manifest.musicSource).capabilities) return@withContext null
+        val result = try {
+            MusicSourceClient.call(context, plugin, "lookup",
+                JSONObject().put("id", sourceId).put("statusOnly", true).put("item", item))
+        } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { return@withContext null }
+        val status = result.optJSONObject("sourceStatus") ?: return@withContext null
+        val recording = status.optJSONObject("recording")
+        SourceTrackStatus(status.optString("state"), status.optBoolean("verified"), status.optLong("retryAt"),
+            status.optString("spotify").takeIf { it.startsWith("https://") },
+            status.optString("youtube").takeIf { it.startsWith("https://") },
+            recording?.let { SourceRecording(it.optString("title"), it.optString("artist"), it.optString("album"), it.optLong("durationMs")) })
+    }
+    /** Cached playback bytes for one source song, separate from user-requested offline downloads. */
+    suspend fun cachedBytes(track: Track): Long = withContext(Dispatchers.IO) {
+        if (track.providerId == null) 0L else app.lynli.klang.playback.SourceAudioCache.get(context).trackBytes(track.id)
+    }
     fun accountRevision(id: String): String? = store.accountRevision(id)
     fun settings(id: String) {
         try {

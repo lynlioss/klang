@@ -2,6 +2,7 @@
     androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package app.lynli.klang.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -19,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
@@ -31,6 +33,7 @@ import app.lynli.klang.MusicViewModel
 import app.lynli.klang.R
 import app.lynli.klang.data.Track
 import app.lynli.klang.data.TrackDetails
+import app.lynli.klang.plugins.SourceTrackStatus
 import java.text.NumberFormat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -49,6 +52,19 @@ internal fun TrackPropertiesSheet(track: Track, state: MusicState, model: MusicV
         catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { null }
         readingDetails = false
+    }
+    var sourceStatus by remember(track.id) { mutableStateOf<SourceTrackStatus?>(null) }
+    var cachedBytes by remember(track.id) { mutableStateOf(0L) }
+    var readingSource by remember(track.id) { mutableStateOf(track.providerId != null && !track.offline) }
+    LaunchedEffect(track.id) {
+        if (track.providerId == null) return@LaunchedEffect
+        sourceStatus = try { model.musicSources.status(track) }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { null }
+        cachedBytes = try { model.musicSources.cachedBytes(track) }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { 0L }
+        readingSource = false
     }
     val playlistNames = remember(state.playlists, track.id) {
         state.playlists.filter { playlist -> track.identities.any { it in playlist.trackIds } }.map { it.name }
@@ -113,7 +129,11 @@ internal fun TrackPropertiesSheet(track: Track, state: MusicState, model: MusicV
                         .padding(start = 24.dp, end = 24.dp, bottom = 16.dp)) {
                         PropertyList(track, details)
                         Spacer(Modifier.height(16.dp))
-                        LocationTile(details?.location, readingDetails)
+                        if (track.providerId != null && !track.offline) {
+                            SourceProperties(track, sourceStatus, cachedBytes, readingSource)
+                        } else {
+                            LocationTile(details?.location, readingDetails)
+                        }
                         Spacer(Modifier.height(16.dp))
                         Text("In playlists", style = MaterialTheme.typography.labelLarge,
                             color = colors.onSurfaceVariant)
@@ -196,6 +216,83 @@ private fun PropertyList(track: Track, details: TrackDetails?) {
             }
         }
     }
+}
+
+/**
+ * Streaming songs show where their playback comes from: cached bytes, the source link and the
+ * matched YouTube Music recording. Downloading a song replaces this with its file location.
+ */
+@Composable
+private fun SourceProperties(track: Track, status: SourceTrackStatus?, cachedBytes: Long, reading: Boolean) {
+    val colors = MaterialTheme.colorScheme
+    val uriHandler = LocalUriHandler.current
+    val sourceUrl = status?.sourceUrl ?: track.shareUrl
+    val recordingUrl = status?.recordingUrl
+    val recordingLabel = status?.recording?.let { recording ->
+        listOf(recording.title, recording.artist).filter { it.isNotBlank() }.joinToString(" · ")
+    }?.takeIf { it.isNotBlank() }
+    val rows = listOf(
+        SourcePropertyRow(Icons.Rounded.OfflineBolt, "Playback cache", cacheValue(cachedBytes),
+            if (reading) "Reading playback details…" else statusText(status)),
+        SourcePropertyRow(Icons.Rounded.OpenInNew, "${track.sourceLabel} link",
+            if (sourceUrl != null) "Open" else "Unavailable"),
+        SourcePropertyRow(Icons.Rounded.SmartDisplay, "YouTube Music link",
+            if (recordingUrl != null) "Open" else linkValue(status, reading),
+            if (recordingUrl != null) recordingLabel else null),
+    )
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        // Klang design choice: stack values when scaled text would crowd the two text columns.
+        val stackValues = maxWidth / LocalDensity.current.fontScale < 300.dp
+        Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+            rows.forEachIndexed { index, row ->
+                val url = when (index) { 1 -> sourceUrl; 2 -> recordingUrl; else -> null }
+                val detail = if (stackValues) listOfNotNull(row.value, row.support).joinToString(" · ")
+                    else row.support
+                SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(index, rows.size),
+                    modifier = Modifier.fillMaxWidth().clickable(enabled = url != null) {
+                        if (url != null) runCatching { uriHandler.openUri(url) }
+                    },
+                    leadingContent = { Icon(row.icon, null, Modifier.size(20.dp)) },
+                    trailingContent = if (stackValues) null else {
+                        { Text(row.value, style = MaterialTheme.typography.bodyLarge) }
+                    },
+                    supportingContent = if (detail == null) null else {
+                        { Text(detail, style = MaterialTheme.typography.bodySmall, maxLines = 3,
+                            overflow = TextOverflow.Ellipsis) }
+                    },
+                    colors = ListItemDefaults.segmentedColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        contentColor = colors.onSurfaceVariant,
+                        trailingContentColor = colors.onSurface,
+                        supportingContentColor = colors.onSurfaceVariant)) {
+                    Text(row.label, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        }
+    }
+}
+
+private data class SourcePropertyRow(val icon: ImageVector, val label: String, val value: String,
+    val support: String? = null)
+
+private fun cacheValue(bytes: Long): String = if (bytes > 0) "${formatSize(bytes)} cached" else "Not cached yet"
+
+private fun linkValue(status: SourceTrackStatus?, reading: Boolean): String = when {
+    reading -> "Checking…"
+    status == null -> "Unavailable"
+    status.state in setOf("queued", "matching", "waiting") -> "Pending"
+    else -> "Not linked"
+}
+
+private fun statusText(status: SourceTrackStatus?): String? = when {
+    status == null -> null
+    status.state == "linked" && status.verified -> "Verified YouTube Music match"
+    status.state == "linked" -> "Linked for playback"
+    status.state == "matching" -> "Matching with YouTube Music now"
+    status.state == "waiting" -> "Waiting to retry the match"
+    status.state == "expired" -> "Saved link expired; it will be matched again"
+    status.state == "queued" -> "Queued for background matching"
+    else -> "Matched on first play"
 }
 
 @Composable
