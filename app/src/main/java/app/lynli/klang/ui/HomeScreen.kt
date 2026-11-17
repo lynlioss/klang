@@ -41,6 +41,8 @@ import androidx.compose.ui.zIndex
 import app.lynli.klang.MusicState
 import app.lynli.klang.MusicViewModel
 import app.lynli.klang.R
+import app.lynli.klang.data.sameSong
+import app.lynli.klang.data.byIdentity
 import app.lynli.klang.data.Track
 import app.lynli.klang.data.albumGroupingArtist
 import app.lynli.klang.data.mixArtwork
@@ -87,11 +89,11 @@ internal fun albumCollection(track: Track, tracks: List<Track>): MusicCollection
     .find { it.title == track.album && it.tracks.any { song -> song.id == track.id } }
 
 internal fun musicCollections(state: MusicState): List<MusicCollection> {
-    val tracks = state.tracks.associateBy { it.id }
+    val tracks = state.tracks.byIdentity()
     return listOf(MusicCollection("mix", "My Mix", "collection of all your songs", state.tracks, mix = true),
         MusicCollection("favorites", "Favorites", "Saved songs", state.tracks.filter { it.id in state.favorites }, favorites = true)) +
         state.playlists.map { playlist -> MusicCollection("playlist:${playlist.id}", playlist.name, "",
-            playlist.trackIds.mapNotNull { tracks[it] }, editableId = playlist.id, coverFile = playlist.coverFile) } +
+            playlist.trackIds.mapNotNull { tracks[it] }.distinctBy { it.id }, editableId = playlist.id, coverFile = playlist.coverFile) } +
         albumCollections(state.tracks) + artistCollections(state.tracks) + state.sourceCollections.map { it.collection() }
 }
 
@@ -332,7 +334,7 @@ internal fun CollectionScreen(collection: MusicCollection, state: MusicState, mo
                                 player, lifted)
                         }
                         else TrackRow(track, state, model, {
-                            if (state.current?.id == track.id && state.isPlayingFrom(collection.id)) player()
+                            if (track.sameSong(state.current) && state.isPlayingFrom(collection.id)) player()
                             else model.play(collection.tracks, collection.tracks.indexOf(track), sourceId = collection.id)
                         }, Modifier.animateItem())
                     }

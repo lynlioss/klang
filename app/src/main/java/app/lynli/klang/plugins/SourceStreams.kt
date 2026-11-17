@@ -14,6 +14,9 @@ internal class SourceStreams private constructor(private val context: Context) {
     private val store = SourceMediaStore.get(context)
     private val requests = StreamRequests<JSONObject>(scope)
     private val preparation = StreamPreparation(scope, { resolve(it) })
+    private val pendingMatches = mutableMapOf<String, LinkedHashSet<String>>()
+    private val matched = linkedSetOf<String>()
+    private val matchPreparation = StreamPreparation(scope, { sendMatches(it) }, concurrency = 1, capacity = 30)
     private val accounts = mutableMapOf<String, Pair<Long, JSONObject>>()
     private val accountLock = Mutex()
     private val rejected = mutableSetOf<String>()
@@ -53,12 +56,45 @@ internal class SourceStreams private constructor(private val context: Context) {
     }
     /** Prepare links for likely visible tracks, with two workers and a bounded backlog. */
     fun prepare(tracks: List<Track>, priority: Boolean = false) {
-        preparation.offer(tracks.filter { it.providerId != null && !it.offline }.map(Track::id).distinct().take(12), priority)
+        val online = tracks.filter { it.providerId != null && !it.offline }.map(Track::id).distinct()
+        preparation.offer(online.take(12), priority)
+        prepareMatches(online)
     }
     fun prepareIdentities(ids: List<String>) {
-        preparation.offer(ids.filter { it.startsWith("klang-source:") && store.offlineUri(it) == null }.take(4), priority = true)
+        preparation.offer(ids.filter { it.startsWith("klang-source:") && store.offlineUri(it) == null }.distinct().take(12), priority = true)
     }
-    fun buffering(value: Boolean, current: String? = null) = preparation.pause(value, keep = current)
+    fun prepareMatches(ids: List<String>) {
+        val providers = synchronized(this) {
+            for (id in ids) {
+                if (!id.startsWith("klang-source:") || id in matched) continue
+                val providerId = runCatching { java.net.URI(id).rawAuthority }.getOrNull() ?: continue
+                val waiting = pendingMatches.getOrPut(providerId) { linkedSetOf() }
+                if (waiting.size < 20_000) waiting.add(id)
+            }
+            pendingMatches.filterValues { it.isNotEmpty() }.keys.toList()
+        }
+        matchPreparation.offer(providers, priority = true)
+    }
+    private suspend fun sendMatches(providerId: String) {
+        val plugin = provider(providerId)
+        val supported = "stream.prepare" in requireNotNull(plugin.manifest.musicSource).capabilities
+        while (true) {
+            val ids = synchronized(this) { pendingMatches[providerId]?.take(100).orEmpty() }
+            if (ids.isEmpty()) return
+            if (supported) {
+                val items = withContext(Dispatchers.IO) { ids.mapNotNull { id -> runCatching { store.item(id) }.getOrNull() } }
+                if (items.isNotEmpty()) MusicSourceClient.call(context, plugin, "stream.prepare",
+                    JSONObject().put("items", org.json.JSONArray(items)))
+            }
+            synchronized(this) {
+                pendingMatches[providerId]?.removeAll(ids.toSet()); matched.addAll(ids)
+                while (matched.size > 20_000) matched.remove(matched.first())
+            }
+        }
+    }
+    fun buffering(value: Boolean, current: String? = null) {
+        preparation.pause(value, keep = current); matchPreparation.pause(value)
+    }
     @Synchronized fun reject(identity: String) {
         rejected.add(identity)
         requests.invalidate("$identity|")
@@ -67,13 +103,13 @@ internal class SourceStreams private constructor(private val context: Context) {
         val previous = accounts[id]?.second
         if (previous != null && (previous.optString("revision") != account.optString("revision") ||
                 previous.optString("playbackRevision") != account.optString("playbackRevision"))) {
-            requests.invalidate(); preparation.clear(); rejected.clear()
+            requests.invalidate(); preparation.clear(); matchPreparation.clear(); pendingMatches.clear(); matched.clear(); rejected.clear()
             app.lynli.klang.playback.SourceAudioCache.get(context).invalidate()
         }
         accounts[id] = System.currentTimeMillis() to JSONObject(account.toString())
     }
     @Synchronized fun invalidate() {
-        requests.invalidate(); preparation.clear(); accounts.clear(); rejected.clear(); installed = null
+        requests.invalidate(); preparation.clear(); matchPreparation.clear(); pendingMatches.clear(); matched.clear(); accounts.clear(); rejected.clear(); installed = null
         app.lynli.klang.playback.SourceAudioCache.get(context).invalidate()
     }
     companion object {

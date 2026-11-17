@@ -192,7 +192,7 @@ data class PluginManifest(
                 val caps = strings("capabilities")
                 require(caps.all { it in setOf("catalog.home", "catalog.search", "catalog.library", "catalog.lookup",
                     "library.write", "playlist.create", "playlist.edit", "playlist.items", "playlist.follow",
-                    "playlist.collaboration", "playlist.cover", "stream.resolve", "offline.download", "accounts") })
+                    "playlist.collaboration", "playlist.cover", "stream.resolve", "stream.prepare", "offline.download", "accounts") })
                 val hosts = strings("hosts"); val schemes = strings("schemes")
                 require(hosts.all { it.matches(Regex("[a-z0-9.-]+")) })
                 require(schemes.all { it.matches(Regex("[a-z][a-z0-9+.-]*")) })

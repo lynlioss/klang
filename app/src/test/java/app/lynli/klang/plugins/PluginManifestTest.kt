@@ -109,4 +109,11 @@ class PluginManifestTest {
         assertNull(manifest.musicImport)
         assertTrue("stream.resolve" in manifest.musicSource!!.capabilities)
     }
+    @Test fun recordingPreparationIsAnOptionalApi1Capability() {
+        val json = JSONObject(File("src/test/resources/plugins/music-source.json").readText())
+        json.getJSONObject("musicSource").getJSONArray("capabilities").put("stream.prepare")
+        val manifest = PluginManifest.parse(json.toString())
+        assertEquals(1, manifest.apiVersion)
+        assertTrue("stream.prepare" in manifest.musicSource!!.capabilities)
+    }
 }

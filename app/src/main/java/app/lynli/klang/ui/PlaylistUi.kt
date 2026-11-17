@@ -44,6 +44,8 @@ import androidx.compose.ui.unit.dp
 import app.lynli.klang.MusicState
 import app.lynli.klang.MusicViewModel
 import app.lynli.klang.R
+import app.lynli.klang.data.sameSong
+import app.lynli.klang.data.byIdentity
 import app.lynli.klang.data.Track
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
@@ -130,7 +132,7 @@ internal fun AddToPlaylistDialog(track: Track, state: MusicState, model: MusicVi
     val scope = rememberCoroutineScope()
     val providerId = track.providerId
     val remote = state.sourceCollections.filter { it.providerId == providerId && it.kind == "playlist" && it.editable }
-    val songs = remember(state.tracks) { state.tracks.associateBy { it.id } }
+    val songs = remember(state.tracks) { state.tracks.byIdentity() }
     ModalBottomSheet(onDismissRequest = dismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow, shape = KlangSheetShape) {
         Column(Modifier.fillMaxWidth().heightIn(max = 600.dp).padding(horizontal = 24.dp).padding(bottom = 24.dp)) {
@@ -155,7 +157,7 @@ internal fun AddToPlaylistDialog(track: Track, state: MusicState, model: MusicVi
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 items(state.playlists, key = { it.id }) { playlist ->
-                    val added = track.id in playlist.trackIds
+                    val added = track.identities.any { it in playlist.trackIds }
                     Surface(onClick = { model.addToPlaylist(playlist.id, listOf(track)); dismiss() }, enabled = !added,
                         shape = MaterialTheme.shapes.medium, color = if (added) MaterialTheme.colorScheme.secondaryContainer
                         else MaterialTheme.colorScheme.surfaceContainer) {
@@ -294,7 +296,7 @@ internal fun PlaylistTrackRow(track: Track, index: Int, collection: MusicCollect
     val elevation by animateDpAsState(if (lifted) 6.dp else 0.dp, spring(0.6f, 800f), label = "Lift elevation")
     val color by animateColorAsState(when {
         lifted -> MaterialTheme.colorScheme.secondaryContainer
-        state.current?.id == track.id -> MaterialTheme.colorScheme.surfaceContainerHigh
+        track.sameSong(state.current) -> MaterialTheme.colorScheme.surfaceContainerHigh
         else -> MaterialTheme.colorScheme.surfaceContainerLow
     }, spring(1f, 1600f), label = "Lift color")
     Surface(modifier.fillMaxWidth().padding(bottom = 4.dp).graphicsLayer { scaleX = scale; scaleY = scale }
@@ -306,7 +308,7 @@ internal fun PlaylistTrackRow(track: Track, index: Int, collection: MusicCollect
         }, shape = RoundedCornerShape(corner), shadowElevation = elevation.coerceAtLeast(0.dp), color = color) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.weight(1f).clickable {
-                if (state.current?.id == track.id) openPlayer() else model.play(collection.tracks, index, sourceId = collection.id)
+                if (track.sameSong(state.current)) openPlayer() else model.play(collection.tracks, index, sourceId = collection.id)
             }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Artwork(track, Modifier.size(52.dp).clip(RoundedCornerShape(6.dp)))
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
@@ -319,8 +321,8 @@ internal fun PlaylistTrackRow(track: Track, index: Int, collection: MusicCollect
                 }
             }
             if (lifted) Icon(painterResource(R.drawable.drag_handle), null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
-            else if (state.current?.id == track.id && state.buffering && state.playWhenReady) PlaybackLoadingIndicator()
-            else if (state.current?.id == track.id && state.playing) PlayingIndicator(MaterialTheme.colorScheme.onSurface)
+            else if (track.sameSong(state.current) && state.buffering && state.playWhenReady) PlaybackLoadingIndicator()
+            else if (track.sameSong(state.current) && state.playing) PlayingIndicator(MaterialTheme.colorScheme.onSurface)
             else Text(time(track.durationMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Box {
                 IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Options for ${track.title}") }

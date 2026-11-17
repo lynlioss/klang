@@ -4,6 +4,10 @@ import android.content.Context
 import android.net.Uri
 import android.util.AtomicFile
 import app.lynli.klang.data.Track
+import app.lynli.klang.data.LocalRecordings
+import app.lynli.klang.data.RecordingIdentity
+import app.lynli.klang.data.audioFileIds
+import app.lynli.klang.data.mergeMusicEntries
 import org.json.JSONObject
 import org.json.JSONArray
 import java.io.File
@@ -15,8 +19,49 @@ import java.util.concurrent.ConcurrentHashMap
 /** Durable catalog identity and offline mapping; stores metadata, never playback URLs or credentials. */
 internal class SourceMediaStore(private val context: Context) {
     private val directory = File(context.filesDir, "music-sources").apply { mkdirs() }
-    private val memory = android.util.LruCache<String, JSONObject>(500)
+    private val memory = object : android.util.LruCache<String, JSONObject>(16 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: JSONObject) = key.length * 2 + value.toString().length * 2
+    }
     private val offlineChecks = ConcurrentHashMap<String, Pair<Long, Uri?>>()
+    @Volatile private var cachedLibrary: Pair<Set<String>, SourceLibrary>? = null
+    @Volatile private var deviceTracks = emptyList<Track>()
+    @Volatile private var localRecordings = LocalRecordings(emptyList<Track>(), ::recording)
+    @Volatile private var deviceLoaded = false
+    private val deviceLock = Any()
+    fun updateDeviceLibrary(tracks: List<Track>) = synchronized(deviceLock) {
+        deviceTracks = tracks.filter { it.providerId == null }
+        localRecordings = LocalRecordings(deviceTracks, ::recording)
+        deviceLoaded = true
+        cachedLibrary = null
+    }
+    /** Restored source queues can start before the library screen has scanned MediaStore. */
+    fun ensureDeviceLibrary() = synchronized(deviceLock) {
+        if (!deviceLoaded) updateDeviceLibrary(kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+            app.lynli.klang.data.MusicRepository(context).tracks()
+        })
+    }
+    private fun recording(track: Track) = RecordingIdentity(track.title, track.artist, track.album, track.durationMs)
+    private fun localMatch(json: JSONObject) = localRecordings.match(RecordingIdentity(json.optString("title"),
+        json.optString("artist"), json.optString("album"), json.optLong("durationMs"),
+        json.optString("isrc").takeIf { it.isNotBlank() && it != "null" },
+        if (json.has("explicit")) json.optBoolean("explicit") else null))
+    fun unify(entries: List<Track>): List<Track> {
+        val sources = entries.filter { it.providerId != null }.map { entry ->
+            val local = localRecordings.match(recording(entry))
+            val uri = local?.uri ?: entry.localUri
+            entry.copy(localUri = uri, offline = uri != null || entry.offline,
+                aliases = entry.aliases + uri?.toString()?.let(::audioFileIds).orEmpty())
+        }
+        val grouped = sources.groupBy { it.localUri?.let { uri -> audioFileIds(uri.toString()).sorted().first() } ?: it.id }
+            .values.map { copies -> copies.first().copy(aliases = copies.flatMap { it.identities }.toSet() - copies.first().id) }
+        return mergeMusicEntries(entries.filter { it.providerId == null }, grouped, Track::id) { it.localUri?.toString() }
+    }
+    fun refreshLocal(track: Track): Track {
+        if (track.providerId == null) return track
+        val local = localRecordings.match(recording(track))?.uri
+        return track.copy(localUri = local ?: track.localUri, offline = local != null || track.offline,
+            aliases = track.aliases + local?.toString()?.let(::audioFileIds).orEmpty())
+    }
     private val mutableChanges = MutableStateFlow(0L)
     val changes = mutableChanges.asStateFlow()
     private fun file(key: String) = AtomicFile(File(directory,
@@ -51,24 +96,34 @@ internal class SourceMediaStore(private val context: Context) {
         write(key, json)
         return toTrack(key, json)
     }
-    private fun toTrack(key: String, json: JSONObject): Track = Track(Uri.parse(key), json.getString("title"),
+    private fun toTrack(key: String, json: JSONObject): Track {
+        val local = localMatch(json)?.uri ?: downloadedUri(key, json)
+        return Track(Uri.parse(key), json.getString("title"),
         json.optString("artist"), json.optString("album"), json.optLong("durationMs"), added = json.optLong("added"), albumArtist = json.optString("albumArtist"),
         providerId = json.getString("providerId"), sourceId = json.getString("id"), sourceBadge = json.optString("badge", "music"),
         sourceLabel = json.optString("linkLabel"), shareUrl = json.optString("url").takeIf { it.startsWith("https://") },
         artworkUrl = json.optString("artwork").takeIf { it.startsWith("https://") },
-        sourcePayload = providerItem(json).toString(), offline = offlineUri(key) != null)
+        sourcePayload = providerItem(json).toString(), offline = local != null, localUri = local,
+        aliases = local?.toString()?.let(::audioFileIds).orEmpty())
+    }
     fun lookup(key: String): Track? = if (!key.startsWith("klang-source:")) null else read(key)?.let { toTrack(key, it) }
     fun item(key: String): JSONObject = providerItem(read(key) ?: error("This song's catalog metadata is unavailable. Open it again in its music source."))
     private fun providerItem(json: JSONObject) = JSONObject(json.toString()).apply {
         listOf("providerId", "badge", "linkLabel", "offlineUri").forEach { remove(it) }
     }
     fun offlineUri(key: String): Uri? {
+        val item = read(key) ?: return null
+        localMatch(item)?.let { return it.uri }
+        return downloadedUri(key, item)
+    }
+    private fun downloadedUri(key: String, item: JSONObject): Uri? {
+        if (item.optString("offlineUri").isBlank()) return null
         offlineChecks[key]?.takeIf { System.currentTimeMillis() - it.first < 10_000 }?.let { return it.second }
-        val value = read(key)?.optString("offlineUri")?.takeIf { it.isNotBlank() }?.let { raw ->
+        val value = item.optString("offlineUri").takeIf { it.isNotBlank() }?.let { raw ->
         val uri = Uri.parse(raw)
         if (uri.scheme != "content") null else runCatching { context.contentResolver.openFileDescriptor(uri, "r")?.use { uri } }.getOrNull()
         }
-        if (offlineChecks.size > 500) offlineChecks.clear()
+        if (offlineChecks.size > 12_000) offlineChecks.entries.sortedBy { it.value.first }.take(2_000).forEach { offlineChecks.remove(it.key) }
         offlineChecks[key] = System.currentTimeMillis() to value
         return value
     }
@@ -81,6 +136,7 @@ internal class SourceMediaStore(private val context: Context) {
         val ids = offlineIds(providerId)
         write(indexKey, JSONObject().put("ids", JSONArray((ids + sourceId).distinct().takeLast(10_000))))
         offlineChecks.remove(key)
+        cachedLibrary = null
         mutableChanges.value++
     }
     @Synchronized fun acceptAccount(providerId: String, revision: String): Boolean {
@@ -106,28 +162,51 @@ internal class SourceMediaStore(private val context: Context) {
         }
         // Chunk membership so large liked-song libraries stay within the per-file metadata bound.
         val key = "library:${plugin.id}:$kind"
-        val chunks = ids.chunked(100)
+        val chunks = ids.chunked(50)
         chunks.forEachIndexed { index, chunk -> write("$key:$index", JSONObject()
-            .put("cacheProvider", plugin.id).put("libraryCache", true).put("revision", revision).put("ids", JSONArray(chunk))) }
+            .put("cacheProvider", plugin.id).put("libraryCache", true).put("revision", revision).put("ids", JSONArray(chunk))
+            .apply { if (kind == "track") {
+                val songs = JSONArray(chunk.mapNotNull { read(identity(plugin.id, it)) })
+                if (songs.toString().toByteArray().size < 240_000) put("items", songs)
+            } }) }
         write(key, JSONObject().put("cacheProvider", plugin.id).put("libraryCache", true).put("revision", revision).put("chunks", chunks.size))
+        cachedLibrary = null
     }
     @Synchronized private fun libraryIds(providerId: String, kind: String): List<String> {
         val key = "library:$providerId:$kind"
         val header = read(key) ?: return emptyList()
         if (header.optString("revision") != accountRevision(providerId)) return emptyList()
-        return (0 until header.optInt("chunks").coerceIn(0, 100)).flatMap { index ->
+        return (0 until header.optInt("chunks").coerceIn(0, 200)).flatMap { index ->
             read("$key:$index")?.takeIf { it.optString("revision") == header.optString("revision") }
                 ?.optJSONArray("ids")?.strings().orEmpty()
         }
     }
     @Synchronized fun library(providerIds: Set<String>): SourceLibrary {
+        cachedLibrary?.takeIf { it.first == providerIds }?.let { return it.second }
         val favorites = providerIds.flatMap { providerId -> libraryIds(providerId, "track").map { identity(providerId, it) } }.toSet()
+        // Load large liked-song snapshots by page, avoiding thousands of files at startup.
+        val savedTracks = providerIds.flatMap { providerId ->
+            val key = "library:$providerId:track"
+            val header = read(key)
+            if (header == null || header.optString("revision") != accountRevision(providerId)) emptyList() else
+                (0 until header.optInt("chunks").coerceIn(0, 200)).flatMap { index ->
+                    val chunk = read("$key:$index")
+                    if (chunk == null || chunk.optString("revision") != accountRevision(providerId)) emptyList() else {
+                        val songs = chunk.optJSONArray("items")
+                        if (songs != null) (0 until songs.length()).map { i ->
+                            val item = songs.getJSONObject(i)
+                            toTrack(identity(providerId, item.getString("id")), item)
+                        } else chunk.optJSONArray("ids")?.strings().orEmpty().mapNotNull { lookup(identity(providerId, it)) }
+                    }
+                }
+        }
         val offline = providerIds.flatMap { providerId -> offlineIds(providerId).map { identity(providerId, it) } }.filter { offlineUri(it) != null }
         fun entities(kind: String) = providerIds.flatMap { providerId -> libraryIds(providerId, kind).mapNotNull { id ->
             read("entity:$providerId:$kind:$id")?.let { sourceCollection(providerId, it) }
         } }
-        return SourceLibrary(tracks = (favorites + offline).mapNotNull(::lookup), favorites = favorites,
+        return SourceLibrary(tracks = (offline.mapNotNull(::lookup) + savedTracks).distinctBy(Track::id), favorites = favorites,
             collections = listOf("album", "playlist", "artist", "folder").flatMap(::entities).distinctBy { it.identity }, home = entities("home"))
+            .also { cachedLibrary = providerIds.toSet() to it }
     }
     /** Upgrade files downloaded before the unified library had an explicit offline index. */
     @Synchronized private fun offlineIds(providerId: String): List<String> {
@@ -143,6 +222,7 @@ internal class SourceMediaStore(private val context: Context) {
     }
     @Synchronized
     fun clearPages(providerId: String, includeLibrary: Boolean = false) {
+        if (includeLibrary) cachedLibrary = null
         memory.evictAll()
         directory.listFiles()?.filter { it.extension == "json" }?.forEach { candidate ->
             runCatching { JSONObject(candidate.readText()) }.getOrNull()?.takeIf {

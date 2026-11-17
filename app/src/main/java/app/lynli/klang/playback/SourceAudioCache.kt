@@ -8,6 +8,8 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.cache.*
 import app.lynli.klang.plugins.MusicSourceProtocol
 import app.lynli.klang.plugins.SourceStreams
+import app.lynli.klang.plugins.StreamPreparation
+import app.lynli.klang.plugins.SourceMediaStore
 import kotlinx.coroutines.*
 import java.io.File
 
@@ -18,7 +20,7 @@ internal class SourceAudioCache private constructor(private val context: Context
         SimpleCache(File(context.cacheDir, "source-audio"), LeastRecentlyUsedCacheEvictor(96L * 1024 * 1024),
             StandaloneDatabaseProvider(context))
     }
-    private val active = mutableMapOf<String, Job>()
+    private val preparation = StreamPreparation(scope, { prefetch(it) }, concurrency = 1, capacity = 12)
     private val prepared = linkedSetOf<String>()
     private val recent = mutableMapOf<String, Long>()
     private val readers = mutableMapOf<String, DataSource>()
@@ -29,53 +31,59 @@ internal class SourceAudioCache private constructor(private val context: Context
         .setCacheKeyFactory { it.key ?: app.lynli.klang.plugins.sourceAudioKey("public", org.json.JSONObject().put("url", it.uri.toString())) }
         .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
-    /** Fetch at most 192 KiB per upcoming song, after current playback is ready. */
-    @Synchronized fun prepare(ids: List<String>) {
+    /** Fetch bounded audio prefixes sequentially; later neighbors stay queued while a reader runs. */
+    fun prepare(ids: List<String>) {
         val now = System.currentTimeMillis()
-        recent.entries.removeAll { now - it.value > 30_000 }
-        for (id in ids.distinct().filter { it.startsWith("klang-source:") }.take(2)) {
-            if (id in active || id in recent || active.size >= 1) continue
-            lateinit var job: Job
-            val captured = generation
-            job = scope.launch(start = CoroutineStart.LAZY) {
-                try {
-                    withTimeout(35_000) {
-                        val result = SourceStreams.get(context).resolve(id)
-                        val (url, headers) = MusicSourceProtocol.stream(result)
-                        val key = result.getString("_klangCacheKey")
-                        if (synchronized(this@SourceAudioCache) { key in prepared } && cache.isCached(key, 0, PREFIX_BYTES)) {
-                            synchronized(this@SourceAudioCache) { recent[id] = System.currentTimeMillis() }
-                            return@withTimeout
-                        }
-                        if (!cache.isCached(key, 0, PREFIX_BYTES)) {
-                            val spec = DataSpec.Builder().setUri(url).setKey(key).setHttpRequestHeaders(headers).setLength(PREFIX_BYTES).build()
-                            val reader = factory(sourceFactory(context, cacheAudio = false)).createDataSource()
-                            synchronized(this@SourceAudioCache) { readers[id] = reader }
-                            try { runInterruptible { cacheAudioPrefix({ reader.open(spec) }, reader::read, reader::close, PREFIX_BYTES) } }
-                            finally { synchronized(this@SourceAudioCache) { readers.remove(id) } }
-                        }
-                        synchronized(this@SourceAudioCache) {
-                            if (captured == generation) { prepared.add(key); recent[id] = System.currentTimeMillis() }
-                            while (prepared.size > 128) prepared.remove(prepared.first())
-                        }
-                    }
-                } catch (cancelled: CancellationException) { throw cancelled }
-                catch (_: Exception) { /* Playback may resolve/retry independently of speculative audio. */ }
-                finally { synchronized(this@SourceAudioCache) { if (active[id] === job) active.remove(id) } }
-            }
-            active[id] = job; job.start()
+        val targets = synchronized(this) {
+            recent.entries.removeAll { now - it.value > 60_000 }
+            ids.distinct().filter { it.startsWith("klang-source:") && it !in recent }.take(4)
+        }
+        preparation.pause(false)
+        preparation.offer(targets, priority = true)
+    }
+    private suspend fun prefetch(id: String) {
+        if (SourceMediaStore.get(context).offlineUri(id) != null) return
+        val captured = synchronized(this) { generation }
+        val result = SourceStreams.get(context).resolve(id)
+        val (url, headers) = MusicSourceProtocol.stream(result)
+        val key = result.getString("_klangCacheKey")
+        register(id, key)
+        if (!cache.isCached(key, 0, PREFIX_BYTES)) {
+            val spec = DataSpec.Builder().setUri(url).setKey(key).setHttpRequestHeaders(headers).setLength(PREFIX_BYTES).build()
+            val reader = factory(sourceFactory(context, cacheAudio = false)).createDataSource()
+            synchronized(this) { readers[id] = reader }
+            try { runInterruptible { cacheAudioPrefix({ reader.open(spec) }, reader::read, reader::close, PREFIX_BYTES) } }
+            finally { synchronized(this) { readers.remove(id) } }
+        }
+        synchronized(this) {
+            if (captured == generation) { prepared.add(key); recent[id] = System.currentTimeMillis() }
+            while (prepared.size > 128) prepared.remove(prepared.first())
         }
     }
-
+    fun register(id: String, key: String) {
+        val provider = java.net.URI(id).rawAuthority ?: return
+        cache.applyContentMetadataMutations(key, ContentMetadataMutations().set("klang.provider", provider).set("klang.track", id))
+    }
+    fun stats(provider: String): org.json.JSONObject {
+        val keys = cache.keys.filter { cache.getContentMetadata(it).get("klang.provider", "") == provider }
+        val populated = keys.filter { cache.getCachedSpans(it).isNotEmpty() }
+        return org.json.JSONObject().put("bytes", populated.sumOf { key -> cache.getCachedSpans(key).sumOf { it.length } })
+            .put("songs", populated.map { cache.getContentMetadata(it).get("klang.track", "") }.filter(String::isNotBlank).distinct().size)
+    }
+    fun clear(provider: String) {
+        invalidate()
+        cache.keys.filter { cache.getContentMetadata(it).get("klang.provider", "") == provider }.forEach(cache::removeResource)
+    }
     @Synchronized fun cancelPreparation() {
-        active.values.forEach { it.cancel() }
+        preparation.pause(true)
         val opened = readers.values.toList()
         scope.launch { opened.forEach { runCatching { it.close() } } }
     }
-    @Synchronized fun invalidate() { generation++; prepared.clear(); recent.clear(); cancelPreparation() }
+
+    @Synchronized fun invalidate() { generation++; prepared.clear(); recent.clear(); preparation.clear(); cancelPreparation() }
 
     companion object {
-        private const val PREFIX_BYTES = 192L * 1024
+        private const val PREFIX_BYTES = 384L * 1024
         private var instance: SourceAudioCache? = null
         @Synchronized fun get(context: Context) = instance ?: SourceAudioCache(context.applicationContext).also { instance = it }
     }

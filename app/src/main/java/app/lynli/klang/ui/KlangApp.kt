@@ -67,6 +67,8 @@ import app.lynli.klang.AppIcon
 import app.lynli.klang.MusicState
 import app.lynli.klang.MusicViewModel
 import app.lynli.klang.R
+import app.lynli.klang.data.sameSong
+import app.lynli.klang.data.byIdentity
 import app.lynli.klang.data.Track
 import app.lynli.klang.plugins.PluginType
 import kotlinx.coroutines.launch
@@ -347,6 +349,7 @@ private fun SearchScreen(state: MusicState, model: MusicViewModel, import: () ->
         searching = true
         try {
             kotlinx.coroutines.delay(250)
+            remote = model.musicSources.search(query.trim(), kinds[filter], cachedOnly = true)
             remote = model.musicSources.search(query.trim(), kinds[filter])
             model.musicSources.prepare(remote?.tracks.orEmpty())
         } finally { searching = false }
@@ -356,7 +359,7 @@ private fun SearchScreen(state: MusicState, model: MusicViewModel, import: () ->
             (query.isBlank() || "${it.title} ${it.artist} ${it.album}".contains(query.trim(), ignoreCase = true)) }
     }
     val found = remember(local, remote, filter) {
-        if (filter !in listOf(0, 1, 5)) emptyList() else (local + remote?.tracks.orEmpty()).distinctBy { it.id }
+        if (filter !in listOf(0, 1, 5)) emptyList() else model.musicSources.unify(local + remote?.tracks.orEmpty())
     }
     val collections = remember(state.tracks, state.sourceCollections, state.playlists, remote, query, filter) {
         if (query.isBlank() || filter in listOf(1, 5)) emptyList() else {
@@ -550,7 +553,7 @@ internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, pl
     var addToPlaylist by remember { mutableStateOf(false) }
     var properties by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
-    val active = state.current?.id == track.id
+    val active = track.sameSong(state.current)
     val fill by animateColorAsState(if (active) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
         spring(1f, 3800f), label = "Track selection")
     val content = if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface
@@ -577,7 +580,7 @@ internal fun TrackRow(track: Track, state: MusicState, model: MusicViewModel, pl
                 IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Options for ${track.title}") }
                 DropdownMenu(menu, { menu = false }, shape = KlangMenuShape,
                     containerColor = MaterialTheme.colorScheme.surfaceContainer) {
-                    DropdownMenuItem(text = { Text(if (track.id in state.favorites) "Remove favorite" else "Add favorite") },
+                    DropdownMenuItem(text = { Text(if (track.identities.any { it in state.favorites }) "Remove favorite" else "Add favorite") },
                         onClick = { model.favorite(track); menu = false }, leadingIcon = { Icon(Icons.Rounded.FavoriteBorder, null) })
                     DropdownMenuItem(text = { Text("Add to playlist") },
                         onClick = { menu = false; addToPlaylist = true },

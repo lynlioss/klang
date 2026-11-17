@@ -51,7 +51,7 @@ internal fun TrackPropertiesSheet(track: Track, state: MusicState, model: MusicV
         readingDetails = false
     }
     val playlistNames = remember(state.playlists, track.id) {
-        state.playlists.filter { track.id in it.trackIds }.map { it.name }
+        state.playlists.filter { playlist -> track.identities.any { it in playlist.trackIds } }.map { it.name }
     }
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
@@ -132,7 +132,7 @@ internal fun TrackPropertiesSheet(track: Track, state: MusicState, model: MusicV
                         horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
                         verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         val buttonHeight = ButtonDefaults.MediumContainerHeight
-                        TextButton(onClick = { close(deleteSong = true) }, enabled = !closing && track.providerId == null,
+                        TextButton(onClick = { close(deleteSong = true) }, enabled = !closing && (track.providerId == null || track.localUri != null),
                             modifier = Modifier.heightIn(min = buttonHeight),
                             shapes = ButtonDefaults.shapesFor(buttonHeight),
                             colors = ButtonDefaults.textButtonColors(contentColor = colors.error)) {

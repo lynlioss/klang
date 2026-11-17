@@ -34,8 +34,11 @@ data class Track(
     val artworkUrl: String? = null,
     val sourcePayload: String? = null,
     val offline: Boolean = true,
+    val localUri: Uri? = null,
+    val aliases: Set<String> = emptySet(),
 ) {
     val id: String get() = uri.toString()
+    val identities: Set<String> get() = aliases + id
     fun mediaItem(): MediaItem = MediaItem.Builder().setMediaId(id).setUri(uri)
         .setMediaMetadata(MediaMetadata.Builder().setTitle(title).setArtist(artist)
             .setAlbumTitle(album).setArtworkUri(artworkUrl?.let(Uri::parse))

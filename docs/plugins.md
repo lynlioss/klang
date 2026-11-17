@@ -92,10 +92,10 @@ Plugins return opaque IDs and bounded pages; the host retains account-scoped lib
 membership and preserves duplicate playlist occurrences. Playback starts from the
 visible page while the remaining queue loads in the background. Temporary HTTPS
 streams resolve on Media3's loader thread. Visible songs prepare with two background
-workers; the next four queue links follow shuffle/repeat order. Preparation yields
+workers; the next ten and previous two queue links follow shuffle/repeat order. Preparation yields
 while the current song buffers, and page changes retain useful in-flight requests.
 A 96 MiB evictable audio cache reuses received bytes. Upcoming songs may prefetch
-at most 192 KiB after playback is ready. Optional stream `cacheKey` identifies the
+at most 384 KiB per nearby song (up to four) after playback is ready. Optional stream `cacheKey` identifies the
 exact encoded recording so refreshed signed URLs can safely reuse those bytes;
 keys are hashed with account, playback settings and plugin version. Optional
 `args.refresh: true` requests a fresh URL after rejection. Rejected URLs refresh
@@ -103,12 +103,12 @@ once at the original byte position, and transient failures have bounded recovery
 that preserves queue, position and user pauses. Source resolution has a 60-second
 timeout. The player shows expressive loading feedback while preparing or buffering. Downloads reuse the `musicImport`
 contract and host-owned queue, duplicate checks and MediaStore publication.
-Persistent source identities prefer downloaded files for offline playback after
-restarting Klang, without showing a duplicate device row. `accounts.connected`
+Persistent source identities prefer matching device files and downloads for playback after
+restarting Klang. Library/search rows merge matching title, artist and duration, with conservative version checks. Existing local favorites and playlist references remain usable, and provider playlist occurrences retain their IDs. Saved catalog pages appear before background refresh and paginate on scroll; liked-song snapshots and artwork are reused during startup. `accounts.connected`
 controls account connection cards; `revision` scopes library membership and
 `playbackRevision` scopes temporary stream caches. Prepared URLs stay in memory.
 
-Login, credentials, APIs and recording matching belong to the plugin. Account
+The optional `stream.prepare` capability accepts up to 100 retained `items` and returns `ok` after queuing background recording links. Klang batches the queue and browsed songs into this generic API 1 extension. A UID-checked content-provider bridge passes `klang.cacheBridge` and `klang.providerId` to settings; `cache.stats`/`cache.clear` expose `audioBytes` and `audioSongs` for that provider only. Downloaded files and catalog pages are retained. Login, credentials, APIs and recording matching belong to the plugin. Account
 revisions invalidate cached library pages after switching accounts. Messages are
 checked against the installed service UID and a fresh token; invalid pagination,
 unknown capabilities and unsafe playback headers are rejected. Future community

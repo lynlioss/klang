@@ -32,6 +32,7 @@ internal fun sourceFactory(context: Context, cacheAudio: Boolean): DataSource.Fa
             override fun open(spec: DataSpec): Long {
                 if (spec.uri.scheme != "klang-source") return use(network).open(spec)
                 val identity = spec.uri.toString()
+                store.ensureDeviceLibrary()
                 store.offlineUri(identity)?.let { return use(network).open(spec.withUri(it)) }
                 try {
                     return openResolvedStream(resolve = { refresh ->
@@ -41,6 +42,7 @@ internal fun sourceFactory(context: Context, cacheAudio: Boolean): DataSource.Fa
                         spec.withUri(Uri.parse(url)).withAdditionalHeaders(headers).buildUpon()
                             .setKey(result.getString("_klangCacheKey")).build()
                     }, open = { resolved ->
+                        if (cacheAudio) SourceAudioCache.get(context).register(identity, requireNotNull(resolved.key))
                         val factory = if (cacheAudio) SourceAudioCache.get(context).factory(network) else network
                         use(factory).open(resolved)
                     }, close = { close() })

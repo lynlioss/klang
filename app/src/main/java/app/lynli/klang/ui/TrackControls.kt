@@ -46,7 +46,7 @@ internal fun motionEnabled(): Boolean {
 @Composable
 internal fun FavoriteButton(track: Track, state: MusicState, model: MusicViewModel, ink: Color,
     modifier: Modifier = Modifier) {
-    val favorite = track.id in state.favorites
+    val favorite = track.identities.any { it in state.favorites }
     val scale = remember(track.id) { Animatable(1f) }
     val rotation = remember(track.id) { Animatable(0f) }
     val scope = rememberCoroutineScope()

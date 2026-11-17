@@ -23,7 +23,7 @@ import app.lynli.klang.data.PlaylistStore
 import app.lynli.klang.data.SavedPlaylist
 import app.lynli.klang.data.PlaylistCovers
 import app.lynli.klang.data.audioFileIds
-import app.lynli.klang.data.mergeMusicEntries
+import app.lynli.klang.data.sameSong
 import app.lynli.klang.data.retainSourceSong
 import app.lynli.klang.plugins.SourceCollection
 import app.lynli.klang.plugins.SourceConnection
@@ -159,7 +159,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             musicSources.changes.collect {
                 musicSources.reloadLibrary()
                 val current = mutableState.value.current
-                if (current?.providerId != null) musicSources.storedTrack(current.id)?.let { fresh ->
+                if (current?.providerId != null) withContext(Dispatchers.IO) { musicSources.storedTrack(current.id) }?.let { fresh ->
                     mutableState.update { state -> if (state.current?.id == fresh.id) state.copy(current = fresh) else state }
                 }
             }
@@ -242,11 +242,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     runCatching { org.json.JSONObject(track.sourcePayload.orEmpty()).optString("accountRevision") }.getOrNull(),
                     track.providerId?.let(musicSources::accountRevision))
             }
-            mergeMusicEntries(deviceTracks, library.tracks + retained, Track::id, musicSources::offlineDeviceId) to
+            musicSources.unify(deviceTracks + library.tracks + retained) to
                 savedFavorites.filter { !it.startsWith("klang-source:") || retained.any { track -> track.id == it } }.toSet()
         }
         favoriteOverrides.entries.removeAll { (id, value) -> favoriteJobs[id]?.isActive != true && (id in library.favorites) == value }
-        val favorites = (retainedFavorites + library.favorites + favoriteOverrides.filterValues { it }.keys) - favoriteOverrides.filterValues { !it }.keys
+        val rawFavorites = (retainedFavorites + library.favorites + favoriteOverrides.filterValues { it }.keys) - favoriteOverrides.filterValues { !it }.keys
+        val favorites = rawFavorites + combined.filter { track -> track.identities.any { it in rawFavorites } }.flatMap { it.identities }
         mutableState.update { state -> state.copy(tracks = combined.filterNot { it.id in state.hiddenIds },
             hiddenTracks = combined.filter { it.id in state.hiddenIds }, favorites = favorites,
             sourceCollections = library.collections, sourceHome = library.home,
@@ -258,6 +259,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val all = repository.tracks()
                 deviceTracks = all
+                musicSources.updateDeviceLibrary(all)
+                // Local music is usable while the persisted source snapshot loads on an IO thread.
+                mutableState.update { state -> if (!state.loading) state else state.copy(
+                    tracks = all.filterNot { track -> track.id in state.hiddenIds },
+                    hiddenTracks = all.filter { track -> track.id in state.hiddenIds }, loading = false,
+                    permission = repository.hasLibraryPermission(), notificationPermission = hasNotificationPermission()) }
                 musicSources.reloadLibrary()
                 applySourceLibrary(musicSources.library.value)
                 mutableState.update { it.copy(loading = false, permission = repository.hasLibraryPermission(),
@@ -297,7 +304,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
     suspend fun details(track: Track): TrackDetails = repository.details(track)
     internal fun requestAudioDeletion(track: Track) {
-        if (mutableAudioDeletion.value == null) mutableAudioDeletion.value = AudioDeletionState(track)
+        val local = track.localUri?.let { uri -> deviceTracks.find { it.uri == uri } ?: track.copy(uri = uri, providerId = null, sourceId = null) }
+            ?: track
+        if (mutableAudioDeletion.value == null) mutableAudioDeletion.value = AudioDeletionState(local)
     }
     internal fun cancelAudioDeletion() { mutableAudioDeletion.value = null }
     internal fun confirmAudioDeletion() {
@@ -597,16 +606,17 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun queuePlay(index: Int) { controller?.let { it.seekToDefaultPosition(index); it.prepare(); it.play() } }
     fun queueRemove(index: Int) { controller?.removeMediaItem(index) }
-    fun favorite(track: Track) {
+    fun favorite(song: Track) {
+        val track = if (song.providerId != null) song else mutableState.value.tracks.firstOrNull { it.sameSong(song) } ?: song
         if (track.providerId != null && track.sourceId != null && musicSources.entries().any {
                 it.manifest.id == track.providerId && "library.write" in requireNotNull(it.manifest.musicSource).capabilities }) {
-            val value = track.id !in mutableState.value.favorites
+            val value = track.identities.none { it in mutableState.value.favorites }
             // Migrate favorites created before source synchronization to provider-backed likes.
-            prefs.edit().putStringSet("favorites", prefs.getStringSet("favorites", emptySet()).orEmpty() - track.id).apply()
+            prefs.edit().putStringSet("favorites", prefs.getStringSet("favorites", emptySet()).orEmpty() - track.identities).apply()
             favoriteOverrides[track.id] = value
             favoriteAccounts[track.id] = track.providerId to musicSources.accountRevision(track.providerId)
             favoriteJobs[track.id]?.cancel()
-            mutableState.update { it.copy(favorites = if (value) it.favorites + track.id else it.favorites - track.id) }
+            mutableState.update { it.copy(favorites = if (value) it.favorites + track.identities else it.favorites - track.identities) }
             favoriteJobs[track.id] = viewModelScope.launch {
                 try {
                     musicSources.call(track.providerId, if (value) "library.save" else "library.remove",
@@ -668,18 +678,32 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { PlaylistCovers.delete(getApplication(), cover) }
     }
     fun addToPlaylist(id: String, tracks: List<Track>) {
-        editPlaylist(id) { it.add(tracks.map(Track::id)) }
+        editPlaylist(id) { playlist ->
+            playlist.add(tracks.filter { track -> track.identities.none { it in playlist.trackIds } }.map(Track::id))
+        }
     }
-    fun removeFromPlaylist(id: String, trackId: String) { editPlaylist(id) { it.remove(trackId) } }
-    fun reorderPlaylist(id: String, orderedIds: List<String>) { editPlaylist(id) { it.reorder(orderedIds) } }
+    fun removeFromPlaylist(id: String, trackId: String) {
+        editPlaylist(id) { playlist ->
+            val identities = mutableState.value.tracks.find { trackId in it.identities }?.identities ?: setOf(trackId)
+            playlist.copy(trackIds = playlist.trackIds.filterNot { it in identities })
+        }
+    }
+    fun reorderPlaylist(id: String, orderedIds: List<String>) {
+        editPlaylist(id) { playlist ->
+            val aliases = mutableState.value.tracks.associate { it.id to it.identities }
+            playlist.reorder(orderedIds.map { canonical -> playlist.trackIds.firstOrNull { it in aliases[canonical].orEmpty() } ?: canonical })
+        }
+    }
     fun moveInPlaylist(id: String, trackId: String, offset: Int) {
-        val available = mutableState.value.tracks.map { it.id }.toSet()
+        val available = mutableState.value.tracks.flatMap { it.identities }.toSet()
         editPlaylist(id) { playlist ->
             val visible = playlist.trackIds.filter { it in available }
-            val index = visible.indexOf(trackId)
+            val aliases = mutableState.value.tracks.find { trackId in it.identities }?.identities ?: setOf(trackId)
+            val actual = visible.firstOrNull { it in aliases } ?: trackId
+            val index = visible.indexOf(actual)
             val target = index + offset
             if (index < 0 || target !in visible.indices) playlist
-            else playlist.move(trackId, playlist.trackIds.indexOf(visible[target]) - playlist.trackIds.indexOf(trackId))
+            else playlist.move(actual, playlist.trackIds.indexOf(visible[target]) - playlist.trackIds.indexOf(actual))
         }
     }
     private fun editPlaylist(id: String, edit: (SavedPlaylist) -> SavedPlaylist) {
@@ -724,6 +748,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private fun track(item: MediaItem): Track = mutableState.value.tracks.find { it.id == item.mediaId }
         ?: mutableState.value.hiddenTracks.find { it.id == item.mediaId }
         ?: musicSources.storedTrack(item.mediaId)
+        ?: deviceTracks.find { it.id == item.mediaId }
+        ?: mutableState.value.tracks.find { item.mediaId in it.aliases }?.let { it.copy(uri = Uri.parse(item.mediaId), aliases = it.identities) }
         ?: Track(app.lynli.klang.plugins.ExtensionRuntime.active?.audioUri(item.mediaId) ?: Uri.parse(item.mediaId), item.mediaMetadata.title?.toString() ?: "Untitled",
             item.mediaMetadata.artist?.toString() ?: "Unknown artist", item.mediaMetadata.albumTitle?.toString() ?: "Unknown album", 0)
     private fun syncPlayer() {

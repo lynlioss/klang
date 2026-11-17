@@ -172,19 +172,17 @@ class PlaybackService : MediaSessionService() {
         val buffering = player.playbackState == Player.STATE_BUFFERING && player.playWhenReady
         streams.buffering(buffering, player.currentMediaItem?.mediaId)
         if (buffering || !player.playWhenReady) { SourceAudioCache.get(this).cancelPreparation(); return }
-        if (player.playbackState != Player.STATE_READY || System.currentTimeMillis() - lastPreparation < 10_000) return
+        if (player.playbackState != Player.STATE_READY || System.currentTimeMillis() - lastPreparation < 5_000) return
         lastPreparation = System.currentTimeMillis()
         // Timeline navigation uses the actual shuffle/repeat order, never index + 1.
-        val ids = mutableListOf<String>()
         val timeline = player.currentTimeline
-        var index = player.currentMediaItemIndex
-        repeat(4) {
-            index = if (index in 0 until timeline.windowCount)
-                timeline.getNextWindowIndex(index, player.repeatMode, player.shuffleModeEnabled) else C.INDEX_UNSET
-            if (index in 0 until player.mediaItemCount) ids += player.getMediaItemAt(index).mediaId
-        }
+        val ids = queuePreparation(player.currentMediaItemIndex, player.mediaItemCount,
+            { timeline.getNextWindowIndex(it, player.repeatMode, player.shuffleModeEnabled) },
+            { timeline.getPreviousWindowIndex(it, player.repeatMode, player.shuffleModeEnabled) })
+            .map { player.getMediaItemAt(it).mediaId }
         streams.prepareIdentities(ids)
         SourceAudioCache.get(this).prepare(ids)
+        streams.prepareMatches((0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId })
     }
     private fun checkSourcePlayback() {
         val now = System.currentTimeMillis()

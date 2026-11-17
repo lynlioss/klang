@@ -109,13 +109,15 @@ internal class MusicSourceController(private val context: Context, private val s
         } while (true)
         return items
     }
-    suspend fun search(query: String, kind: String = "all", offsets: Map<String, Int>? = null): SourceSearchPage = coroutineScope {
+    suspend fun search(query: String, kind: String = "all", offsets: Map<String, Int>? = null,
+        cachedOnly: Boolean = false): SourceSearchPage = coroutineScope {
         val pages = entries().filter { "catalog.search" in requireNotNull(it.manifest.musicSource).capabilities &&
             (offsets == null || it.manifest.id in offsets) }.map { plugin -> async {
             val id = plugin.manifest.id
             try {
-                val result = call(id, "search", JSONObject().put("query", query).put("kind", kind)
-                    .put("offset", offsets?.get(id) ?: 0).put("limit", 20))
+                val args = JSONObject().put("query", query).put("kind", kind).put("offset", offsets?.get(id) ?: 0).put("limit", 20)
+                val result = if (cachedOnly) cached(id, "search", args) ?: return@async SourceSearchPage(emptyList(), emptyList(), emptyMap(), emptyList())
+                    else call(id, "search", args)
                 val items = result.getJSONArray("items").objects()
                 SourceSearchPage(items.filter { it.optString("kind") == "track" && it.optBoolean("available", true) }.map { track(id, it) },
                     items.filter { it.optString("kind") != "track" }.map { sourceCollection(id, it) },
@@ -129,6 +131,9 @@ internal class MusicSourceController(private val context: Context, private val s
             pages.flatMap { it.nextOffsets.entries }.associate { it.toPair() }, pages.flatMap { it.notices })
     }
     fun prepare(tracks: List<Track>) = SourceStreams.get(context).prepare(tracks)
+    fun unify(tracks: List<Track>): List<Track> = store.unify(tracks)
+    fun updateDeviceLibrary(tracks: List<Track>) = store.updateDeviceLibrary(tracks)
+    fun refreshLocal(track: Track): Track = store.refreshLocal(track)
     fun offlineDeviceId(track: Track): String? = if (track.providerId == null) null else store.offlineUri(track.id)?.toString()
     fun open(providerId: String, entityId: String? = null, root: String = "home") {
         mutableDestination.value = SourceDestination(providerId, entityId, root)
@@ -136,6 +141,13 @@ internal class MusicSourceController(private val context: Context, private val s
     fun dismiss() { mutableDestination.value = null }
     private fun provider(id: String) = entries().firstOrNull { it.manifest.id == id }
         ?: error("Enable this music source in Plugins.")
+    /** Read saved catalog pages without binding a service or waiting for account/network requests. */
+    suspend fun cached(id: String, operation: String, args: JSONObject): JSONObject? = withContext(Dispatchers.IO) {
+        provider(id)
+        store.cached(id, JSONObject(args.toString()).put("operation", operation))?.takeIf {
+            it.optString("accountRevision").ifBlank { store.accountRevision(id).orEmpty() } == store.accountRevision(id)
+        }
+    }
     suspend fun call(id: String, operation: String, args: JSONObject = JSONObject()): JSONObject {
         val plugin = provider(id)
         val spec = requireNotNull(plugin.manifest.musicSource)
@@ -184,6 +196,8 @@ internal class MusicSourceController(private val context: Context, private val s
             context.startActivity(android.content.Intent().setComponent(android.content.ComponentName(spec.packageName, activity))
                 .putExtra("klang.theme", context.getSharedPreferences("klang", Context.MODE_PRIVATE).getString("theme", "system"))
                 .putExtra("klang.dynamicColor", context.getSharedPreferences("klang", Context.MODE_PRIVATE).getBoolean("dynamicColor", false))
+                .putExtra("klang.cacheBridge", "content://${context.packageName}.source-cache")
+                .putExtra("klang.providerId", id)
                 .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
         } catch (e: Exception) { message(e.message ?: "Couldn't open the plugin's settings.") }
     }

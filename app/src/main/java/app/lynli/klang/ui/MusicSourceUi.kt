@@ -111,6 +111,9 @@ internal fun MusicSourceScreen(destination: SourceDestination, state: MusicState
     var history by remember { mutableStateOf<List<String?>>(emptyList()) }
     var page by remember { mutableStateOf<JSONObject?>(null) }
     var loading by remember { mutableStateOf(true) }
+    var refreshing by remember { mutableStateOf(false) }
+    var paging by remember { mutableStateOf(false) }
+    var pageGeneration by remember { mutableIntStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
     var offset by remember { mutableIntStateOf(0) }
     var refresh by remember { mutableIntStateOf(0) }
@@ -129,17 +132,26 @@ internal fun MusicSourceScreen(destination: SourceDestination, state: MusicState
         args.put("id", requireNotNull(entityId))
         return controller.call(plugin.id, "lookup", args)
     }
-    LaunchedEffect(entityId, refresh, resume, config.enabled) {
-        loading = true; error = null; page = null; tracks = emptyMap(); offset = 0
-        try {
-            page = load(0)
-            tracks = page?.optJSONArray("items")?.jsonObjects().orEmpty().filter { it.optString("kind") == "track" }
-                .associate { item -> item.getString("id") to controller.track(plugin.id, item) }
-            controller.prepare(tracks.values.toList())
-        } catch (e: CancellationException) { throw e } catch (e: Exception) { error = e.message } finally { loading = false }
+    suspend fun render(incoming: JSONObject, refreshingFirstPage: Boolean = false) {
+        val value = if (refreshingFirstPage) refreshedCatalogSnapshot(page, incoming) else incoming
+        if (refreshingFirstPage && value === incoming) { offset = 0; pageGeneration++ }
+        val loaded = value.optJSONArray("items")?.jsonObjects().orEmpty().filter { it.optString("kind") == "track" }
+            .associate { item -> item.getString("id") to controller.track(plugin.id, item) }
+        page = value; tracks = loaded
+        controller.prepare(loaded.values.toList())
     }
-    LaunchedEffect(offlineChanges) {
-        tracks = tracks.mapValues { (_, track) -> controller.storedTrack(track.id) ?: track }
+    LaunchedEffect(entityId, refresh, resume, config.enabled) {
+        loading = true; paging = false; error = null; page = null; tracks = emptyMap(); offset = 0; pageGeneration++
+        try {
+            val args = JSONObject().put("offset", 0).put("limit", 50).put("id", requireNotNull(entityId))
+            controller.cached(plugin.id, "lookup", args)?.let { render(it); loading = false }
+            refreshing = true
+            render(load(0), refreshingFirstPage = true)
+        } catch (e: CancellationException) { throw e } catch (e: Exception) { error = e.message }
+        finally { loading = false; refreshing = false }
+    }
+    LaunchedEffect(offlineChanges, state.tracks) {
+        tracks = withContext(Dispatchers.IO) { tracks.mapValues { (_, track) -> controller.refreshLocal(controller.storedTrack(track.id) ?: track) } }
     }
     fun change(operation: String, args: JSONObject) {
         if (mutation) return
@@ -175,7 +187,7 @@ internal fun MusicSourceScreen(destination: SourceDestination, state: MusicState
     val items = page?.optJSONArray("items")?.jsonObjects().orEmpty()
     val playable = items.filter { it.optString("kind") == "track" && it.optBoolean("available", true) }.mapNotNull { tracks[it.optString("id")] }
     fun playCollection(selected: Int? = null, shuffled: Boolean = false) {
-        if (loading) return
+        if (playable.isEmpty()) return
         if (entityId != null) model.playSourceCollection(plugin.id, requireNotNull(entityId), playable, selected, shuffled,
             hasMore = page?.isNull("nextOffset") == false)
         else model.play(playable, selected, shuffled)
@@ -216,7 +228,7 @@ internal fun MusicSourceScreen(destination: SourceDestination, state: MusicState
                     }
                 }
             }
-            if (loading || mutation) LinearWavyProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp))
+            if (loading || refreshing || mutation) LinearWavyProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp))
             error?.let { text ->
                 Surface(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), shape = MaterialTheme.shapes.medium,
                     color = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer) {
@@ -243,8 +255,8 @@ internal fun MusicSourceScreen(destination: SourceDestination, state: MusicState
                         val sourceId = MusicSourceProtocol.identity(plugin.id, requireNotNull(entityId))
                         ExpressivePlay(state.playWhenReady && state.isPlayingFrom(sourceId), {
                             if (state.isPlayingFrom(sourceId)) model.togglePlay() else playCollection()
-                        }, 72.dp, !loading, state.buffering && state.isPlayingFrom(sourceId))
-                        FilledTonalIconButton({ playCollection(shuffled = true) }, enabled = !loading) { Icon(Icons.Rounded.Shuffle, "Shuffle collection") }
+                        }, 72.dp, !mutation, state.buffering && state.isPlayingFrom(sourceId))
+                        FilledTonalIconButton({ playCollection(shuffled = true) }, enabled = !mutation) { Icon(Icons.Rounded.Shuffle, "Shuffle collection") }
                         if ("offline.download" in spec.capabilities) IconButton({ scope.launch {
                             try {
                                 loading = true
@@ -267,19 +279,35 @@ internal fun MusicSourceScreen(destination: SourceDestination, state: MusicState
                 }
                 if (!loading && items.isEmpty() && error == null) item { EmptyState("No songs yet", "Add songs or refresh this collection.") }
                 if (page != null && !page!!.isNull("nextOffset")) item {
-                    TextButton({ if (!loading) scope.launch {
-                        loading = true
+                    val next = page!!.getInt("nextOffset")
+                    suspend fun more() {
+                        if (loading || paging || next <= offset) return
+                        paging = true
+                        val generation = pageGeneration
                         try {
-                            val next = page!!.getInt("nextOffset")
-                            require(next > offset) { "The source returned invalid pagination." }
-                            val more = load(next)
-                            val incoming = more.getJSONArray("items").jsonObjects()
-                            page = more.put("items", JSONArray(items + incoming))
+                            val args = JSONObject().put("offset", next).put("limit", 50).put("id", requireNotNull(entityId))
+                            // Each persisted page appears immediately when scrolling into it.
+                            val cached = controller.cached(plugin.id, "lookup", args)
+                            val value = cached ?: load(next)
+                            if (generation != pageGeneration) return
+                            val incoming = value.getJSONArray("items").jsonObjects()
+                            val all = items + incoming
                             tracks = tracks + incoming.filter { it.optString("kind") == "track" }
                                 .associate { it.getString("id") to controller.track(plugin.id, it) }
+                            page = JSONObject(value.toString()).put("items", JSONArray(all))
                             offset = next
-                        } catch (e: CancellationException) { throw e } catch (e: Exception) { error = e.message } finally { loading = false }
-                    } }, enabled = !loading) { Text("Load more") }
+                            controller.prepare(incoming.mapNotNull { tracks[it.optString("id")] })
+                            if (cached != null) scope.launch {
+                                try { controller.call(plugin.id, "lookup", args) }
+                                catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { }
+                            }
+                        } catch (cancelled: CancellationException) { throw cancelled }
+                        catch (failure: Exception) { error = failure.message }
+                        finally { paging = false }
+                    }
+                    LaunchedEffect(next, pageGeneration) { if (error == null) more() }
+                    if (paging) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { LoadingIndicator() }
+                    else TextButton({ scope.launch { error = null; more() } }) { Text("Load more") }
                 }
             }
         }

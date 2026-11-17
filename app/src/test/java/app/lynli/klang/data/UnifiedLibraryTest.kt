@@ -31,4 +31,10 @@ class UnifiedLibraryTest {
         assertFalse(retainSourceSong(false, true, null, "account-a"))
         assertTrue(retainSourceSong(true, false, "account-a", "account-b"))
     }
+    @Test fun multipleCatalogEntriesLinkedToOneFileProduceOneSong() {
+        val local = Entry("content://media/external/audio/media/23")
+        val first = Entry("klang-source://spotify/song", local.id)
+        val duplicate = Entry("klang-source://spotify/album-copy", local.id)
+        assertEquals(listOf(first), merge(listOf(local), listOf(first, duplicate)))
+    }
 }
