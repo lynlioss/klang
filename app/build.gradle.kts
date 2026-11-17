@@ -54,8 +54,8 @@ android {
         targetSdk = 36
         // Single source of truth for the release: scripts/bump-version.py edits
         // these two lines, and the UI reads them through BuildConfig.
-        versionCode = 45
-        versionName = "1.0.22"
+        versionCode = 46
+        versionName = "1.0.23"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "POSTHOG_PROJECT_TOKEN", (posthogProjectToken ?: "").buildConfigLiteral())
         buildConfigField("String", "POSTHOG_HOST", posthogHost.buildConfigLiteral())
