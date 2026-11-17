@@ -236,7 +236,7 @@ private fun SourceProperties(track: Track, status: SourceTrackStatus?, cachedByt
             if (reading) "Reading playback details…" else statusText(status)),
         SourcePropertyRow(Icons.Rounded.OpenInNew, "${track.sourceLabel} link",
             if (sourceUrl != null) "Open" else "Unavailable"),
-        SourcePropertyRow(Icons.Rounded.SmartDisplay, "YouTube Music link",
+        SourcePropertyRow(Icons.Rounded.Headphones, "YouTube Music link",
             if (recordingUrl != null) "Open" else linkValue(status, reading),
             if (recordingUrl != null) recordingLabel else null),
     )
