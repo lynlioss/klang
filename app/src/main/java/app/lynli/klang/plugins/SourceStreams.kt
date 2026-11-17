@@ -61,7 +61,9 @@ internal class SourceStreams private constructor(private val context: Context) {
         prepareMatches(online)
     }
     fun prepareIdentities(ids: List<String>) {
-        preparation.offer(ids.filter { it.startsWith("klang-source:") && store.offlineUri(it) == null }.distinct().take(12), priority = true)
+        scope.launch {
+            preparation.offer(ids.filter { it.startsWith("klang-source:") && store.offlineUri(it) == null }.distinct().take(12), priority = true)
+        }
     }
     fun prepareMatches(ids: List<String>) {
         val providers = synchronized(this) {

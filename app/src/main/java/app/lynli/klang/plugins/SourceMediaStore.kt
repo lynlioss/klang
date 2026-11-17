@@ -66,12 +66,16 @@ internal class SourceMediaStore(private val context: Context) {
     val changes = mutableChanges.asStateFlow()
     private fun file(key: String) = AtomicFile(File(directory,
         MessageDigest.getInstance("SHA-256").digest(key.toByteArray()).joinToString("") { "%02x".format(it) } + ".json"))
-    @Synchronized private fun read(key: String): JSONObject? {
+    private fun read(key: String): JSONObject? {
+        // LruCache is thread-safe. Cached UI/playback reads must not wait for a large disk sync.
         memory.get(key)?.let { return JSONObject(it.toString()) }
-        return runCatching { file(key).openRead().use {
-            val bytes = it.readNBytes(256_001); require(bytes.size <= 256_000)
-            JSONObject(bytes.toString(Charsets.UTF_8))
-        } }.getOrNull()?.also { memory.put(key, JSONObject(it.toString())) }
+        return synchronized(this) {
+            memory.get(key)?.let { return@synchronized JSONObject(it.toString()) }
+            runCatching { file(key).openRead().use {
+                val bytes = it.readNBytes(256_001); require(bytes.size <= 256_000)
+                JSONObject(bytes.toString(Charsets.UTF_8))
+            } }.getOrNull()?.also { memory.put(key, JSONObject(it.toString())) }
+        }
     }
     @Synchronized private fun write(key: String, json: JSONObject) {
         val bytes = json.toString().toByteArray(Charsets.UTF_8)

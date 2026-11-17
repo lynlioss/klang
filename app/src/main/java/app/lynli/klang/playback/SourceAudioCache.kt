@@ -18,7 +18,11 @@ internal class SourceAudioCache private constructor(private val context: Context
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val cache by lazy {
         SimpleCache(File(context.cacheDir, "source-audio"), LeastRecentlyUsedCacheEvictor(96L * 1024 * 1024),
-            StandaloneDatabaseProvider(context))
+            StandaloneDatabaseProvider(context)).also { stored ->
+            // Upgrade old caches that had no ownership metadata, so stats/cleanup cover all bytes.
+            stored.keys.filter { stored.getContentMetadata(it).get("klang.provider", "").isNullOrBlank() }
+                .forEach(stored::removeResource)
+        }
     }
     private val preparation = StreamPreparation(scope, { prefetch(it) }, concurrency = 1, capacity = 12)
     private val prepared = linkedSetOf<String>()
