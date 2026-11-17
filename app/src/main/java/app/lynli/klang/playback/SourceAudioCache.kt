@@ -68,7 +68,7 @@ internal class SourceAudioCache private constructor(private val context: Context
         val keys = cache.keys.filter { cache.getContentMetadata(it).get("klang.provider", "") == provider }
         val populated = keys.filter { cache.getCachedSpans(it).isNotEmpty() }
         return org.json.JSONObject().put("bytes", populated.sumOf { key -> cache.getCachedSpans(key).sumOf { it.length } })
-            .put("songs", populated.map { cache.getContentMetadata(it).get("klang.track", "") }.filter(String::isNotBlank).distinct().size)
+            .put("songs", populated.mapNotNull { cache.getContentMetadata(it).get("klang.track", "") }.filter(String::isNotBlank).distinct().size)
     }
     fun clear(provider: String) {
         invalidate()
