@@ -13,7 +13,7 @@ internal class SourceStreams private constructor(private val context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val store = SourceMediaStore.get(context)
     private val requests = StreamRequests<JSONObject>(scope)
-    private val preparation = StreamPreparation(scope, { resolve(it) })
+    private val preparation = StreamPreparation(scope, { resolve(it) }, concurrency = 4, capacity = 48)
     private val pendingMatches = mutableMapOf<String, LinkedHashSet<String>>()
     private val matched = linkedSetOf<String>()
     private val matchPreparation = StreamPreparation(scope, { sendMatches(it) }, concurrency = 1, capacity = 30)
@@ -54,10 +54,10 @@ internal class SourceStreams private constructor(private val context: Context) {
         }
         return JSONObject(result.toString())
     }
-    /** Prepare links for likely visible tracks, with two workers and a bounded backlog. */
+    /** Four workers prepare likely visible tracks and queue neighbors with a bounded backlog. */
     fun prepare(tracks: List<Track>, priority: Boolean = false) {
         val online = tracks.filter { it.providerId != null && !it.offline }.map(Track::id).distinct()
-        preparation.offer(online.take(12), priority)
+        preparation.offer(online.take(24), priority)
         prepareMatches(online)
     }
     fun prepareIdentities(ids: List<String>) {

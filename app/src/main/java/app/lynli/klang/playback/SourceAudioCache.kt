@@ -17,14 +17,14 @@ import java.io.File
 internal class SourceAudioCache private constructor(private val context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val cache by lazy {
-        SimpleCache(File(context.cacheDir, "source-audio"), LeastRecentlyUsedCacheEvictor(96L * 1024 * 1024),
+        SimpleCache(File(context.cacheDir, "source-audio"), LeastRecentlyUsedCacheEvictor(192L * 1024 * 1024),
             StandaloneDatabaseProvider(context)).also { stored ->
             // Upgrade old caches that had no ownership metadata, so stats/cleanup cover all bytes.
             stored.keys.filter { stored.getContentMetadata(it).get("klang.provider", "").isNullOrBlank() }
                 .forEach(stored::removeResource)
         }
     }
-    private val preparation = StreamPreparation(scope, { prefetch(it) }, concurrency = 1, capacity = 12)
+    private val preparation = StreamPreparation(scope, { prefetch(it) }, concurrency = 4, capacity = 32)
     private val prepared = linkedSetOf<String>()
     private val recent = mutableMapOf<String, Long>()
     private val readers = mutableMapOf<String, DataSource>()
@@ -35,12 +35,12 @@ internal class SourceAudioCache private constructor(private val context: Context
         .setCacheKeyFactory { it.key ?: app.lynli.klang.plugins.sourceAudioKey("public", org.json.JSONObject().put("url", it.uri.toString())) }
         .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
-    /** Fetch bounded audio prefixes sequentially; later neighbors stay queued while a reader runs. */
+    /** Four bounded readers prepare nearby songs concurrently, pausing when playback buffers. */
     fun prepare(ids: List<String>) {
         val now = System.currentTimeMillis()
         val targets = synchronized(this) {
             recent.entries.removeAll { now - it.value > 60_000 }
-            ids.distinct().filter { it.startsWith("klang-source:") && it !in recent }.take(4)
+            ids.distinct().filter { it.startsWith("klang-source:") && it !in recent }.take(12)
         }
         preparation.pause(false)
         preparation.offer(targets, priority = true)
@@ -87,7 +87,7 @@ internal class SourceAudioCache private constructor(private val context: Context
     @Synchronized fun invalidate() { generation++; prepared.clear(); recent.clear(); preparation.clear(); cancelPreparation() }
 
     companion object {
-        private const val PREFIX_BYTES = 384L * 1024
+        private const val PREFIX_BYTES = 768L * 1024
         private var instance: SourceAudioCache? = null
         @Synchronized fun get(context: Context) = instance ?: SourceAudioCache(context.applicationContext).also { instance = it }
     }

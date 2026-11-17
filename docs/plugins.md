@@ -91,11 +91,11 @@ as device files. Album, artist and playlist entities use native collection cards
 Plugins return opaque IDs and bounded pages; the host retains account-scoped library
 membership and preserves duplicate playlist occurrences. Playback starts from the
 visible page while the remaining queue loads in the background. Temporary HTTPS
-streams resolve on Media3's loader thread. Visible songs prepare with two background
+streams resolve on Media3's loader thread. Visible songs prepare with four background
 workers; the next ten and previous two queue links follow shuffle/repeat order. Preparation yields
 while the current song buffers, and page changes retain useful in-flight requests.
-A 96 MiB evictable audio cache reuses received bytes. Upcoming songs may prefetch
-at most 384 KiB per nearby song (up to four) after playback is ready. Optional stream `cacheKey` identifies the
+A 192 MiB evictable audio cache reuses received bytes. Four readers concurrently prefetch
+at most 768 KiB per nearby song (up to twelve) after playback is ready. Optional stream `cacheKey` identifies the
 exact encoded recording so refreshed signed URLs can safely reuse those bytes;
 keys are hashed with account, playback settings and plugin version. Optional
 `args.refresh: true` requests a fresh URL after rejection. Rejected URLs refresh
